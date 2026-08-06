@@ -1,0 +1,145 @@
+---
+# Открытые переменные окружения. Секреты — в vault.yml (см. vault.example.yml).
+#
+# Схема хоста рассчитана на несколько приложений на одной машине:
+#
+#   /srv/edge        общий reverse proxy, НЕ зависит от шифрованного тома
+#   /srv/encrypted   один LUKS-том на все приложения, подкаталог на каждое
+#   /srv/<app>       compose-проект приложения
+#
+# Добавление приложения = новая роль + фрагмент Caddy, без правок существующих.
+
+# --- Хост -------------------------------------------------------------------
+notenotes_admin_user: metallcorn
+notenotes_hostname: notenotes
+# Etc/UTC выбран сознательно: логи и systemd-таймеры бэкапов не зависят
+# от переходов на летнее время.
+notenotes_timezone: Etc/UTC
+notenotes_ssh_public_key_file: "~/.ssh/notenotes_vps.pub"
+
+# --- Шифрованный том (общий) ------------------------------------------------
+encrypted_mount: /srv/encrypted
+
+luks_enabled: true
+# file   — LUKS2-контейнер файлом поверх текущего диска (текущий вариант)
+# device — отдельное блочное устройство, если появится доп. том у провайдера
+luks_backing: file
+luks_container_path: /var/lib/srv-crypt/data.img
+luks_container_size_gb: 40
+luks_device: ""            # заполняется только при luks_backing: device
+luks_mapper_name: srv_encrypted
+# Сколько ГБ должно остаться свободными на root ПОСЛЕ создания контейнера.
+luks_min_free_gb_after: 15
+
+# --- Своп -------------------------------------------------------------------
+# Единственный своп в системе — swapfile ВНУТРИ шифрованного тома, поэтому
+# расшифрованные страницы Postgres не попадают на открытый диск. Нужен под пики
+# памяти при сборке HNSW-индекса. Доступен только после разблокировки тома —
+# до неё нагрузки всё равно нет (см. комментарий про zram в roles/baseline).
+luks_swapfile_enabled: true
+luks_swapfile_size_mb: 2048
+
+# --- Edge proxy (общий для всех приложений) ---------------------------------
+edge_root: /srv/edge
+# Каталог с конфигурацией Caddy монтируется в контейнер ЦЕЛИКОМ, а не
+# отдельными файлами. Причина: Ansible пишет шаблоны атомарно (temp + rename),
+# из-за чего у файла меняется inode, а bind-mount отдельного файла привязан
+# именно к inode — контейнер навсегда остаётся со старой версией, и reload
+# применяет устаревший конфиг, не сообщая об ошибке.
+edge_caddy_dir: "{{ edge_root }}/caddy"
+edge_conf_dir: "{{ edge_caddy_dir }}/conf.d"
+edge_network: edge
+caddy_image: "caddy:2-alpine"
+caddy_mem_limit: 128m
+
+# TLS-режим общий для всех сайтов на этом хосте:
+#   none — HTTP по IP, пока A-записи не переведены на этот сервер
+#   acme — автоматический Let's Encrypt по HTTP-01
+notenotes_tls_mode: acme
+notenotes_acme_email: metallcorn@gmail.com
+
+# --- Docker -----------------------------------------------------------------
+docker_log_max_size: 10m
+docker_log_max_file: 3
+# IPv6 пока выключен. Включать вместе с созданием AAAA-записей, не раньше:
+# AAAA без IPv6 в Docker означает, что клиенты в v6-сетях не смогут
+# подключиться, а в логах сервера это не видно.
+docker_ipv6_enabled: false
+docker_ipv6_subnet: "fd00:d0ck:e100::/64"
+
+# --- Приложение: notenotes --------------------------------------------------
+notenotes_domain: notenotes.metallcorn.online
+notenotes_root: /srv/notenotes
+notenotes_compose_dir: "{{ notenotes_root }}/compose"
+# Данные — в подкаталоге общего шифрованного тома.
+notenotes_data_dir: "{{ encrypted_mount }}/notenotes"
+notenotes_secrets_dir: "{{ notenotes_data_dir }}/secrets"
+notenotes_internal_network: notenotes_internal
+# Переключить в true, когда в docker-compose.yml раскомментирован сервис
+# backend: тогда фрагмент Caddy начнёт проксировать на него вместо заглушки.
+notenotes_backend_deployed: false
+
+# --- PostgreSQL + pgvector (только для notenotes) ---------------------------
+# Версия пинуется явно: апгрейд мажора Postgres должен быть осознанным шагом,
+# и в pgvector была CVE-2026-3172.
+postgres_image: "pgvector/pgvector:0.8.6-pg18"
+postgres_db: notenotes
+postgres_user: notenotes
+postgres_port: 5432
+postgres_mem_limit: 2g
+# Тюнинг под 2 vCore / 4 GB RAM
+postgres_shared_buffers: 1GB
+postgres_effective_cache_size: 2GB
+postgres_work_mem: 16MB
+# От maintenance_work_mem напрямую зависит время сборки HNSW-индекса (ТЗ §3.2).
+postgres_maintenance_work_mem: 256MB
+postgres_max_connections: 50
+postgres_random_page_cost: "1.1"
+postgres_effective_io_concurrency: 200
+postgres_max_parallel_workers: 2
+postgres_max_parallel_maintenance_workers: 1
+# vector — векторный поиск (ТЗ §3.2), pg_trgm — нечёткий поиск по подстроке
+# для «быстрых результатов» (ТЗ §10), unaccent — поиск без диакритики.
+notenotes_required_extensions:
+  - vector
+  - pg_trgm
+  - unaccent
+
+# --- Redis ------------------------------------------------------------------
+redis_image: "redis:7-alpine"
+redis_port: 6379
+redis_maxmemory: 256mb
+redis_mem_limit: 384m
+
+# --- Бэкапы -----------------------------------------------------------------
+# s4    — MEGA S4 (S3-совместимый), включён в планы MEGA Pro
+# local — репозиторий на самом VPS (не защищает от отказа сервера)
+restic_backend: s4
+# Префикс s3. обязателен. По спецификации S4 endpoint имеет вид
+# s3.<endpoint_domain>; без него запрос не доходит до S3-обработчика и MEGA
+# отвечает своим «Route not found», который S3-клиенты показывают как
+# «The specified bucket does not exist» — сообщение, уводящее в сторону.
+# Список доменов по зонам: help.mega.io/megas4/setup-guides/mega-s4-endpoint-urls
+restic_s4_endpoint: s3.eu-central-1.s4.mega.io
+restic_s4_region: eu-central-1
+restic_s4_bucket: notenotes
+restic_local_repo: "{{ encrypted_mount }}/restic-repo"
+restic_staging_dir: "{{ notenotes_data_dir }}/backup-staging"
+restic_cache_dir: "{{ notenotes_data_dir }}/restic-cache"
+backup_on_calendar: "*-*-* 03:30:00"
+restic_check_on_calendar: "Sun *-*-* 05:00:00"
+restic_keep_daily: 7
+restic_keep_weekly: 4
+restic_keep_monthly: 6
+
+# --- Уведомления об отказах -------------------------------------------------
+# Пока бота нет — отказы только в journal. Включается позже.
+notify_telegram_enabled: false
+
+# --- Маппинг секретов из vault ---------------------------------------------
+postgres_password: "{{ vault_postgres_password }}"
+redis_password: "{{ vault_redis_password }}"
+luks_passphrase: "{{ vault_luks_passphrase }}"
+restic_password: "{{ vault_restic_password }}"
+restic_s4_access_key: "{{ vault_restic_s4_access_key | default('') }}"
+restic_s4_secret_key: "{{ vault_restic_s4_secret_key | default('') }}"

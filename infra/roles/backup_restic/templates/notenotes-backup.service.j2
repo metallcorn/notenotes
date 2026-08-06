@@ -1,0 +1,19 @@
+# {{ ansible_managed }}
+[Unit]
+Description=Notenotes encrypted offsite backup
+After=notenotes.service network-online.target
+Wants=network-online.target
+{% if luks_enabled %}
+# Секреты restic и данные лежат внутри тома — без него бэкапить нечего.
+RequiresMountsFor={{ encrypted_mount }}
+{% endif %}
+OnFailure=notenotes-alert@%n.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/notenotes-backup
+# Бэкап не должен конкурировать с приложением за диск и CPU.
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+TimeoutStartSec=4h

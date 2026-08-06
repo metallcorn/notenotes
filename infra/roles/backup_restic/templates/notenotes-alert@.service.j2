@@ -1,0 +1,16 @@
+# {{ ansible_managed }}
+#
+# Вызывается через OnFailure= из юнитов бэкапа. Пока Telegram-бота нет,
+# отказ фиксируется в journal с явным маркером, по которому его легко найти:
+#
+#   journalctl -t notenotes-alert --since -7d
+#
+# Молчаливо падающий бэкап — худший из возможных вариантов, поэтому запись
+# делается всегда, независимо от настроенных каналов уведомлений.
+
+[Unit]
+Description=Report failure of %i
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/notenotes-alert %i

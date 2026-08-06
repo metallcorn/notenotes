@@ -1,0 +1,18 @@
+# {{ ansible_managed }}
+#
+# Собирательная цель для всех приложений, которым нужен шифрованный том.
+#
+# Приложения не перечисляются здесь: каждый сервис объявляет
+# WantedBy=encrypted-apps.target в своей секции [Install] и включается через
+# systemctl enable. Добавление нового приложения не требует правок этого файла.
+#
+# Секции [Install] у самой цели НЕТ намеренно: цель не должна попадать
+# в multi-user.target, иначе systemd попытался бы поднять приложения при
+# загрузке — до разблокировки тома. Цель запускается только вручную,
+# из encrypted-unlock.
+
+[Unit]
+Description=Applications that require the encrypted data volume
+{% if luks_enabled %}
+RequiresMountsFor={{ encrypted_mount }}
+{% endif %}

@@ -1,0 +1,57 @@
+#!/bin/bash
+# {{ ansible_managed }}
+#
+# Закрывает классическую дыру: Docker вставляет свои правила в цепочки
+# FORWARD и nat, полностью МИНУЯ цепочку INPUT, которой управляет UFW.
+# Из-за этого порт, опубликованный контейнером как 0.0.0.0:5432, остаётся
+# доступен из интернета, хотя `ufw status` показывает его закрытым.
+#
+# Первая линия защиты — публикация портов только на 127.0.0.1 (см. роль stack).
+# Этот скрипт — вторая: default-deny в DOCKER-USER. Docker намеренно не чистит
+# эту цепочку, но правила теряются при перезагрузке, поэтому их переставляет
+# systemd-юнит docker-user-firewall.service после старта docker.
+#
+# ВАЖНО про порты: DNAT происходит в nat/PREROUTING, то есть ДО FORWARD.
+# Значит здесь --dport — это порт КОНТЕЙНЕРА, а не хоста. Для Caddy маппинг
+# 80:80 и 443:443, поэтому номера совпадают. Если появится сервис с разными
+# портами хоста и контейнера, в правиле ниже нужен порт контейнера.
+
+set -euo pipefail
+
+EXT_IF="{{ ansible_default_ipv4.interface }}"
+
+apply_rules() {
+    local ipt="$1"
+
+    # Цепочки может ещё не быть, если Docker только поднимается.
+    if ! "$ipt" -L DOCKER-USER -n >/dev/null 2>&1; then
+        echo "$ipt: цепочка DOCKER-USER отсутствует, пропускаю" >&2
+        return 0
+    fi
+
+    "$ipt" -F DOCKER-USER
+
+    # Ответный трафик для соединений, инициированных контейнерами.
+    "$ipt" -A DOCKER-USER -m conntrack --ctstate RELATED,ESTABLISHED -j RETURN
+
+    # Локальный и внутриконтейнерный трафик не трогаем.
+    "$ipt" -A DOCKER-USER -i lo -j RETURN
+    "$ipt" -A DOCKER-USER ! -i "$EXT_IF" -j RETURN
+
+    # Единственное, что пускаем снаружи к контейнерам, — HTTP/HTTPS для Caddy.
+{% for port in docker_ingress_allowed_ports %}
+    "$ipt" -A DOCKER-USER -i "$EXT_IF" -p tcp --dport {{ port }} -j RETURN
+{% endfor %}
+
+    # Всё остальное из интернета к контейнерам — молча в мусор.
+    "$ipt" -A DOCKER-USER -i "$EXT_IF" -j DROP
+
+    echo "$ipt: правила DOCKER-USER применены"
+}
+
+apply_rules iptables
+
+# IPv6: цепочка есть только если у Docker включён IPv6. Если нет — не ошибка.
+if command -v ip6tables >/dev/null 2>&1; then
+    apply_rules ip6tables || true
+fi

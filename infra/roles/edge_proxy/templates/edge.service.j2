@@ -1,0 +1,26 @@
+# {{ ansible_managed }}
+#
+# В отличие от юнитов приложений, здесь НЕТ RequiresMountsFor: прокси должен
+# работать независимо от того, разблокирован ли шифрованный том. Поэтому юнит
+# включён в multi-user.target и поднимается при загрузке сам.
+#
+# Практическое следствие: если приложение лежит, Caddy жив и отдаёт 502 только
+# по его имени. Остальные сайты продолжают работать.
+
+[Unit]
+Description=Shared edge reverse proxy (Caddy)
+After=docker.service network-online.target
+Requires=docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory={{ edge_root }}
+ExecStart=/usr/bin/docker compose up -d --remove-orphans --wait
+ExecReload=/usr/bin/docker compose exec -T caddy caddy reload --config /etc/caddy/Caddyfile
+ExecStop=/usr/bin/docker compose down
+TimeoutStartSec=300
+
+[Install]
+WantedBy=multi-user.target

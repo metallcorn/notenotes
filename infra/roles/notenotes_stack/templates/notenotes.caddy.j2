@@ -1,0 +1,46 @@
+# {{ ansible_managed }}
+#
+# Фрагмент сайта notenotes для общего edge-прокси. Подключается через
+# `import conf.d/*.caddy` в {{ edge_caddy_dir }}/Caddyfile.
+#
+# Файл принадлежит роли notenotes_stack — у каждого приложения свой фрагмент,
+# и добавление нового приложения не требует правок чужих конфигов.
+#
+# WebSocket (ТЗ §12) отдельного блока НЕ требует: reverse_proxy в Caddy 2
+# проксирует Upgrade-запросы прозрачно. Секция для /ws была бы лишним
+# конфигом, который со временем разойдётся с реальностью.
+
+{% if notenotes_tls_mode == 'acme' %}
+{{ notenotes_domain }} {
+{% else %}
+# Схема указана явно: при auto_https off сайт с одним лишь именем всё равно
+# пытался бы слушать 443 без сертификата.
+http://{{ notenotes_domain }} {
+{% endif %}
+	encode zstd gzip
+
+	header {
+{% if notenotes_tls_mode == 'acme' %}
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+{% endif %}
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "SAMEORIGIN"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		# Публичные ссылки не должны индексироваться поисковиками (ТЗ §11).
+		X-Robots-Tag "noindex, nofollow"
+		-Server
+	}
+
+{% if notenotes_backend_deployed %}
+	# notenotes-backend — alias в сети edge, а не имя сервиса compose:
+	# сеть общая для всех приложений, и имена вида `backend` в ней столкнулись бы.
+	reverse_proxy notenotes-backend:8000
+{% else %}
+	respond "Notenotes: инфраструктура готова, backend ещё не задеплоен." 200
+{% endif %}
+
+	log {
+		output stderr
+		format console
+	}
+}

@@ -1,0 +1,39 @@
+# {{ ansible_managed }}
+#
+# Единственный владелец жизненного цикла стека notenotes. Docker restart policy
+# намеренно ослаблена до on-failure, чтобы контейнеры не поднимались при
+# загрузке хоста раньше разблокировки шифрованного тома.
+
+[Unit]
+Description=Notenotes application stack (PostgreSQL, Redis)
+After=docker.service network-online.target
+Requires=docker.service
+Wants=network-online.target
+{% if luks_enabled %}
+# Ключевая строка. Юнит не запустится, если {{ encrypted_mount }} не
+# смонтирован, — именно это не даёт Postgres создать пустой кластер поверх
+# точки монтирования.
+RequiresMountsFor={{ encrypted_mount }}
+{% endif %}
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory={{ notenotes_compose_dir }}
+# Вторая проверка, независимая от systemd: смонтирован ли том, лежит ли на нём
+# маркер и есть ли каталог именно этого приложения.
+ExecStartPre=/usr/local/sbin/encrypted-preflight notenotes
+ExecStart=/usr/bin/docker compose up -d --remove-orphans --wait
+ExecStop=/usr/bin/docker compose down
+TimeoutStartSec=600
+
+[Install]
+{% if luks_enabled %}
+# НЕ multi-user.target: приложение поднимается только после разблокировки тома,
+# командой `systemctl start encrypted-apps.target` из encrypted-unlock.
+# Сама цель в multi-user.target не входит, поэтому enable здесь безопасен
+# и не приводит к запуску при загрузке.
+WantedBy=encrypted-apps.target
+{% else %}
+WantedBy=multi-user.target
+{% endif %}

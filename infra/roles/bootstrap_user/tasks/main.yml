@@ -1,0 +1,111 @@
+---
+# Переработанный initial_hardening.yml: только создание администратора.
+# SSH-хардненинг вынесен в роль ssh_hardening, которая уже умеет делать это
+# безопасно (валидация конфига + reload + проверка доступа), поэтому держать
+# его закомментированным больше не нужно.
+
+- name: Assert we are running as root
+  ansible.builtin.assert:
+    that:
+      - ansible_user_id == 'root'
+    fail_msg: >-
+      00-bootstrap.yml должен выполняться под root (make bootstrap).
+      Текущий пользователь: {{ ansible_user_id }}.
+
+- name: Read local SSH public key
+  ansible.builtin.set_fact:
+    notenotes_ssh_public_key: "{{ lookup('ansible.builtin.file', notenotes_ssh_public_key_file | expanduser) }}"
+
+- name: Assert public key looks like an SSH key
+  ansible.builtin.assert:
+    that:
+      - notenotes_ssh_public_key is search('^(ssh-ed25519|ssh-rsa|ecdsa-sha2)')
+      - not (notenotes_ssh_public_key is search('ЗАМЕНИ'))
+    fail_msg: >-
+      {{ notenotes_ssh_public_key_file }} не похож на публичный SSH-ключ.
+      Сгенерируй его: ssh-keygen -t ed25519 -f ~/.ssh/notenotes_vps -C notenotes-vps
+
+- name: Ensure sudo group exists
+  ansible.builtin.group:
+    name: sudo
+    state: present
+
+- name: Create admin user
+  ansible.builtin.user:
+    name: "{{ notenotes_admin_user }}"
+    groups: sudo
+    append: true
+    shell: /bin/bash
+    state: present
+    create_home: true
+
+- name: Create .ssh directory
+  ansible.builtin.file:
+    path: "/home/{{ notenotes_admin_user }}/.ssh"
+    state: directory
+    owner: "{{ notenotes_admin_user }}"
+    group: "{{ notenotes_admin_user }}"
+    mode: "0700"
+
+- name: Install authorized key
+  ansible.posix.authorized_key:
+    user: "{{ notenotes_admin_user }}"
+    key: "{{ notenotes_ssh_public_key }}"
+    state: present
+    exclusive: false
+
+- name: Allow passwordless sudo for the admin user
+  ansible.builtin.copy:
+    dest: "/etc/sudoers.d/{{ notenotes_admin_user }}"
+    content: "{{ notenotes_admin_user }} ALL=(ALL) NOPASSWD:ALL\n"
+    owner: root
+    group: root
+    mode: "0440"
+    validate: "visudo -cf %s"
+
+- name: Set hostname
+  ansible.builtin.hostname:
+    name: "{{ notenotes_hostname }}"
+
+- name: Keep hostname across reboots and stop cloud-init managing it
+  ansible.builtin.copy:
+    dest: /etc/cloud/cloud.cfg.d/99-notenotes-hostname.cfg
+    content: |
+      # Управляется Ansible (roles/bootstrap_user).
+      preserve_hostname: true
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Ensure hostname resolves locally
+  ansible.builtin.lineinfile:
+    path: /etc/hosts
+    regexp: '^127\.0\.1\.1\s'
+    line: "127.0.1.1 {{ notenotes_hostname }}"
+    state: present
+
+- name: Verify the admin user can log in by key before hardening runs
+  ansible.builtin.command:
+    argv:
+      - ssh
+      - -o
+      - BatchMode=yes
+      - -o
+      - StrictHostKeyChecking=no
+      - -o
+      - ConnectTimeout=10
+      - -i
+      - "{{ notenotes_ssh_public_key_file | expanduser | regex_replace('\\.pub$', '') }}"
+      - "{{ notenotes_admin_user }}@{{ inventory_hostname }}"
+      - "sudo -n true && echo BOOTSTRAP_OK"
+  delegate_to: localhost
+  become: false
+  register: bootstrap_login_check
+  changed_when: false
+  failed_when: "'BOOTSTRAP_OK' not in bootstrap_login_check.stdout"
+
+- name: Report bootstrap result
+  ansible.builtin.debug:
+    msg: >-
+      Вход {{ notenotes_admin_user }}@{{ inventory_hostname }} по ключу и sudo
+      работают. Можно запускать make harden — он отключит root и пароли.

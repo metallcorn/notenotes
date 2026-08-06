@@ -1,0 +1,63 @@
+#!/bin/bash
+# {{ ansible_managed }}
+#
+# Открывает общий шифрованный том и поднимает ВСЕ приложения, которые от него
+# зависят. Выполняется вручную после каждой перезагрузки:
+#
+#   ssh notenotes 'sudo encrypted-unlock'      (или: make unlock)
+#
+# Приложения перечислять не нужно: каждое объявляет себя через
+# WantedBy=encrypted-apps.target, поэтому новое приложение подхватывается
+# автоматически, без правки этого скрипта.
+#
+# Edge-прокси (Caddy) здесь НЕ упоминается намеренно — он не зависит от тома
+# и поднимается сам при загрузке.
+#
+# Парольная фраза запрашивается интерактивно и нигде не сохраняется.
+
+set -euo pipefail
+
+BACKING="{{ luks_backing_target }}"
+MAPPER="{{ luks_mapper_name }}"
+MOUNT="{{ encrypted_mount }}"
+SWAPFILE="{{ encrypted_mount }}/swapfile"
+
+if [[ $EUID -ne 0 ]]; then
+    echo "Нужны права root: sudo encrypted-unlock" >&2
+    exit 1
+fi
+
+if [[ ! -e "$BACKING" ]]; then
+    echo "ОШИБКА: контейнер $BACKING не найден." >&2
+    exit 1
+fi
+
+if [[ -b "/dev/mapper/$MAPPER" ]]; then
+    echo "Том уже открыт."
+else
+    echo "Открываю шифрованный том $BACKING"
+    cryptsetup open "$BACKING" "$MAPPER"
+fi
+
+if mountpoint -q "$MOUNT"; then
+    echo "$MOUNT уже смонтирован."
+else
+    mount "$MOUNT"
+    echo "Смонтирован $MOUNT"
+fi
+
+{% if luks_swapfile_enabled %}
+# Единственный своп в системе, и он внутри тома: расшифрованные страницы
+# не попадают на открытый диск.
+if [[ -f "$SWAPFILE" ]] && ! swapon --show=NAME --noheadings | grep -qx "$SWAPFILE"; then
+    swapon --priority 10 "$SWAPFILE"
+    echo "Подключён своп $SWAPFILE"
+fi
+{% endif %}
+
+echo "Поднимаю приложения (encrypted-apps.target)"
+systemctl start encrypted-apps.target
+
+echo
+echo "Состояние приложений:"
+systemctl list-dependencies --no-pager encrypted-apps.target || true

@@ -1,0 +1,21 @@
+---
+# Шаблон секретов. НЕ используется Ansible напрямую — скопируй значения в
+# зашифрованный vault.yml:
+#
+#   ansible-vault create inventory/group_vars/all/vault.yml
+#
+# Сгенерировать стойкие значения:
+#   openssl rand -base64 32
+#
+# Парольную фразу LUKS сохрани ОТДЕЛЬНО в менеджере паролей: без неё
+# каталог данных не открыть, и восстановить его будет нечем.
+# То же для vault_restic_password — без него бэкапы не расшифровать.
+
+vault_postgres_password: "ЗАМЕНИ"
+vault_redis_password: "ЗАМЕНИ"
+vault_luks_passphrase: "ЗАМЕНИ"
+vault_restic_password: "ЗАМЕНИ"
+
+# Access key из панели MEGA S4. Нужны только при restic_backend: s4.
+vault_restic_s4_access_key: "ЗАМЕНИ"
+vault_restic_s4_secret_key: "ЗАМЕНИ"

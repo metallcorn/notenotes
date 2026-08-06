@@ -1,0 +1,50 @@
+#!/bin/bash
+# {{ ansible_managed }}
+#
+# Обратная операция к encrypted-unlock: останавливает все зависящие от тома
+# приложения, отключает своп, отмонтирует и закрывает том.
+#
+# Нужен перед плановой перезагрузкой и для проверки, что приложения
+# действительно не поднимаются без разблокировки.
+#
+# Edge-прокси не останавливается: он от тома не зависит, и после lock должен
+# продолжать отвечать (502 на приложения, которые лежат).
+
+set -euo pipefail
+
+MAPPER="{{ luks_mapper_name }}"
+MOUNT="{{ encrypted_mount }}"
+SWAPFILE="{{ encrypted_mount }}/swapfile"
+
+if [[ $EUID -ne 0 ]]; then
+    echo "Нужны права root: sudo encrypted-lock" >&2
+    exit 1
+fi
+
+echo "Останавливаю приложения"
+systemctl stop encrypted-apps.target || true
+
+# Цель останавливает то, что она Wants, но юниты могли быть запущены отдельно.
+for unit in $(systemctl list-dependencies --plain --no-pager encrypted-apps.target 2>/dev/null | grep '\.service$'); do
+    if systemctl is-active --quiet "$unit"; then
+        echo "  дополнительно останавливаю $unit"
+        systemctl stop "$unit"
+    fi
+done
+
+if swapon --show=NAME --noheadings | grep -qx "$SWAPFILE"; then
+    echo "Отключаю своп $SWAPFILE"
+    swapoff "$SWAPFILE"
+fi
+
+if mountpoint -q "$MOUNT"; then
+    echo "Отмонтирую $MOUNT"
+    umount "$MOUNT"
+fi
+
+if [[ -b "/dev/mapper/$MAPPER" ]]; then
+    echo "Закрываю том"
+    cryptsetup close "$MAPPER"
+fi
+
+echo "Том закрыт. Данные недоступны до следующего encrypted-unlock."

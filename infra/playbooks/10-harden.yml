@@ -1,0 +1,18 @@
+---
+# Хардненинг хоста. Запускается уже под metallcorn.
+#
+#   make harden
+#
+# ВАЖНО: после прогона проверь вход ВТОРЫМ терминалом, не закрывая текущую
+# сессию. Роль ssh_hardening делает это сама, но убедиться лично дешевле,
+# чем разбираться потом через VNC-консоль Netcup.
+
+- name: Harden host
+  hosts: vps
+  become: true
+  gather_facts: true
+
+  roles:
+    - role: baseline
+    - role: ssh_hardening
+    - role: firewall

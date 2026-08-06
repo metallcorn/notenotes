@@ -1,0 +1,53 @@
+# {{ ansible_managed }}
+#
+# Edge-прокси отдельным compose-проектом. Секретов не содержит.
+#
+# Живёт вне шифрованного тома СОЗНАТЕЛЬНО: прокси должен подниматься при
+# загрузке, до ввода парольной фразы. Иначе одно приложение, ждущее
+# разблокировки, держало бы недоступными все остальные.
+#
+# Приватные ключи TLS при этом лежат на незашифрованном диске. Это осознанный
+# обмен: сертификаты ротируемы (отозвал, перевыпустил), в отличие от
+# пользовательских данных, и держать их в томе означало бы «нет HTTPS до unlock».
+
+name: edge
+
+services:
+  caddy:
+    image: {{ caddy_image }}
+    # Единственный стек с restart: unless-stopped. Он не зависит от
+    # шифрованного тома, поэтому подниматься при загрузке для него безопасно —
+    # в отличие от приложений с данными.
+    restart: unless-stopped
+    ports:
+      # Единственный сервис, доступный из интернета. Порты хоста и контейнера
+      # совпадают намеренно: правила DOCKER-USER фильтруют по порту КОНТЕЙНЕРА
+      # (DNAT происходит до FORWARD), и расхождение потребовало бы правки
+      # docker_ingress_allowed_ports.
+      - "80:80"
+      - "443:443"
+    volumes:
+      # Монтируется КАТАЛОГ, а не отдельные файлы. Bind-mount файла привязан
+      # к его inode, а Ansible пишет шаблоны атомарно через temp+rename —
+      # inode меняется, и контейнер продолжает читать старую версию. Ошибки
+      # при этом нет: reload проходит успешно и применяет устаревший конфиг.
+      - {{ edge_caddy_dir }}:/etc/caddy:ro
+      - {{ edge_root }}/data:/data
+      - {{ edge_root }}/config:/config
+    networks:
+      - {{ edge_network }}
+    healthcheck:
+      test: ["CMD", "caddy", "version"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    mem_limit: {{ caddy_mem_limit }}
+    logging:
+      driver: json-file
+      options:
+        max-size: "{{ docker_log_max_size }}"
+        max-file: "{{ docker_log_max_file }}"
+
+networks:
+  {{ edge_network }}:
+    external: true

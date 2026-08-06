@@ -1,0 +1,7 @@
+---
+- name: Restart notenotes stack
+  ansible.builtin.systemd_service:
+    name: notenotes.service
+    state: restarted
+  # На первом прогоне юнита ещё нет — его создаёт роль stack.
+  failed_when: false

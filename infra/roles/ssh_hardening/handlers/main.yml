@@ -1,0 +1,15 @@
+---
+- name: Reload sshd service
+  ansible.builtin.systemd_service:
+    name: ssh.service
+    state: reloaded
+  when: not ssh_socket_activated
+  listen: Reload sshd
+
+- name: Note that socket activation needs no reload
+  ansible.builtin.debug:
+    msg: >-
+      sshd работает через ssh.socket — новые подключения поднимают свой sshd
+      и читают конфиг заново, reload не требуется.
+  when: ssh_socket_activated
+  listen: Reload sshd

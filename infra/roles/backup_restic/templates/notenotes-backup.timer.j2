@@ -1,0 +1,13 @@
+# {{ ansible_managed }}
+[Unit]
+Description=Daily Notenotes backup
+
+[Timer]
+OnCalendar={{ backup_on_calendar }}
+# Если сервер был выключен в назначенное время — догнать после старта.
+Persistent=true
+# Разброс, чтобы не бить в S4 ровно в одну секунду каждый день.
+RandomizedDelaySec=15m
+
+[Install]
+WantedBy=timers.target

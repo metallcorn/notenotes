@@ -1,0 +1,26 @@
+#!/bin/bash
+# {{ ansible_managed }}
+#
+# Тонкая обёртка: запускает restic с уже подгруженным окружением из тома.
+# Нужна, чтобы не набирать вручную репозиторий и не светить пароль в истории
+# командной строки.
+#
+#   sudo notenotes-restic snapshots
+#   sudo notenotes-restic check --read-data-subset=5%
+#   sudo notenotes-restic restore latest --target /tmp/restore-test
+
+set -euo pipefail
+
+if [[ $EUID -ne 0 ]]; then
+    echo "Нужны права root" >&2
+    exit 1
+fi
+
+/usr/local/sbin/encrypted-preflight notenotes >/dev/null
+
+# shellcheck source=/dev/null
+set -a
+source "{{ notenotes_secrets_dir }}/restic.env"
+set +a
+
+exec {{ restic_bin }} "$@"

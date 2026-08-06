@@ -1,0 +1,17 @@
+---
+# Полный прогон всего, кроме первичного bootstrap (он ходит под root
+# и выполняется один раз).
+#
+#   make site
+
+- name: Import host hardening
+  ansible.builtin.import_playbook: 10-harden.yml
+
+- name: Import platform provisioning
+  ansible.builtin.import_playbook: 20-platform.yml
+
+- name: Import infrastructure stack
+  ansible.builtin.import_playbook: 30-stack.yml
+
+- name: Import backups
+  ansible.builtin.import_playbook: 40-backup.yml

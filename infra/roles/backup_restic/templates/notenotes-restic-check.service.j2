@@ -1,0 +1,23 @@
+# {{ ansible_managed }}
+#
+# Проверка целостности репозитория. Непроверенный бэкап бэкапом не является:
+# без этого повреждение обнаружилось бы ровно в тот момент, когда бэкап
+# понадобился.
+
+[Unit]
+Description=Verify integrity of the Notenotes restic repository
+After=network-online.target
+Wants=network-online.target
+{% if luks_enabled %}
+RequiresMountsFor={{ encrypted_mount }}
+{% endif %}
+OnFailure=notenotes-alert@%n.service
+
+[Service]
+Type=oneshot
+# read-data-subset проверяет и метаданные, и выборку реальных данных.
+# Полная проверка на каждом прогоне съела бы бесплатный egress S4.
+ExecStart=/usr/local/sbin/notenotes-restic check --read-data-subset=5%%
+Nice=15
+IOSchedulingClass=idle
+TimeoutStartSec=4h

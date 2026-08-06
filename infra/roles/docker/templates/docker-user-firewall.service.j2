@@ -1,0 +1,16 @@
+# {{ ansible_managed }}
+[Unit]
+Description=Default-deny rules in the Docker DOCKER-USER chain
+After=docker.service
+Requires=docker.service
+# Docker пересоздаёт свои цепочки при рестарте, поэтому правила надо
+# переставлять вместе с ним, а не только при загрузке.
+PartOf=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/docker-user-firewall
+
+[Install]
+WantedBy=multi-user.target

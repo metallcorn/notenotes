@@ -1,0 +1,21 @@
+---
+# Приложение notenotes: каталоги, секреты, compose-стек, фрагмент Caddy.
+#
+#   make stack
+#
+# Переключение на HTTPS после перевода A-записи на этот сервер:
+#   notenotes_tls_mode: acme  в inventory/group_vars/all/main.yml
+#   make platform && make stack     (первое обновляет общий Caddyfile)
+#
+# Второе приложение (например politrain) добавляется по этому же образцу:
+# отдельный playbook 31-politrain.yml с ролями politrain_layout/politrain_stack,
+# своим подкаталогом в {{ '/srv/encrypted' }} и своим фрагментом в conf.d.
+
+- name: Deploy the notenotes application
+  hosts: vps
+  become: true
+  gather_facts: true
+
+  roles:
+    - role: notenotes_layout
+    - role: notenotes_stack

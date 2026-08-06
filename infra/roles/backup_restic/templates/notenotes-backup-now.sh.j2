@@ -1,0 +1,28 @@
+#!/bin/bash
+# {{ ansible_managed }}
+#
+# Ручной бэкап. Обязателен перед каждой миграцией БД (ТЗ §17).
+#
+#   sudo notenotes-backup-now
+#
+# Запускает тот же systemd-юнит, что и таймер, чтобы логи и обработка отказов
+# были одинаковыми для ручного и автоматического запуска.
+
+set -euo pipefail
+
+if [[ $EUID -ne 0 ]]; then
+    echo "Нужны права root: sudo notenotes-backup-now" >&2
+    exit 1
+fi
+
+echo "Запускаю notenotes-backup.service"
+if systemctl start notenotes-backup.service; then
+    echo
+    echo "Бэкап завершён успешно. Последние записи журнала:"
+    journalctl -u notenotes-backup.service -n 20 --no-pager
+else
+    echo
+    echo "БЭКАП НЕ ВЫПОЛНЕН. Журнал:" >&2
+    journalctl -u notenotes-backup.service -n 50 --no-pager >&2
+    exit 1
+fi

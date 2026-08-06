@@ -1,0 +1,23 @@
+# {{ ansible_managed }}
+# Лежит внутри LUKS-тома. Режим 0600.
+
+requirepass {{ redis_password }}
+
+# Слушаем все интерфейсы ВНУТРИ docker-сети; снаружи порт публикуется только
+# на 127.0.0.1 (см. docker-compose.yml).
+bind 0.0.0.0
+protected-mode no
+
+appendonly yes
+appendfsync everysec
+dir /data
+
+maxmemory {{ redis_maxmemory }}
+# noeviction, а не allkeys-lru: это очередь задач OCR и батча авто-тегов
+# (ТЗ §8.2, §9). Вытеснение означало бы молча потерянные задачи —
+# лучше явная ошибка записи.
+maxmemory-policy noeviction
+
+# Небезопасные в многопользовательском контексте команды выключены.
+rename-command FLUSHALL ""
+rename-command FLUSHDB ""

@@ -1,0 +1,150 @@
+# {{ ansible_managed }}
+#
+# Стек приложения notenotes. Caddy здесь НЕТ: reverse proxy общий для всех
+# приложений хоста и живёт в {{ edge_root }} (роль edge_proxy).
+#
+# Файл лежит на НЕзашифрованном диске — секретов здесь быть не должно.
+# Пароли приходят из файлов внутри шифрованного тома:
+#   {{ notenotes_secrets_dir }}/postgres.env
+#   {{ notenotes_secrets_dir }}/redis.conf
+#
+# Жизненным циклом управляет notenotes.service, а не docker restart policy.
+# Причина — в комментарии к restart ниже.
+
+name: notenotes
+
+services:
+  postgres:
+    image: {{ postgres_image }}
+    # Политика on-failure, а НЕ unless-stopped. При unless-stopped Docker
+    # поднял бы контейнер при загрузке хоста, до разблокировки шифрованного
+    # тома: Postgres увидел бы пустой каталог и проинициализировал новый
+    # кластер поверх точки монтирования, а реальные данные оказались бы
+    # скрыты под томом после unlock.
+    restart: on-failure:3
+    env_file:
+      - {{ notenotes_secrets_dir }}/postgres.env
+    command:
+      - postgres
+      - -c
+      - shared_buffers={{ postgres_shared_buffers }}
+      - -c
+      - effective_cache_size={{ postgres_effective_cache_size }}
+      - -c
+      - work_mem={{ postgres_work_mem }}
+      # От maintenance_work_mem напрямую зависит время сборки HNSW-индекса
+      # для векторного поиска (ТЗ §3.2).
+      - -c
+      - maintenance_work_mem={{ postgres_maintenance_work_mem }}
+      - -c
+      - max_connections={{ postgres_max_connections }}
+      # SSD: случайное чтение почти не дороже последовательного.
+      - -c
+      - random_page_cost={{ postgres_random_page_cost }}
+      - -c
+      - effective_io_concurrency={{ postgres_effective_io_concurrency }}
+      - -c
+      - max_parallel_workers={{ postgres_max_parallel_workers }}
+      - -c
+      - max_parallel_maintenance_workers={{ postgres_max_parallel_maintenance_workers }}
+      - -c
+      - wal_compression=on
+      # Логируем медленные запросы: качество retrieval — известный риск
+      # ТЗ §21.1, и разбираться придётся по фактическим замерам.
+      - -c
+      - log_min_duration_statement=1000
+    volumes:
+      - {{ notenotes_data_dir }}/postgres:/var/lib/postgresql/data
+      - {{ notenotes_compose_dir }}/initdb:/docker-entrypoint-initdb.d:ro
+    ports:
+      # Только loopback. Docker публикует порты в обход UFW, поэтому 0.0.0.0
+      # здесь означал бы открытую в интернет базу.
+      # Доступ с ноутбука: ssh -L 5432:localhost:5432 notenotes
+      - "127.0.0.1:{{ postgres_port }}:5432"
+    networks:
+      # Только приватная сеть. В edge база не попадает — там ей нечего делать,
+      # и контейнеры других приложений её не увидят.
+      - {{ notenotes_internal_network }}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U {{ postgres_user }} -d {{ postgres_db }}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    mem_limit: {{ postgres_mem_limit }}
+    logging:
+      driver: json-file
+      options:
+        max-size: "{{ docker_log_max_size }}"
+        max-file: "{{ docker_log_max_file }}"
+
+  redis:
+    image: {{ redis_image }}
+    restart: on-failure:3
+    command: ["redis-server", "/usr/local/etc/redis/redis.conf"]
+    volumes:
+      - {{ notenotes_secrets_dir }}/redis.conf:/usr/local/etc/redis/redis.conf:ro
+      - {{ notenotes_data_dir }}/redis:/data
+    ports:
+      - "127.0.0.1:{{ redis_port }}:6379"
+    networks:
+      - {{ notenotes_internal_network }}
+    healthcheck:
+      # Пароль берётся из смонтированного конфига, а не из аргументов —
+      # иначе он был бы виден в docker inspect и в ps.
+      test: ["CMD-SHELL", "redis-cli -a \"$$(grep '^requirepass' /usr/local/etc/redis/redis.conf | cut -d' ' -f2)\" ping | grep -q PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    mem_limit: {{ redis_mem_limit }}
+    logging:
+      driver: json-file
+      options:
+        max-size: "{{ docker_log_max_size }}"
+        max-file: "{{ docker_log_max_file }}"
+
+  # --- Заготовки под Фазу 1 из ТЗ §19 ---------------------------------------
+  # Раскомментировать, когда появится код. Секреты — из app.env внутри тома.
+  #
+  # ВАЖНО про alias в сети edge. Все приложения хоста делят сеть edge, и
+  # DNS-именем сервиса внутри неё по умолчанию становится имя сервиса из
+  # compose. Если у politrain тоже появится сервис `backend`, имена столкнутся,
+  # и Caddy начнёт попадать в чужой контейнер. Поэтому в edge выставляется
+  # явный alias с префиксом приложения, и фрагмент Caddy ссылается на него.
+  #
+  # backend:
+  #   build: {{ notenotes_root }}/app/backend
+  #   restart: on-failure:3
+  #   env_file:
+  #     - {{ notenotes_secrets_dir }}/app.env
+  #   volumes:
+  #     - {{ notenotes_data_dir }}/uploads:/data/uploads
+  #   networks:
+  #     {{ edge_network }}:
+  #       aliases:
+  #         - notenotes-backend
+  #     {{ notenotes_internal_network }}:
+  #   depends_on:
+  #     postgres: {condition: service_healthy}
+  #     redis: {condition: service_healthy}
+  #   mem_limit: 768m
+  #
+  # worker:
+  #   # Очередь OCR (ТЗ §9) и батч авто-тегов (ТЗ §8.2).
+  #   build: {{ notenotes_root }}/app/backend
+  #   command: ["arq", "app.worker.WorkerSettings"]
+  #   restart: on-failure:3
+  #   env_file:
+  #     - {{ notenotes_secrets_dir }}/app.env
+  #   volumes:
+  #     - {{ notenotes_data_dir }}/uploads:/data/uploads
+  #   # Воркеру edge не нужен: наружу он не смотрит.
+  #   networks:
+  #     - {{ notenotes_internal_network }}
+  #   mem_limit: 512m
+
+networks:
+  {{ notenotes_internal_network }}:
+    external: true
+  {{ edge_network }}:
+    external: true

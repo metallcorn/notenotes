@@ -1,0 +1,30 @@
+#!/bin/bash
+# {{ ansible_managed }}
+#
+# Сообщает об отказе юнита. Вызывается из notenotes-alert@.service.
+
+set -uo pipefail
+
+UNIT="${1:-неизвестный юнит}"
+
+logger -t notenotes-alert -p daemon.err \
+    "ОТКАЗ: $UNIT завершился с ошибкой. Подробности: journalctl -u $UNIT -n 50"
+
+{% if notify_telegram_enabled %}
+ENV_FILE="{{ notenotes_secrets_dir }}/app.env"
+if [[ -r "$ENV_FILE" ]]; then
+    # shellcheck source=/dev/null
+    set -a; source "$ENV_FILE"; set +a
+fi
+
+if [[ -n "${TELEGRAM_BOT_TOKEN:-}" && -n "${TELEGRAM_ALERT_CHAT_ID:-}" ]]; then
+    curl -fsS --max-time 15 \
+        "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+        -d "chat_id=${TELEGRAM_ALERT_CHAT_ID}" \
+        -d "text=Notenotes: отказ юнита ${UNIT} на {{ notenotes_hostname }}" \
+        >/dev/null || logger -t notenotes-alert -p daemon.err \
+            "Не удалось отправить уведомление в Telegram"
+fi
+{% endif %}
+
+exit 0

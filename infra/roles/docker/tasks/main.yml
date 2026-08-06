@@ -1,0 +1,123 @@
+---
+# Docker CE из официального репозитория.
+# Не docker.io из Ubuntu (отстаёт по версиям) и не snap (проблемы с bind-mount
+# и путями, что критично для LUKS-тома).
+
+- name: Install prerequisites
+  ansible.builtin.apt:
+    name:
+      - apt-transport-https
+      - ca-certificates
+      - curl
+      - gnupg
+    state: present
+
+- name: Ensure apt keyring directory exists
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Download Docker GPG key
+  ansible.builtin.get_url:
+    url: https://download.docker.com/linux/ubuntu/gpg
+    dest: /etc/apt/keyrings/docker.asc
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Add Docker repository
+  # deb822_repository, а не apt_repository: последний объявлен deprecated
+  # и будет удалён в ansible-core 2.25.
+  ansible.builtin.deb822_repository:
+    name: docker
+    types: [deb]
+    uris: "https://download.docker.com/linux/ubuntu"
+    suites: ["{{ ansible_distribution_release }}"]
+    components: [stable]
+    architectures: ["{{ 'amd64' if ansible_architecture == 'x86_64' else 'arm64' }}"]
+    signed_by: /etc/apt/keyrings/docker.asc
+    enabled: true
+    state: present
+
+- name: Install Docker Engine and Compose plugin
+  ansible.builtin.apt:
+    name:
+      - docker-ce
+      - docker-ce-cli
+      - containerd.io
+      - docker-buildx-plugin
+      - docker-compose-plugin
+    state: present
+    update_cache: true
+
+- name: Configure Docker daemon
+  ansible.builtin.template:
+    src: daemon.json.j2
+    dest: /etc/docker/daemon.json
+    owner: root
+    group: root
+    mode: "0644"
+    validate: "python3 -c 'import json,sys; json.load(open(sys.argv[1]))' %s"
+  notify: Restart docker
+
+- name: Enable and start Docker
+  ansible.builtin.systemd_service:
+    name: docker
+    enabled: true
+    state: started
+
+- name: Add admin user to the docker group
+  ansible.builtin.user:
+    name: "{{ notenotes_admin_user }}"
+    groups: docker
+    append: true
+
+# --- Закрытие обхода UFW ----------------------------------------------------
+
+- name: Install DOCKER-USER firewall script
+  ansible.builtin.template:
+    src: docker-user-firewall.sh.j2
+    dest: /usr/local/sbin/docker-user-firewall
+    owner: root
+    group: root
+    mode: "0750"
+  notify: Restart docker-user-firewall
+
+- name: Install DOCKER-USER firewall unit
+  ansible.builtin.template:
+    src: docker-user-firewall.service.j2
+    dest: /etc/systemd/system/docker-user-firewall.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify:
+    - Reload systemd
+    - Restart docker-user-firewall
+
+- name: Apply pending Docker and firewall changes now
+  ansible.builtin.meta: flush_handlers
+
+- name: Enable and start DOCKER-USER firewall
+  ansible.builtin.systemd_service:
+    name: docker-user-firewall
+    enabled: true
+    state: started
+    daemon_reload: true
+
+- name: Read DOCKER-USER chain
+  ansible.builtin.command:
+    cmd: iptables -S DOCKER-USER
+  register: docker_user_chain
+  changed_when: false
+
+- name: Assert DOCKER-USER default-deny is in place
+  ansible.builtin.assert:
+    that:
+      - "'-i ' ~ ansible_default_ipv4.interface ~ ' -j DROP' in docker_user_chain.stdout"
+    fail_msg: >-
+      В цепочке DOCKER-USER нет правила DROP для внешнего интерфейса.
+      Порты контейнеров могут быть открыты в интернет в обход UFW.
+    success_msg: "DOCKER-USER: default-deny применён."

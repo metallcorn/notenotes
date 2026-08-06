@@ -1,0 +1,15 @@
+---
+# Шифрованные бэкапы restic во внешнее хранилище (MEGA S4).
+#
+#   make backup
+#
+# Ручной бэкап перед миграцией БД (требование ТЗ §17):
+#   ssh notenotes 'sudo notenotes-backup-now'
+
+- name: Configure encrypted offsite backups
+  hosts: vps
+  become: true
+  gather_facts: true
+
+  roles:
+    - role: backup_restic

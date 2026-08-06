@@ -1,0 +1,27 @@
+---
+# Первичный заход. Выполняется ОДИН раз, под root, по ключу.
+#
+#   make bootstrap
+#
+# Перед этим вручную (см. README, шаг 0):
+#   ssh-keygen -t ed25519 -f ~/.ssh/notenotes_vps -C notenotes-vps
+#   ssh-copy-id -i ~/.ssh/notenotes_vps.pub root@188.68.40.209
+#
+# Vault здесь не нужен: секретов playbook не использует.
+
+- name: Bootstrap admin user
+  hosts: vps
+  become: true
+  gather_facts: true
+
+  vars:
+    # Задано здесь, а НЕ через --user root и не ключом remote_user: переменная
+    # ansible_user — connection-переменная, и её значение из inventory
+    # (metallcorn, который на этом шаге ещё не создан) имеет более высокий
+    # приоритет, чем оба этих способа. Они бы молча проиграли, и playbook
+    # ломился бы под несуществующим пользователем. Play-level vars inventory
+    # перебивают.
+    ansible_user: root
+
+  roles:
+    - role: bootstrap_user

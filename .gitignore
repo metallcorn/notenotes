@@ -1,0 +1,31 @@
+# Пароль ansible-vault не должен попадать в репозиторий.
+# Сам infra/inventory/group_vars/all/vault.yml зашифрован и коммитится намеренно.
+.vault_pass
+*.retry
+
+# Приватные ключи и выгрузки credentials от провайдеров — никогда.
+notenotes_vps
+notenotes_vps.pub
+*.pem
+credentials-*
+*credentials*.csv
+
+# Файлы окружения с секретами. Шаблоны с суффиксом .example — коммитятся.
+.env
+*.env
+!*.env.example
+
+# Локальные артефакты
+.ansible/
+.venv/
+node_modules/
+__pycache__/
+*.pyc
+dist/
+build/
+*.log
+
+# Репозиторий публичный: зашифрованный vault отсюда исключён.
+# Скачанный файл можно перебирать офлайн без ограничений по скорости.
+# Хранить отдельно и бэкапить вручную (см. CLAUDE.md).
+infra/inventory/group_vars/all/vault.yml

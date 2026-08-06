@@ -1,0 +1,95 @@
+---
+# Раскладка каталогов и секреты приложения notenotes.
+#
+# Разделение принципиальное:
+#   /srv/notenotes/compose        — НЕзашифрованный диск, секретов не содержит;
+#   /srv/encrypted/notenotes      — внутри LUKS-тома, здесь данные и все секреты.
+#
+# Каталоги Caddy здесь отсутствуют намеренно: прокси общий для всех приложений
+# и живёт в /srv/edge вне тома (роль edge_proxy).
+
+- name: Refuse to write secrets onto an unencrypted disk
+  # Без этой проверки повторный прогон при закрытом томе записал бы .env
+  # мимо шифрования — прямо на открытый диск, где его увидит любой, кто
+  # получит образ диска.
+  ansible.builtin.command:
+    cmd: /usr/local/sbin/encrypted-preflight
+  changed_when: false
+
+- name: Create plaintext directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  loop:
+    - "{{ notenotes_root }}"
+    - "{{ notenotes_compose_dir }}"
+    - "{{ notenotes_compose_dir }}/initdb"
+
+- name: Create data directories inside the encrypted volume
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "{{ item.mode | default('0755') }}"
+  loop:
+    - {path: "{{ notenotes_data_dir }}"}
+    - {path: "{{ notenotes_data_dir }}/postgres"}
+    - {path: "{{ notenotes_data_dir }}/redis"}
+    - {path: "{{ notenotes_data_dir }}/uploads"}
+    - {path: "{{ restic_staging_dir }}", mode: "0700"}
+    - {path: "{{ notenotes_secrets_dir }}", mode: "0700"}
+
+- name: Write PostgreSQL credentials
+  ansible.builtin.template:
+    src: postgres.env.j2
+    dest: "{{ notenotes_secrets_dir }}/postgres.env"
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+  notify: Restart notenotes stack
+
+- name: Write Redis configuration with its password
+  # Пароль Redis идёт в конфиг-файл внутри тома, а не в compose-файл и не в
+  # командную строку: compose лежит на открытом диске, а аргументы видны в ps
+  # и в docker inspect.
+  #
+  # Права 0644, а не 0600, — вынужденно и безопасно. Этот файл читает сам
+  # процесс redis в контейнере (uid 999), а не демон Docker от root, как в
+  # случае env_file. При 0600 redis падает с "can't open config file:
+  # Permission denied". Host-side файл при этом закрыт родительским каталогом
+  # secrets/ с правами 0700, а в контейнер он монтируется напрямую, поэтому
+  # этот каталог не обходится.
+  ansible.builtin.template:
+    src: redis.conf.j2
+    dest: "{{ notenotes_secrets_dir }}/redis.conf"
+    owner: root
+    group: root
+    mode: "0644"
+  no_log: true
+  notify: Restart notenotes stack
+
+- name: Write application environment for the future backend
+  ansible.builtin.template:
+    src: app.env.j2
+    dest: "{{ notenotes_secrets_dir }}/app.env"
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+
+- name: Create the private application network
+  # Приватная сеть только для notenotes: Postgres и Redis не должны быть видны
+  # из контейнеров других приложений хоста. Общая сеть edge создаётся ролью
+  # edge_proxy.
+  ansible.builtin.command:
+    cmd: "docker network create {{ notenotes_internal_network }}"
+  register: network_create
+  changed_when: network_create.rc == 0
+  failed_when:
+    - network_create.rc != 0
+    - "'already exists' not in network_create.stderr"

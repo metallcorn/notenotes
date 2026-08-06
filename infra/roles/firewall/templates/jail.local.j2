@@ -1,0 +1,25 @@
+# {{ ansible_managed }}
+[DEFAULT]
+# banaction ufw выбран потому, что файрволом на хосте управляет именно ufw —
+# бан попадает в один и тот же набор правил, а не в параллельную цепочку.
+banaction = ufw
+banaction_allports = ufw
+
+bantime = 1h
+findtime = 10m
+maxretry = {{ firewall_fail2ban_maxretry }}
+
+# Повторные нарушители банятся всё дольше.
+bantime.increment = true
+bantime.factor = 2
+bantime.maxtime = 1w
+
+ignoreip = 127.0.0.1/8 ::1
+
+[sshd]
+enabled = true
+port = ssh
+# backend задан явно: в Ubuntu 24.04 /var/log/auth.log может отсутствовать
+# (rsyslog не обязателен), и file-backend тогда молча не находит ничего —
+# jail выглядел бы включённым, не блокируя никого.
+backend = systemd

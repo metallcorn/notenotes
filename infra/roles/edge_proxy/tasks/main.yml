@@ -1,0 +1,131 @@
+---
+# Общий reverse proxy для всех приложений хоста.
+#
+# Ключевое свойство: НЕ зависит от шифрованного тома. Поэтому роль не вызывает
+# encrypted-preflight и запускается до/независимо от приложений.
+
+- name: Create edge directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  loop:
+    - "{{ edge_root }}"
+    - "{{ edge_caddy_dir }}"
+    - "{{ edge_conf_dir }}"
+    # Сертификаты и внутреннее состояние Caddy. Вне тома — см. комментарий
+    # в docker-compose.yml.j2.
+    - "{{ edge_root }}/data"
+    - "{{ edge_root }}/config"
+
+- name: Remove the pre-directory-mount layout
+  # Ранее Caddyfile и conf.d лежали прямо в {{ edge_root }} и монтировались
+  # отдельными файлами. Убираем, чтобы не остаться с двумя копиями конфига,
+  # из которых одна незаметно устарела.
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - "{{ edge_root }}/Caddyfile"
+    - "{{ edge_root }}/conf.d"
+
+- name: Create the shared edge network
+  ansible.builtin.command:
+    cmd: "docker network create {{ edge_network }}"
+  register: edge_network_create
+  changed_when: edge_network_create.rc == 0
+  failed_when:
+    - edge_network_create.rc != 0
+    - "'already exists' not in edge_network_create.stderr"
+
+- name: Render the catch-all site
+  ansible.builtin.template:
+    src: 00-default.caddy.j2
+    dest: "{{ edge_conf_dir }}/00-default.caddy"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reload edge proxy
+
+- name: Render the main Caddyfile
+  ansible.builtin.template:
+    src: Caddyfile.j2
+    dest: "{{ edge_caddy_dir }}/Caddyfile"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reload edge proxy
+
+- name: Render the edge compose file
+  ansible.builtin.template:
+    src: docker-compose.yml.j2
+    dest: "{{ edge_root }}/docker-compose.yml"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart edge proxy
+
+- name: Validate the edge compose file
+  ansible.builtin.command:
+    cmd: docker compose config --quiet
+    chdir: "{{ edge_root }}"
+  changed_when: false
+
+- name: Install the edge systemd unit
+  ansible.builtin.template:
+    src: edge.service.j2
+    dest: /etc/systemd/system/edge.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify:
+    - Reload systemd
+    - Restart edge proxy
+
+- name: Apply pending unit changes
+  ansible.builtin.meta: flush_handlers
+
+- name: Enable and start the edge proxy at boot
+  ansible.builtin.systemd_service:
+    name: edge.service
+    enabled: true
+    state: started
+    daemon_reload: true
+
+- name: Validate the running Caddy configuration
+  # Проверяем конфиг внутри контейнера: фрагменты приложений монтируются
+  # по другому пути, чем лежат на хосте, и ошибка в import проявилась бы
+  # только здесь.
+  ansible.builtin.command:
+    cmd: docker compose exec -T caddy caddy validate --config /etc/caddy/Caddyfile
+    chdir: "{{ edge_root }}"
+  register: caddy_validate
+  changed_when: false
+
+- name: Verify the edge proxy answers over HTTP
+  ansible.builtin.uri:
+    url: "http://127.0.0.1/"
+    # follow_redirects: none обязательно. По умолчанию uri идёт по редиректу,
+    # а в acme-режиме Caddy отвечает 308 на https://127.0.0.1/ — где
+    # сертификата на IP-адрес нет и быть не может, и проверка падала бы
+    # на TLS, хотя прокси исправен. Нас интересует сам факт ответа.
+    follow_redirects: none
+    # 404 — нормальный ответ, когда ни один site-блок не совпал по Host;
+    # 308 — автоматический редирект на HTTPS в acme-режиме.
+    status_code: [200, 301, 308, 404]
+    validate_certs: false
+  register: edge_check
+  retries: 5
+  delay: 3
+  until: edge_check is succeeded
+
+- name: Report edge proxy state
+  ansible.builtin.debug:
+    msg:
+      - "Edge-прокси: HTTP {{ edge_check.status }}, автозапуск при загрузке включён"
+      - "Сайты приложений: {{ edge_conf_dir }}/*.caddy"
+      - >-
+        TLS: {{ "Let's Encrypt (HTTP-01)" if notenotes_tls_mode == 'acme'
+        else 'выключен — переведи A-записи на этот сервер и поставь notenotes_tls_mode: acme' }}

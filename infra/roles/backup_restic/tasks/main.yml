@@ -1,0 +1,223 @@
+---
+- name: Refuse to configure backups on an unmounted volume
+  ansible.builtin.command:
+    cmd: /usr/local/sbin/encrypted-preflight notenotes
+  changed_when: false
+
+- name: Validate backup configuration
+  ansible.builtin.assert:
+    that:
+      - restic_backend in ['s4', 'local']
+      - restic_backend != 's4' or (restic_s4_access_key | length > 0)
+      - restic_backend != 's4' or (restic_s4_secret_key | length > 0)
+    fail_msg: >-
+      Для restic_backend: s4 нужны vault_restic_s4_access_key и
+      vault_restic_s4_secret_key (создаются в панели MEGA S4).
+      Либо переключи restic_backend на local, чтобы начать с локального
+      репозитория — но помни, что он не защищает от отказа сервера.
+
+- name: Warn when backups stay on the same server
+  ansible.builtin.debug:
+    msg: >-
+      ВНИМАНИЕ: restic_backend=local. Репозиторий лежит на том же диске, что и
+      данные, и не защищает от отказа сервера (ТЗ §17 требует внешнее
+      хранилище). Переключи на s4, когда появятся ключи.
+  when: restic_backend == 'local'
+
+# --- Установка restic -------------------------------------------------------
+
+- name: Check the installed restic version
+  ansible.builtin.command:
+    cmd: "{{ restic_bin }} version"
+  register: restic_installed
+  changed_when: false
+  failed_when: false
+
+- name: Install a pinned restic release
+  when: restic_version not in (restic_installed.stdout | default(''))
+  block:
+    - name: Ensure bzip2 is available
+      # Релизы restic публикуются в .bz2, а в минимальном образе Ubuntu Server
+      # bunzip2 отсутствует. Зависимость держим в этой роли, а не в baseline:
+      # кроме распаковки restic она нигде не нужна.
+      ansible.builtin.apt:
+        name: bzip2
+        state: present
+
+    - name: Download restic binary
+      ansible.builtin.get_url:
+        url: >-
+          https://github.com/restic/restic/releases/download/v{{ restic_version }}/restic_{{ restic_version }}_linux_amd64.bz2
+        dest: "/tmp/restic_{{ restic_version }}.bz2"
+        mode: "0600"
+
+    - name: Download release checksums
+      ansible.builtin.get_url:
+        url: >-
+          https://github.com/restic/restic/releases/download/v{{ restic_version }}/SHA256SUMS
+        dest: "/tmp/restic_{{ restic_version }}_SHA256SUMS"
+        mode: "0600"
+
+    - name: Verify the downloaded archive against the published checksum
+      # Проверяем по опубликованному файлу сумм, а не по захардкоженному хэшу:
+      # хэш в репозитории пришлось бы обновлять руками при каждом апгрейде,
+      # и его легко забыть — а тогда проверка стала бы бессмысленной.
+      ansible.builtin.shell:
+        cmd: >-
+          set -o pipefail &&
+          grep " restic_{{ restic_version }}_linux_amd64.bz2$"
+          /tmp/restic_{{ restic_version }}_SHA256SUMS
+          | sed "s| restic_{{ restic_version }}_linux_amd64.bz2| /tmp/restic_{{ restic_version }}.bz2|"
+          | sha256sum -c -
+        executable: /bin/bash
+      changed_when: false
+
+    - name: Decompress restic
+      ansible.builtin.shell:
+        cmd: "bunzip2 -c /tmp/restic_{{ restic_version }}.bz2 > {{ restic_bin }}"
+        creates: "{{ restic_bin }}.{{ restic_version }}.done"
+      changed_when: true
+
+    - name: Set restic permissions
+      ansible.builtin.file:
+        path: "{{ restic_bin }}"
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Mark the installed version
+      ansible.builtin.file:
+        path: "{{ restic_bin }}.{{ restic_version }}.done"
+        state: touch
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Clean up downloads
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - "/tmp/restic_{{ restic_version }}.bz2"
+        - "/tmp/restic_{{ restic_version }}_SHA256SUMS"
+
+# --- Секреты и скрипты ------------------------------------------------------
+
+- name: Create the restic cache directory inside the encrypted volume
+  ansible.builtin.file:
+    path: "{{ restic_cache_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+
+- name: Write restic environment inside the encrypted volume
+  ansible.builtin.template:
+    src: restic.env.j2
+    dest: "{{ notenotes_secrets_dir }}/restic.env"
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+
+- name: Create the local repository directory
+  ansible.builtin.file:
+    path: "{{ restic_local_repo }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+  when: restic_backend == 'local'
+
+- name: Install backup scripts
+  ansible.builtin.template:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    owner: root
+    group: root
+    mode: "0750"
+  loop:
+    - {src: notenotes-restic.sh.j2, dest: /usr/local/sbin/notenotes-restic}
+    - {src: notenotes-backup.sh.j2, dest: /usr/local/sbin/notenotes-backup}
+    - {src: notenotes-backup-now.sh.j2, dest: /usr/local/sbin/notenotes-backup-now}
+    - {src: notenotes-alert.sh.j2, dest: /usr/local/sbin/notenotes-alert}
+    - {src: notenotes-restore-test.sh.j2, dest: /usr/local/sbin/notenotes-restore-test}
+
+# --- Инициализация репозитория ---------------------------------------------
+
+- name: Check whether the repository already exists
+  ansible.builtin.command:
+    cmd: /usr/local/sbin/notenotes-restic cat config
+  register: restic_repo_probe
+  changed_when: false
+  failed_when: false
+
+- name: Initialise the restic repository
+  ansible.builtin.command:
+    cmd: /usr/local/sbin/notenotes-restic init
+  when: restic_repo_probe.rc != 0
+  register: restic_init
+  changed_when: restic_init.rc == 0
+
+- name: Report a failed repository probe
+  ansible.builtin.assert:
+    that:
+      - restic_repo_probe.rc == 0 or (restic_init.rc | default(1)) == 0
+    fail_msg: >-
+      Не удалось ни открыть, ни создать репозиторий restic.
+      {% if restic_backend == 's4' %}
+      Проверь, что бакет {{ restic_s4_bucket }} создан в панели MEGA S4,
+      ключи доступа верны, а endpoint {{ restic_s4_endpoint }} соответствует
+      региону бакета.
+      {% endif %}
+      Вывод: {{ restic_repo_probe.stderr | default('') | truncate(400) }}
+
+# --- systemd ---------------------------------------------------------------
+
+- name: Install backup units
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "/etc/systemd/system/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - notenotes-backup.service
+    - notenotes-backup.timer
+    - notenotes-restic-check.service
+    - notenotes-restic-check.timer
+    - notenotes-alert@.service
+  notify: Reload systemd
+
+- name: Apply pending unit changes
+  ansible.builtin.meta: flush_handlers
+
+- name: Enable backup timers
+  ansible.builtin.systemd_service:
+    name: "{{ item }}"
+    enabled: true
+    state: started
+    daemon_reload: true
+  loop:
+    - notenotes-backup.timer
+    - notenotes-restic-check.timer
+
+- name: Read timer schedule
+  # noqa command-instead-of-module — модуль systemd не отдаёт расписание
+  # таймеров; это диагностический вывод для человека.
+  ansible.builtin.command:
+    cmd: systemctl list-timers --all --no-pager notenotes-*
+  register: backup_timers
+  changed_when: false
+
+- name: Report backup configuration
+  ansible.builtin.debug:
+    msg:
+      - >-
+        Репозиторий: {{ 's3:https://' ~ restic_s4_endpoint ~ '/' ~ restic_s4_bucket
+        if restic_backend == 's4' else restic_local_repo }}
+      - "Ретенция: {{ restic_keep_daily }}d / {{ restic_keep_weekly }}w / {{ restic_keep_monthly }}m"
+      - "{{ backup_timers.stdout_lines }}"
+      - >-
+        ОБЯЗАТЕЛЬНО проверь восстановление вручную — см. README, раздел
+        «Проверка восстановления». Непроверенный бэкап бэкапом не является.

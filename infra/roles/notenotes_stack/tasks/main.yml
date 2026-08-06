@@ -1,0 +1,251 @@
+---
+- name: Refuse to deploy onto an unmounted volume
+  ansible.builtin.command:
+    cmd: /usr/local/sbin/encrypted-preflight notenotes
+  changed_when: false
+
+- name: Install database init script
+  ansible.builtin.copy:
+    src: 01-extensions.sql
+    dest: "{{ notenotes_compose_dir }}/initdb/01-extensions.sql"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Render compose file
+  ansible.builtin.template:
+    src: docker-compose.yml.j2
+    dest: "{{ notenotes_compose_dir }}/docker-compose.yml"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart notenotes stack
+
+- name: Validate the compose file
+  ansible.builtin.command:
+    cmd: docker compose config --quiet
+    chdir: "{{ notenotes_compose_dir }}"
+  changed_when: false
+
+- name: Publish the Caddy site fragment to the shared edge proxy
+  # Приложение владеет только своим фрагментом. Общий Caddyfile не трогаем —
+  # это и позволяет добавлять приложения, не редактируя чужие конфиги.
+  ansible.builtin.template:
+    src: notenotes.caddy.j2
+    dest: "{{ edge_conf_dir }}/notenotes.caddy"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reload edge proxy
+
+- name: Install the stack systemd unit
+  ansible.builtin.template:
+    src: notenotes.service.j2
+    dest: /etc/systemd/system/notenotes.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify:
+    - Reload systemd
+    - Restart notenotes stack
+
+- name: Apply pending unit and proxy changes
+  ansible.builtin.meta: flush_handlers
+
+- name: Register the stack with the encrypted-apps target
+  # enable безопасен даже при luks_enabled: юнит попадает в
+  # encrypted-apps.target.wants, а сама цель при загрузке не поднимается.
+  ansible.builtin.systemd_service:
+    name: notenotes.service
+    enabled: true
+    daemon_reload: true
+
+- name: Start the stack
+  ansible.builtin.systemd_service:
+    name: notenotes.service
+    state: started
+
+# --- Проверки ---------------------------------------------------------------
+
+- name: Wait for PostgreSQL to accept connections
+  ansible.builtin.command:
+    cmd: >-
+      docker compose exec -T postgres
+      pg_isready -U {{ postgres_user }} -d {{ postgres_db }}
+    chdir: "{{ notenotes_compose_dir }}"
+  register: pg_ready
+  until: pg_ready.rc == 0
+  retries: 30
+  delay: 5
+  changed_when: false
+
+- name: Read currently installed extensions
+  ansible.builtin.command:
+    argv:
+      - docker
+      - compose
+      - exec
+      - -T
+      - postgres
+      - psql
+      - -U
+      - "{{ postgres_user }}"
+      - -d
+      - "{{ postgres_db }}"
+      - -tAc
+      - "SELECT extname FROM pg_extension"
+    chdir: "{{ notenotes_compose_dir }}"
+  register: pg_ext_installed
+  changed_when: false
+
+- name: Ensure required extensions exist
+  # Скрипты из docker-entrypoint-initdb.d выполняются только при первичной
+  # инициализации кластера. Этот таск нужен, чтобы расширение можно было
+  # добавить и на уже живую базу, не пересоздавая её.
+  #
+  # Условие построено на списке уже установленных расширений, а не на выводе
+  # команды: psql печатает тег «CREATE EXTENSION» и тогда, когда расширение
+  # уже есть и IF NOT EXISTS ничего не сделал. Проверка по выводу считала бы
+  # изменением каждый прогон и прятала бы реальные расхождения.
+  ansible.builtin.command:
+    argv:
+      - docker
+      - compose
+      - exec
+      - -T
+      - postgres
+      - psql
+      - -U
+      - "{{ postgres_user }}"
+      - -d
+      - "{{ postgres_db }}"
+      - -v
+      - "ON_ERROR_STOP=1"
+      - -c
+      - >-
+        {% for ext in notenotes_required_extensions %}
+        CREATE EXTENSION IF NOT EXISTS {{ ext }};
+        {% endfor %}
+    chdir: "{{ notenotes_compose_dir }}"
+  when: notenotes_missing_extensions | length > 0
+  changed_when: true
+  vars:
+    notenotes_missing_extensions: >-
+      {{ notenotes_required_extensions
+         | difference(pg_ext_installed.stdout_lines | map('trim') | list) }}
+
+- name: Read installed extension versions
+  ansible.builtin.command:
+    argv:
+      - docker
+      - compose
+      - exec
+      - -T
+      - postgres
+      - psql
+      - -U
+      - "{{ postgres_user }}"
+      - -d
+      - "{{ postgres_db }}"
+      - -tAc
+      - "SELECT extname || '=' || extversion FROM pg_extension ORDER BY extname"
+    chdir: "{{ notenotes_compose_dir }}"
+  register: pg_extensions
+  changed_when: false
+
+- name: Assert pgvector is available
+  ansible.builtin.assert:
+    that:
+      - "'vector=' in pg_extensions.stdout"
+    fail_msg: "Расширение vector не установлено — векторный поиск из ТЗ §3.2 работать не будет."
+    success_msg: "Расширения: {{ pg_extensions.stdout_lines | join(', ') }}"
+
+- name: Verify a vector round-trip actually works
+  # Проверяем не только «расширение есть», но и что вектор реально
+  # записывается, читается и участвует в сортировке по расстоянию.
+  ansible.builtin.command:
+    argv:
+      - docker
+      - compose
+      - exec
+      - -T
+      - postgres
+      - psql
+      - -U
+      - "{{ postgres_user }}"
+      - -d
+      - "{{ postgres_db }}"
+      - -tAc
+      - >-
+        CREATE TEMP TABLE _v (id int, e vector(3));
+        INSERT INTO _v VALUES (1, '[1,0,0]'), (2, '[0,1,0]');
+        SELECT id FROM _v ORDER BY e <-> '[0.9,0.1,0]' LIMIT 1;
+    chdir: "{{ notenotes_compose_dir }}"
+  register: vector_check
+  changed_when: false
+  failed_when: (vector_check.stdout_lines | last | trim) != '1'
+
+- name: Verify Redis responds with authentication
+  ansible.builtin.shell:
+    cmd: >-
+      set -o pipefail &&
+      docker compose exec -T redis
+      redis-cli -a "$(grep '^requirepass' {{ notenotes_secrets_dir }}/redis.conf | cut -d' ' -f2)"
+      ping
+    chdir: "{{ notenotes_compose_dir }}"
+    executable: /bin/bash
+  register: redis_ping
+  changed_when: false
+  failed_when: "'PONG' not in redis_ping.stdout"
+  no_log: true
+
+- name: Probe whether the running proxy already serves this site
+  # Обращаемся с нужным заголовком Host: без него ни один site-блок не совпал бы.
+  # 404 в списке допустимых кодов — это сигнал «наш сайт не загружен», который
+  # обрабатывает следующая задача, а не ошибка.
+  ansible.builtin.uri:
+    url: "http://127.0.0.1/"
+    headers:
+      Host: "{{ notenotes_domain }}"
+    status_code: [200, 301, 302, 308, 404, 502]
+    validate_certs: false
+  register: route_probe
+  changed_when: false
+
+- name: Reload the proxy when its running config lags behind the files on disk
+  # Страховка от известной ловушки хендлеров. Если предыдущий прогон упал ПОСЛЕ
+  # записи фрагмента, но ДО хендлера, уведомление теряется безвозвратно. На
+  # следующем прогоне файл уже корректен, шаблон возвращает ok вместо changed,
+  # хендлер не вызывается — и прокси навсегда остаётся со старым конфигом,
+  # причём Ansible при этом рапортует полный успех.
+  #
+  # Поэтому сверяемся с фактическим поведением прокси, а не с бухгалтерией
+  # изменений файлов.
+  ansible.builtin.systemd_service:
+    name: edge.service
+    state: reloaded
+  when: route_probe.status == 404
+
+- name: Verify the edge proxy routes the notenotes hostname
+  ansible.builtin.uri:
+    url: "http://127.0.0.1/"
+    headers:
+      Host: "{{ notenotes_domain }}"
+    status_code: [200, 301, 302, 308, 502]
+    validate_certs: false
+  register: route_check
+  retries: 5
+  delay: 3
+  until: route_check is succeeded
+
+- name: Report stack state
+  ansible.builtin.debug:
+    msg:
+      - "PostgreSQL: готов, {{ pg_extensions.stdout_lines | join(', ') }}"
+      - "Redis: PONG"
+      - >-
+        Маршрут {{ notenotes_domain }} через edge-прокси: HTTP {{ route_check.status }}
+        {{ '(502 ожидаем — backend ещё не задеплоен)' if route_check.status == 502 else '' }}
+      - >-
+        TLS: {{ "Let's Encrypt для " ~ notenotes_domain if notenotes_tls_mode == 'acme'
+        else 'выключен — переведи A-запись на этот сервер и поставь notenotes_tls_mode: acme' }}

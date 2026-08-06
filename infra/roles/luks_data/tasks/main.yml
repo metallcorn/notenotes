@@ -1,0 +1,285 @@
+---
+# Один LUKS2-том на все приложения хоста, с ручной разблокировкой по SSH.
+#
+# Почему контейнер, а не шифрованный root: отказ обратим — если что-то
+# сломается, ОС всё равно загрузится и можно зайти по SSH. С шифрованным root
+# ошибка означает «сервер не грузится» и отладку через VNC-консоль провайдера.
+#
+# Почему ОДИН том на все приложения, а не по одному: один пароль и одна команда
+# после перезагрузки вместо N. Разделение — подкаталогами внутри тома.
+#
+# Внутри тома живут ТРИ вещи, и это принципиально:
+#   1. данные приложений (Postgres и т.п.),
+#   2. загруженные файлы,
+#   3. секреты (.env, пароль restic, ключи S4).
+# Без п.3 образ незашифрованного диска отдал бы доступ к шифрованным бэкапам,
+# и смысл шифрования данных потерялся бы целиком.
+
+- name: Resolve the LUKS backing target
+  ansible.builtin.set_fact:
+    luks_backing_target: >-
+      {{ luks_device if luks_backing == 'device' else luks_container_path }}
+
+- name: Validate backing configuration
+  ansible.builtin.assert:
+    that:
+      - luks_backing in ['file', 'device']
+      - luks_backing != 'device' or (luks_device | length > 0)
+    fail_msg: "luks_backing должен быть file или device; для device задай luks_device."
+
+- name: Create the shared mount point
+  ansible.builtin.file:
+    path: "{{ encrypted_mount }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Check whether the volume is already mounted
+  ansible.builtin.command:
+    cmd: "mountpoint -q {{ encrypted_mount }}"
+  register: data_mounted
+  changed_when: false
+  failed_when: false
+
+- name: Provision the LUKS volume
+  when: luks_enabled | bool
+  block:
+    - name: Ensure the container parent directory exists
+      ansible.builtin.file:
+        path: "{{ luks_container_path | dirname }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0700"
+      when: luks_backing == 'file'
+
+    - name: Check whether the container file already exists
+      ansible.builtin.stat:
+        path: "{{ luks_container_path }}"
+      register: luks_container
+      when: luks_backing == 'file'
+
+    - name: Assert there is enough free space for the container
+      # Проверяем ДО создания: заполнить root под ноль на удалённой машине —
+      # отдельный способ потерять доступ.
+      ansible.builtin.assert:
+        that:
+          - >-
+            ((ansible_mounts | selectattr('mount', 'equalto', '/') | first).size_available
+             / 1024 / 1024 / 1024) - luks_container_size_gb >= luks_min_free_gb_after
+        fail_msg: >-
+          Недостаточно места. Свободно
+          {{ ((ansible_mounts | selectattr('mount', 'equalto', '/') | first).size_available
+              / 1024 / 1024 / 1024) | round(1) }} ГБ,
+          нужен контейнер {{ luks_container_size_gb }} ГБ плюс запас
+          {{ luks_min_free_gb_after }} ГБ. Уменьши luks_container_size_gb.
+      when:
+        - luks_backing == 'file'
+        - not luks_container.stat.exists
+
+    - name: Allocate the container file
+      # fallocate, не sparse-файл: при sparse Postgres может поймать ENOSPC
+      # уже во время записи, когда откатываться некуда.
+      ansible.builtin.command:
+        cmd: "fallocate -l {{ luks_container_size_gb }}G {{ luks_container_path }}"
+        creates: "{{ luks_container_path }}"
+      when: luks_backing == 'file'
+
+    - name: Restrict container file permissions
+      ansible.builtin.file:
+        path: "{{ luks_container_path }}"
+        owner: root
+        group: root
+        mode: "0600"
+      when: luks_backing == 'file'
+
+    - name: Check whether the backing target is already a LUKS device
+      ansible.builtin.command:
+        cmd: "cryptsetup isLuks {{ luks_backing_target }}"
+      register: is_luks
+      changed_when: false
+      failed_when: false
+
+    - name: Stage the passphrase in tmpfs
+      # /dev/shm — tmpfs, на диск не попадает. Передавать фразу аргументом
+      # командной строки нельзя: она была бы видна в ps.
+      ansible.builtin.copy:
+        content: "{{ luks_passphrase }}"
+        dest: /dev/shm/.srv-luks-key
+        owner: root
+        group: root
+        mode: "0600"
+      no_log: true
+      changed_when: false
+
+    - name: Format the LUKS2 volume
+      ansible.builtin.command:
+        argv:
+          - cryptsetup
+          - luksFormat
+          - --type=luks2
+          - --cipher=aes-xts-plain64
+          - --key-size=512
+          - --hash=sha256
+          - --pbkdf=argon2id
+          # Ограничиваем память Argon2id: на машине с 4 ГБ автоподбор
+          # cryptsetup может запросить столько, что операция упрётся в OOM.
+          - --pbkdf-memory=262144
+          - --pbkdf-parallel=2
+          - --iter-time=2000
+          - --batch-mode
+          - --key-file=/dev/shm/.srv-luks-key
+          - "{{ luks_backing_target }}"
+      when: is_luks.rc != 0
+      changed_when: true
+
+    - name: Open the LUKS volume
+      ansible.builtin.command:
+        argv:
+          - cryptsetup
+          - open
+          - --key-file=/dev/shm/.srv-luks-key
+          - "{{ luks_backing_target }}"
+          - "{{ luks_mapper_name }}"
+        creates: "/dev/mapper/{{ luks_mapper_name }}"
+
+    - name: Remove the staged passphrase
+      ansible.builtin.file:
+        path: /dev/shm/.srv-luks-key
+        state: absent
+      changed_when: false
+
+    - name: Read the filesystem type on the mapped device
+      ansible.builtin.command:
+        cmd: "blkid -o value -s TYPE /dev/mapper/{{ luks_mapper_name }}"
+      register: luks_fstype
+      changed_when: false
+      failed_when: false
+
+    - name: Create the filesystem
+      community.general.filesystem:
+        fstype: ext4
+        dev: "/dev/mapper/{{ luks_mapper_name }}"
+      when: (luks_fstype.stdout | trim) == ''
+
+    - name: Lock down the bare mount point before mounting over it
+      # В закрытом состоянии каталог должен быть непригоден для записи, чтобы
+      # промах мимо смонтированного тома был очевиден, а не тих.
+      ansible.builtin.file:
+        path: "{{ encrypted_mount }}"
+        owner: root
+        group: root
+        mode: "0000"
+      when: data_mounted.rc != 0
+
+    - name: Mount the encrypted volume
+      # noauto — обязательно: при загрузке устройства /dev/mapper ещё нет,
+      # и автомонтирование либо провалилось бы, либо задержало бы загрузку.
+      # systemd всё равно построит юнит для этой точки, на который опирается
+      # RequiresMountsFor в encrypted-apps.target и в юнитах приложений.
+      ansible.posix.mount:
+        path: "{{ encrypted_mount }}"
+        src: "/dev/mapper/{{ luks_mapper_name }}"
+        fstype: ext4
+        opts: defaults,noatime,noauto
+        state: mounted
+
+    - name: Set permissions on the mounted volume root
+      ansible.builtin.file:
+        path: "{{ encrypted_mount }}"
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Write the volume marker
+      # По этому файлу encrypted-preflight отличает «том смонтирован» от
+      # «под точкой монтирования оказался пустой каталог».
+      ansible.builtin.copy:
+        dest: "{{ encrypted_mount }}/.encrypted-volume"
+        content: |
+          Общий шифрованный том данных этого хоста.
+          Наличие файла — признак того, что том действительно смонтирован.
+          Не удалять: без него encrypted-preflight не пустит приложения на запуск.
+        owner: root
+        group: root
+        mode: "0644"
+
+# --- Своп внутри тома -------------------------------------------------------
+
+- name: Create swapfile inside the encrypted volume
+  # Обычный swapfile на root хранил бы расшифрованные страницы Postgres
+  # на незашифрованном диске. Внутри тома этой утечки нет.
+  when:
+    - luks_enabled | bool
+    - luks_swapfile_enabled | bool
+  block:
+    - name: Allocate the swapfile
+      ansible.builtin.command:
+        cmd: "fallocate -l {{ luks_swapfile_size_mb }}M {{ encrypted_mount }}/swapfile"
+        creates: "{{ encrypted_mount }}/swapfile"
+
+    - name: Restrict swapfile permissions
+      ansible.builtin.file:
+        path: "{{ encrypted_mount }}/swapfile"
+        owner: root
+        group: root
+        mode: "0600"
+
+    - name: Check whether the swapfile is formatted
+      ansible.builtin.command:
+        cmd: "blkid -o value -s TYPE {{ encrypted_mount }}/swapfile"
+      register: swapfile_type
+      changed_when: false
+      failed_when: false
+
+    - name: Format the swapfile
+      ansible.builtin.command:
+        cmd: "mkswap {{ encrypted_mount }}/swapfile"
+      when: (swapfile_type.stdout | trim) != 'swap'
+      changed_when: true
+
+    - name: Read active swap devices
+      ansible.builtin.command:
+        cmd: swapon --show=NAME --noheadings
+      register: active_swap
+      changed_when: false
+
+    - name: Activate the swapfile at low priority
+      # Приоритет задан явно, чтобы поведение не зависело от порядка
+      # активации, если позже добавится второе устройство свопа.
+      ansible.builtin.command:
+        cmd: "swapon --priority 10 {{ encrypted_mount }}/swapfile"
+      when: (encrypted_mount ~ '/swapfile') not in active_swap.stdout
+      changed_when: true
+
+# --- Управление томом и приложениями ----------------------------------------
+
+- name: Install the applications target
+  ansible.builtin.template:
+    src: encrypted-apps.target.j2
+    dest: /etc/systemd/system/encrypted-apps.target
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reload systemd
+
+- name: Install volume management scripts
+  ansible.builtin.template:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    owner: root
+    group: root
+    mode: "0750"
+  loop:
+    - {src: encrypted-unlock.sh.j2, dest: /usr/local/sbin/encrypted-unlock}
+    - {src: encrypted-lock.sh.j2, dest: /usr/local/sbin/encrypted-lock}
+    - {src: encrypted-preflight.sh.j2, dest: /usr/local/sbin/encrypted-preflight}
+
+- name: Apply pending unit changes
+  ansible.builtin.meta: flush_handlers
+
+- name: Verify the volume is mounted and usable
+  ansible.builtin.command:
+    cmd: /usr/local/sbin/encrypted-preflight
+  changed_when: false

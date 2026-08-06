@@ -1,0 +1,7 @@
+---
+firewall_allowed_ports:
+  - {port: 22, proto: tcp, comment: SSH}
+  - {port: 80, proto: tcp, comment: HTTP (Caddy, ACME HTTP-01)}
+  - {port: 443, proto: tcp, comment: HTTPS (Caddy)}
+
+firewall_fail2ban_maxretry: 3

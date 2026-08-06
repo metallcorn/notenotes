@@ -1,0 +1,80 @@
+#!/bin/bash
+# {{ ansible_managed }}
+#
+# Шифрованный бэкап во внешнее хранилище.
+#
+# Вызывается systemd-таймером ежедневно и вручную перед миграциями БД
+# (требование ТЗ §17):  sudo notenotes-backup-now
+#
+# Порядок важен: сначала консистентный дамп БД, потом файлы. pg_dump даёт
+# снимок в одной транзакции, поэтому дамп внутренне консистентен даже под
+# нагрузкой — копировать каталог PGDATA на живой базе было бы нельзя.
+
+set -euo pipefail
+
+DATA_DIR="{{ notenotes_data_dir }}"
+STAGING="{{ restic_staging_dir }}"
+COMPOSE_DIR="{{ notenotes_compose_dir }}"
+ENV_FILE="{{ notenotes_secrets_dir }}/restic.env"
+RESTIC="{{ restic_bin }}"
+DUMP="$STAGING/postgres-{{ postgres_db }}.dump"
+
+log() { echo "[$(date -Is)] $*"; }
+
+if [[ $EUID -ne 0 ]]; then
+    echo "Нужны права root" >&2
+    exit 1
+fi
+
+# Без смонтированного тома нет ни секретов, ни данных — бэкапить нечего,
+# и «успешный» пустой бэкап хуже явной ошибки.
+/usr/local/sbin/encrypted-preflight notenotes
+
+# shellcheck source=/dev/null
+set -a
+source "$ENV_FILE"
+set +a
+
+cleanup() {
+    rm -f "$DUMP"
+}
+trap cleanup EXIT
+
+log "Дамп базы {{ postgres_db }}"
+mkdir -p "$STAGING"
+chmod 700 "$STAGING"
+docker compose -f "$COMPOSE_DIR/docker-compose.yml" exec -T postgres \
+    pg_dump -U "{{ postgres_user }}" -d "{{ postgres_db }}" -Fc > "$DUMP"
+chmod 600 "$DUMP"
+log "Дамп готов: $(du -h "$DUMP" | cut -f1)"
+
+log "Отправляю снимок в репозиторий"
+"$RESTIC" backup \
+    --verbose \
+    --tag notenotes \
+    --host "{{ notenotes_hostname }}" \
+    --exclude "{{ encrypted_mount }}/swapfile" \
+    --exclude "$DATA_DIR/postgres" \
+    --exclude "$DATA_DIR/redis" \
+{% if restic_backend == 'local' %}
+    --exclude "{{ restic_local_repo }}" \
+{% endif %}
+    "$DUMP" \
+    "$DATA_DIR/uploads" \
+    "{{ notenotes_secrets_dir }}" \
+    "$COMPOSE_DIR"
+
+# Каталог PGDATA исключён намеренно: восстанавливаем из дампа. Копия файлов
+# живого кластера без pg_basebackup непригодна для восстановления.
+# Каталог redis тоже исключён: это кэш и очередь, а не источник истины.
+
+log "Применяю политику хранения"
+"$RESTIC" forget \
+    --tag notenotes \
+    --keep-daily {{ restic_keep_daily }} \
+    --keep-weekly {{ restic_keep_weekly }} \
+    --keep-monthly {{ restic_keep_monthly }} \
+    --prune
+
+log "Готово. Снимки:"
+"$RESTIC" snapshots --tag notenotes --compact || true

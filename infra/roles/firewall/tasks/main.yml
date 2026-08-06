@@ -1,0 +1,68 @@
+---
+# UFW и fail2ban.
+#
+# Обход UFW со стороны Docker закрывается в роли docker (правила DOCKER-USER):
+# этот playbook выполняется до установки Docker, и юнит с Requires=docker.service
+# здесь бы просто не запустился.
+
+- name: Set UFW default policies
+  # Политику routed (FORWARD) намеренно НЕ трогаем. Docker вставляет свои
+  # хуки в начало FORWARD при каждом старте демона, и попытка управлять
+  # forward-политикой из ufw приводит к гонке: кто применился последним, тот
+  # и определяет, есть ли у контейнеров интернет.
+  # Разделение ответственности: ufw управляет входящим трафиком ХОСТА (INPUT),
+  # доступ снаружи к КОНТЕЙНЕРАМ — цепочка DOCKER-USER (роль docker).
+  community.general.ufw:
+    direction: incoming
+    policy: deny
+
+- name: Allow outgoing traffic by default
+  community.general.ufw:
+    direction: outgoing
+    policy: allow
+
+- name: Allow inbound ports
+  community.general.ufw:
+    rule: allow
+    port: "{{ item.port }}"
+    proto: "{{ item.proto }}"
+    comment: "{{ item.comment }}"
+  loop: "{{ firewall_allowed_ports }}"
+
+- name: Enable UFW
+  community.general.ufw:
+    state: enabled
+    logging: low
+
+- name: Configure fail2ban
+  ansible.builtin.template:
+    src: jail.local.j2
+    dest: /etc/fail2ban/jail.local
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart fail2ban
+
+- name: Enable and start fail2ban
+  ansible.builtin.systemd_service:
+    name: fail2ban
+    enabled: true
+    state: started
+
+- name: Apply pending fail2ban changes now
+  ansible.builtin.meta: flush_handlers
+
+- name: Read fail2ban jail status
+  ansible.builtin.command:
+    cmd: fail2ban-client status sshd
+  register: fail2ban_sshd_status
+  changed_when: false
+
+- name: Assert the sshd jail is actually active
+  # Проверяем не «сервис запущен», а что jail реально существует: при неверном
+  # backend fail2ban поднимается без ошибок, но никого не банит.
+  ansible.builtin.assert:
+    that:
+      - "'Filter' in fail2ban_sshd_status.stdout"
+    fail_msg: "Jail sshd не поднялся — проверь backend в /etc/fail2ban/jail.local"
+    success_msg: "Jail sshd активен."

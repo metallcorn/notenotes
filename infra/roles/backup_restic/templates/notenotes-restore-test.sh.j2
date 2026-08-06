@@ -1,0 +1,70 @@
+#!/bin/bash
+# {{ ansible_managed }}
+#
+# Сквозная проверка восстановления: достаёт последний снимок из репозитория,
+# разворачивает дамп в ОТДЕЛЬНУЮ временную базу и убирает за собой.
+# Рабочая база не затрагивается.
+#
+#   sudo notenotes-restore-test
+#
+# Существует потому, что «бэкапы делаются» и «из бэкапов можно восстановиться» —
+# разные утверждения, и второе проверяется только практикой. Прогонять после
+# изменений в схеме бэкапов и хотя бы изредка планово.
+
+set -euo pipefail
+
+COMPOSE_DIR="{{ notenotes_compose_dir }}"
+WORK=/tmp/notenotes-restore-test
+TESTDB=restore_test
+
+if [[ $EUID -ne 0 ]]; then
+    echo "Нужны права root: sudo notenotes-restore-test" >&2
+    exit 1
+fi
+
+cleanup() {
+    rm -rf "$WORK"
+    docker compose -f "$COMPOSE_DIR/docker-compose.yml" exec -T postgres \
+        dropdb -U "{{ postgres_user }}" --if-exists "$TESTDB" >/dev/null 2>&1 || true
+}
+trap cleanup EXIT
+
+echo "--- восстанавливаю последний снимок ---"
+rm -rf "$WORK"
+/usr/local/sbin/notenotes-restic restore latest --target "$WORK" 2>&1 | tail -1
+
+DUMP=$(find "$WORK" -name '*.dump' | head -1)
+if [[ -z $DUMP ]]; then
+    echo "ОШИБКА: в снимке нет дампа базы." >&2
+    exit 1
+fi
+echo "дамп: $DUMP ($(stat -c%s "$DUMP") байт)"
+
+echo "--- разворачиваю в отдельную базу $TESTDB ---"
+docker compose -f "$COMPOSE_DIR/docker-compose.yml" exec -T postgres \
+    dropdb -U "{{ postgres_user }}" --if-exists "$TESTDB"
+docker compose -f "$COMPOSE_DIR/docker-compose.yml" exec -T postgres \
+    createdb -U "{{ postgres_user }}" "$TESTDB"
+docker compose -f "$COMPOSE_DIR/docker-compose.yml" exec -T postgres \
+    pg_restore -U "{{ postgres_user }}" -d "$TESTDB" < "$DUMP"
+
+echo "--- расширения в восстановленной базе ---"
+docker compose -f "$COMPOSE_DIR/docker-compose.yml" exec -T postgres \
+    psql -U "{{ postgres_user }}" -d "$TESTDB" -tAc \
+    "SELECT extname || '=' || extversion FROM pg_extension ORDER BY extname"
+
+echo "--- проверяю, что векторный поиск работает ---"
+RESULT=$(docker compose -f "$COMPOSE_DIR/docker-compose.yml" exec -T postgres \
+    psql -U "{{ postgres_user }}" -d "$TESTDB" -tAc \
+    "CREATE TEMP TABLE _v (id int, e vector(3));
+     INSERT INTO _v VALUES (1,'[1,0,0]'),(2,'[0,1,0]');
+     SELECT id FROM _v ORDER BY e <-> '[0.9,0.1,0]' LIMIT 1" | tail -1 | tr -d '[:space:]')
+
+if [[ "$RESULT" != "1" ]]; then
+    echo "ОШИБКА: векторный запрос вернул '$RESULT', ожидалась 1." >&2
+    exit 1
+fi
+
+echo
+echo "ВОССТАНОВЛЕНИЕ ПРОВЕРЕНО: дамп разворачивается, расширения на месте,"
+echo "векторный поиск работает. Временная база и файлы удалены."
