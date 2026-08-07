@@ -80,9 +80,17 @@ class PalabraClient:
             # is_eos на КАЖДОМ куске, не только на последнем — граница чанка
             # здесь и есть граница предложения/абзаца (см. _chunk_text), а
             # это единственный сигнал паузы, который понимает протокол.
-            for part in _chunk_text(text):
+            text_parts = _chunk_text(text)
+            for part in text_parts:
                 await ws.send(json.dumps({"type": "text", "text": part, "is_eos": True}))
 
+            # last_chunk приходит на КАЖДОЕ is_eos-предложение отдельно (это
+            # завершение конкретной фразы, а не всего стрима) — раньше с
+            # одним is_eos на весь текст это совпадало с концом потока и
+            # разницы было не видно. Теперь после сплита на предложения
+            # первый же last_chunk обрывал бы всё после первой фразы —
+            # ждём столько last_chunk, сколько фраз реально отправили.
+            remaining_sentences = len(text_parts)
             async for raw in ws:
                 message = json.loads(raw)
                 if message.get("message_type") != "audio_chunk":
@@ -90,6 +98,8 @@ class PalabraClient:
                 data = message["data"]
                 chunks.append(base64.b64decode(data["audio"]))
                 if data.get("last_chunk"):
-                    break
+                    remaining_sentences -= 1
+                    if remaining_sentences <= 0:
+                        break
 
         return _pcm_to_wav(b"".join(chunks), SAMPLE_RATE)
