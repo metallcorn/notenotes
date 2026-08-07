@@ -37,6 +37,10 @@ export interface Tag {
   created_at: string;
 }
 
+export interface ItemTag extends Tag {
+  auto: boolean;
+}
+
 export interface Item {
   id: string;
   space_id: string;
@@ -47,7 +51,7 @@ export interface Item {
   content: string;
   created_at: string;
   updated_at: string;
-  tags: Tag[];
+  tags: ItemTag[];
   icon: string | null;
   color: string | null;
   pinned: boolean;

@@ -10,7 +10,7 @@ import { createLowlight, common } from "lowlight";
 import { Markdown } from "tiptap-markdown";
 import { Suspense, lazy, useEffect, useRef, useState } from "react";
 import type { ChangeEvent } from "react";
-import { ChevronLeft, Code2, Eye, History, Palette, Pin, PinOff, Trash2 } from "lucide-react";
+import { ChevronLeft, Code2, Eye, History, Palette, Pin, PinOff, Sparkles, Trash2 } from "lucide-react";
 import { uiStorage, type ContentWidth } from "../lib/storage";
 import { downloadFile, inlineImages, sanitizeFilename, wrapHtmlDocument } from "../lib/export";
 import {
@@ -21,6 +21,7 @@ import {
   useFolders,
   useItem,
   useRemoveItemTag,
+  useSuggestTags,
   useTags,
   useUpdateItem,
   useUploadFile,
@@ -61,6 +62,7 @@ export default function NoteEditor({
   const { data: allTags } = useTags();
   const addTag = useAddItemTag(itemId);
   const removeTag = useRemoveItemTag(itemId);
+  const suggestTags = useSuggestTags(itemId);
   const createTag = useCreateTag();
   const { data: folders } = useFolders(item?.space_id);
   const aiTransform = useAiTransform();
@@ -372,8 +374,14 @@ export default function NoteEditor({
         {item.tags.map((tag) => (
           <span
             key={tag.id}
-            className="flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600"
+            title={tag.auto ? "Автоматически предложенный тег" : undefined}
+            className={`flex items-center gap-1 rounded-full px-2 py-0.5 text-xs ${
+              tag.auto
+                ? "border border-dashed border-violet-300 bg-violet-50 text-violet-700"
+                : "bg-slate-100 text-slate-600"
+            }`}
           >
+            {tag.auto && <Sparkles size={10} />}
             #{tag.name}
             <button onClick={() => removeTag.mutate(tag.id)} className="text-slate-400 hover:text-red-600">
               ×
@@ -432,6 +440,15 @@ export default function NoteEditor({
             </div>
           )}
         </div>
+        <button
+          onClick={() => suggestTags.mutate()}
+          disabled={suggestTags.isPending}
+          title="Предложить теги по содержимому заметки"
+          className="flex items-center gap-1 rounded-full border border-dashed px-2 py-0.5 text-xs text-violet-500 hover:text-violet-700 disabled:opacity-50"
+        >
+          {suggestTags.isPending ? <Spinner size={12} /> : <Sparkles size={12} />}
+          Предложить теги
+        </button>
 
         <div className="ml-auto flex shrink-0 items-center gap-1">
           <span className="mr-1 flex w-20 items-center gap-1 text-xs text-slate-400">

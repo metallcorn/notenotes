@@ -111,6 +111,9 @@ class ItemTag(Base):
     user_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
     )
+    # Авто-тег от LLM-классификатора (app/autotag.py), не от человека —
+    # визуально помечается на фронте и легко удаляется (ТЗ §8.2).
+    auto: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
 
 
 class Upload(Base):

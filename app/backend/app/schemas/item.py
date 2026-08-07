@@ -3,7 +3,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field
 
-from app.schemas.tag import TagOut
+from app.schemas.tag import ItemTagOut
 
 
 class ItemCreate(BaseModel):
@@ -38,7 +38,7 @@ class ItemOut(BaseModel):
     content: str
     created_at: datetime
     updated_at: datetime
-    tags: list[TagOut] = []
+    tags: list[ItemTagOut] = []
     icon: str | None = None
     color: str | None = None
     pinned: bool = False

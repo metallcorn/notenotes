@@ -6,23 +6,28 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import realtime
+from app.autotag import enqueue_autotag, suggest_tags_now
 from app.db import get_db
 from app.deps import ensure_space_access, get_current_user
 from app.models import Folder, Item, ItemTag, ItemVersion, Tag, User
 from app.schemas.item import ItemCreate, ItemOut, ItemUpdate, ItemVersionOut
-from app.schemas.tag import TagOut
+from app.schemas.tag import ItemTagOut
 
 router = APIRouter(prefix="/api/items", tags=["items"])
 
+# Ниже этой длины контент слишком скудный для осмысленных тегов — не тратим
+# вызов LLM впустую (та же экономность, что и у остального автообработки).
+_MIN_CONTENT_FOR_AUTOTAG = 20
 
-async def _tags_for_item(db: AsyncSession, item_id: uuid.UUID, user_id: uuid.UUID) -> list[Tag]:
+
+async def _tags_for_item(db: AsyncSession, item_id: uuid.UUID, user_id: uuid.UUID) -> list[ItemTagOut]:
     result = await db.execute(
-        select(Tag)
+        select(Tag, ItemTag.auto)
         .join(ItemTag, ItemTag.tag_id == Tag.id)
         .where(ItemTag.item_id == item_id, ItemTag.user_id == user_id)
         .order_by(Tag.name)
     )
-    return list(result.scalars().all())
+    return [ItemTagOut(id=t.id, name=t.name, created_at=t.created_at, auto=auto) for t, auto in result.all()]
 
 
 async def _serialize(db: AsyncSession, item: Item, user_id: uuid.UUID) -> ItemOut:
@@ -37,7 +42,7 @@ async def _serialize(db: AsyncSession, item: Item, user_id: uuid.UUID) -> ItemOu
         content=item.content,
         created_at=item.created_at,
         updated_at=item.updated_at,
-        tags=[TagOut.model_validate(t) for t in tags],
+        tags=tags,
         icon=item.properties.get("icon"),
         color=item.properties.get("color"),
         pinned=bool(item.properties.get("pinned", False)),
@@ -83,6 +88,8 @@ async def create_item_row(
     await db.commit()
     await db.refresh(item)
     await realtime.notify_space(item.space_id, "dialogs" if material_type == "dialog" else "items")
+    if material_type == "note" and len(content.strip()) >= _MIN_CONTENT_FOR_AUTOTAG:
+        enqueue_autotag(item.id)
     return item
 
 
@@ -193,6 +200,20 @@ async def update_item(
     await db.commit()
     await db.refresh(item)
     await realtime.notify_space(item.space_id, "items")
+
+    # Заметку обычно создают пустой и печатают в неё — на create_item_row
+    # тегировать было нечего. Тегируем один раз, когда контент дорос до
+    # осмысленной длины, и только если тегов ещё нет вообще (ни ручных, ни
+    # авто) — не переклассифицируем на каждое сохранение.
+    if item.material_type == "note" and "content" in fields and len(item.content.strip()) >= _MIN_CONTENT_FOR_AUTOTAG:
+        has_tags = (
+            await db.execute(
+                select(ItemTag.item_id).where(ItemTag.item_id == item.id, ItemTag.user_id == user.id).limit(1)
+            )
+        ).scalar_one_or_none()
+        if has_tags is None:
+            enqueue_autotag(item.id)
+
     return await _serialize(db, item, user.id)
 
 
@@ -281,6 +302,21 @@ async def revert_version(
     await db.commit()
     await db.refresh(item)
     await realtime.notify_space(item.space_id, "items")
+    return await _serialize(db, item, user.id)
+
+
+@router.post("/{item_id}/suggest-tags", response_model=ItemOut)
+async def suggest_tags(
+    item_id: uuid.UUID, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+) -> ItemOut:
+    """Ручной триггер автотегирования (кнопка «Предложить теги» в редакторе) —
+    в отличие от автоматического запуска при создании/редактировании, тут
+    работает независимо от того, есть ли у заметки уже теги."""
+    item = await _get_accessible_item(db, user, item_id)
+    if item.material_type != "note":
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Автотеги доступны только для заметок")
+
+    await suggest_tags_now(item.id)
     return await _serialize(db, item, user.id)
 
 

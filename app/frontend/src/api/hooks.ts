@@ -302,6 +302,17 @@ export function useRemoveItemTag(itemId: string | undefined) {
   });
 }
 
+export function useSuggestTags(itemId: string | undefined) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.post<Item>(`/items/${itemId}/suggest-tags`),
+    onSuccess: (item) => {
+      qc.setQueryData(["item", itemId], item);
+      qc.invalidateQueries({ queryKey: ["items", item.space_id] });
+    },
+  });
+}
+
 // --- корзина --------------------------------------------------------------
 
 export function useTrash(spaceId: string | undefined) {
