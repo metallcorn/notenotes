@@ -57,11 +57,29 @@ function floatTo16BitPCM(input: Float32Array): ArrayBuffer {
 // после породившей их реплики ассистента (так пишет routers/dialogs.py) —
 // группируем их обратно под эту реплику, чтобы показать разворачиваемым
 // индикатором, а не отдельным сообщением в ленте.
+//
+// Один ход агентного цикла может состоять из нескольких итераций (тул →
+// результат → снова текст модели) — каждая пишется отдельной assistant-
+// записью в транскрипте. Без склейки это разваливается на несколько
+// пузырей подряд: один — только кнопка (от тула, content пустой), другой —
+// текст ("ссылка появится под этим сообщением"), а сама кнопка на самом
+// деле в предыдущем пузыре. Склеиваем подряд идущие assistant-записи (без
+// user между ними) в одну — кнопка и текст, который её описывает, тогда
+// оказываются в одном пузыре, как и должны.
 function groupMessages(messages: DialogMessage[]) {
   const groups: { message: DialogMessage; toolResults: DialogMessage[] }[] = [];
   for (const m of messages) {
     if (m.role === "tool") {
       groups[groups.length - 1]?.toolResults.push(m);
+      continue;
+    }
+    const prev = groups[groups.length - 1];
+    if (m.role === "assistant" && prev?.message.role === "assistant") {
+      prev.message = {
+        ...m,
+        content: [prev.message.content, m.content].filter(Boolean).join("\n\n"),
+        tool_calls: [...prev.message.tool_calls, ...m.tool_calls],
+      };
       continue;
     }
     groups.push({ message: m, toolResults: [] });
