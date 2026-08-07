@@ -14,3 +14,4 @@ class NotificationOut(BaseModel):
     payload: dict
     read_at: datetime | None
     created_at: datetime
+    trigger_at: datetime | None = None

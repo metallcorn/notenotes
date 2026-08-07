@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import { ChevronLeft, Plus, Trash2, X } from "lucide-react";
 import { useAddListEntry, useDeleteItem, useDeleteListEntry, useList, useUpdateItem, useUpdateListEntry } from "../api/hooks";
 import type { ListEntry } from "../api/types";
@@ -28,7 +28,10 @@ function ListEntryRow({
   }
 
   return (
-    <li className="group flex items-center gap-2 rounded px-1 py-1.5 hover:bg-slate-50">
+    <li
+      id={`list-entry-${entry.id}`}
+      className="group flex items-center gap-2 rounded px-1 py-1.5 transition-colors duration-500 hover:bg-slate-50"
+    >
       <input
         type="checkbox"
         checked={entry.checked}
@@ -58,13 +61,32 @@ export default function ListEditor({
   itemId,
   onDeleted,
   onBack,
+  highlightEntryId,
 }: {
   itemId: string;
   onDeleted: () => void;
   onBack: () => void;
+  highlightEntryId?: string | null;
 }) {
   const { data: list } = useList(itemId);
   useListSync(itemId);
+
+  // Переход из напоминания (create_reminder) — прокрутить к конкретному
+  // пункту и подсветить. highlightedRef, а не просто зависимость от
+  // highlightEntryId — иначе каждый refetch списка (поллинг раз в минуту у
+  // уведомлений тут ни при чём, но список синкается по WS) переигрывал бы
+  // подсветку заново, пока пользователь сидит на этой странице.
+  const highlightedRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!highlightEntryId || !list) return;
+    if (highlightedRef.current === highlightEntryId) return;
+    highlightedRef.current = highlightEntryId;
+    const el = document.getElementById(`list-entry-${highlightEntryId}`);
+    if (!el) return;
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
+    el.classList.add("bg-amber-100");
+    setTimeout(() => el.classList.remove("bg-amber-100"), 2500);
+  }, [highlightEntryId, list]);
 
   const updateItem = useUpdateItem();
   const deleteItem = useDeleteItem(list?.space_id);

@@ -7,10 +7,12 @@ export default function ItemView({
   itemId,
   onDeleted,
   onBack,
+  highlightEntryId,
 }: {
   itemId: string;
   onDeleted: () => void;
   onBack: () => void;
+  highlightEntryId?: string | null;
 }) {
   const { data: item } = useItem(itemId);
 
@@ -23,7 +25,7 @@ export default function ItemView({
   }
 
   if (item.material_type === "list") {
-    return <ListEditor itemId={itemId} onDeleted={onDeleted} onBack={onBack} />;
+    return <ListEditor itemId={itemId} onDeleted={onDeleted} onBack={onBack} highlightEntryId={highlightEntryId} />;
   }
   return <NoteEditor itemId={itemId} onDeleted={onDeleted} onBack={onBack} />;
 }

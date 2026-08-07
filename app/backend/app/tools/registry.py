@@ -59,12 +59,13 @@ SKILL_CATALOG: dict[str, dict[str, Any]] = {
     "web_search": {"label": "Веб-поиск", "description": "Ищет в открытом интернете через Tavily (до 5 запросов за ход)", "toggleable": True},
     "create_calendar_event": {"label": "Календарь", "description": "Готовит файл события для добавления в твой календарь", "toggleable": True},
     "create_maps_link": {"label": "Карты и навигация", "description": "Готовит ссылку на место в Google Maps", "toggleable": True},
+    "create_reminder": {"label": "Напоминания", "description": "Создаёт напоминание в центре уведомлений на выбранное время", "toggleable": True},
     "run_python": {"label": "Python-вычисления", "description": "Точные вычисления в изолированной песочнице", "toggleable": True},
 }
 
 
 def _build_registry() -> dict[str, tuple[ToolDefinition, ToolHandler]]:
-    from app.tools import calendar_event, lists, maps, memory, notes, python_sandbox, search_base, ui, web_search
+    from app.tools import calendar_event, lists, maps, memory, notes, python_sandbox, reminders, search_base, ui, web_search
 
     registry: dict[str, tuple[ToolDefinition, ToolHandler]] = {
         search_base.DEFINITION.name: (search_base.DEFINITION, search_base.handle),
@@ -75,6 +76,7 @@ def _build_registry() -> dict[str, tuple[ToolDefinition, ToolHandler]]:
         ),
         maps.CREATE_MAPS_LINK.name: (maps.CREATE_MAPS_LINK, maps.create_maps_link),
         python_sandbox.RUN_PYTHON.name: (python_sandbox.RUN_PYTHON, python_sandbox.run_python),
+        reminders.CREATE_REMINDER.name: (reminders.CREATE_REMINDER, reminders.create_reminder),
         notes.CREATE_NOTE.name: (notes.CREATE_NOTE, notes.create_note),
         notes.CREATE_FOLDER.name: (notes.CREATE_FOLDER, notes.create_folder),
         notes.GET_NOTE.name: (notes.GET_NOTE, notes.get_note),

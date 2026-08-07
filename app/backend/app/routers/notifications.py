@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_db
@@ -18,7 +18,13 @@ async def list_notifications(
     user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
 ) -> list[Notification]:
     result = await db.execute(
-        select(Notification).where(Notification.user_id == user.id).order_by(Notification.created_at.desc()).limit(100)
+        select(Notification)
+        .where(
+            Notification.user_id == user.id,
+            or_(Notification.trigger_at.is_(None), Notification.trigger_at <= datetime.now(timezone.utc)),
+        )
+        .order_by(Notification.created_at.desc())
+        .limit(100)
     )
     return list(result.scalars().all())
 

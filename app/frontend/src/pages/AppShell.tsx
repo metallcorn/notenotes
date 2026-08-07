@@ -29,6 +29,7 @@ export default function AppShell() {
   const [activeFolderId, setActiveFolderId] = useState<string | null>(null);
   const [tagId, setTagId] = useState<string | null>(null);
   const [selectedItemId, setSelectedItemIdState] = useState<string | null>(null);
+  const [highlightEntryId, setHighlightEntryId] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [viewMode, setViewModeState] = useState<ViewMode>(() => uiStorage.getViewMode());
   const [selectedDialogId, setSelectedDialogId] = useState<string | null>(null);
@@ -115,6 +116,15 @@ export default function AppShell() {
     setTagId(null);
     setSelectedItemId(null);
     uiStorage.setActiveSelection({ spaceId, folderId });
+  }
+
+  function openReminder(spaceId: string, itemId: string, entryId?: string) {
+    setViewMode("notes");
+    setActiveSpaceId(spaceId);
+    setActiveFolderId(null);
+    setTagId(null);
+    setHighlightEntryId(entryId ?? null);
+    setSelectedItemId(itemId);
   }
 
   function selectTag(id: string | null) {
@@ -228,7 +238,7 @@ export default function AppShell() {
         </div>
         <div className="flex shrink-0 items-center gap-1 border-t p-3">
           <UserMenu />
-          <NotificationBell updateAvailable={updateAvailable} />
+          <NotificationBell updateAvailable={updateAvailable} onOpenReminder={openReminder} />
         </div>
       </aside>
 
@@ -308,6 +318,7 @@ export default function AppShell() {
                     itemId={selectedItemId}
                     onDeleted={() => setSelectedItemId(null)}
                     onBack={() => withViewTransition(() => setMobileView("list"))}
+                    highlightEntryId={highlightEntryId}
                   />
                 ) : (
                   <div className="flex h-full items-center justify-center text-slate-400">

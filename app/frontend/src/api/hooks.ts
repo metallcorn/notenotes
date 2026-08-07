@@ -492,7 +492,10 @@ export function useNotifications() {
   return useQuery<Notification[]>({
     queryKey: ["notifications"],
     queryFn: () => api.get<Notification[]>("/notifications"),
-    refetchInterval: 5 * 60 * 1000,
+    // Раз в минуту, не в 5 — напоминания ассистента (create_reminder)
+    // "проявляются" ровно фильтром по trigger_at в выборке, без пуша;
+    // 5 минут ощущались бы как заметное опоздание для "напомни в 21:00".
+    refetchInterval: 60 * 1000,
   });
 }
 

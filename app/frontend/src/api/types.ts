@@ -129,4 +129,5 @@ export interface Notification {
   payload: Record<string, unknown>;
   read_at: string | null;
   created_at: string;
+  trigger_at: string | null;
 }

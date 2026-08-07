@@ -2,7 +2,13 @@ import { useState } from "react";
 import { Bell, RefreshCw } from "lucide-react";
 import { useMarkAllNotificationsRead, useMarkNotificationRead, useNotifications } from "../api/hooks";
 
-export default function NotificationBell({ updateAvailable }: { updateAvailable: boolean }) {
+export default function NotificationBell({
+  updateAvailable,
+  onOpenReminder,
+}: {
+  updateAvailable: boolean;
+  onOpenReminder: (spaceId: string, itemId: string, entryId?: string) => void;
+}) {
   const [open, setOpen] = useState(false);
   const { data: notifications } = useNotifications();
   const markRead = useMarkNotificationRead();
@@ -65,19 +71,30 @@ export default function NotificationBell({ updateAvailable }: { updateAvailable:
               <div className="p-3 text-sm text-slate-400">Пока пусто</div>
             )}
 
-            {(notifications ?? []).map((n) => (
-              <button
-                key={n.id}
-                onClick={() => !n.read_at && markRead.mutate(n.id)}
-                className={`block w-full border-b px-3 py-2 text-left text-sm ${n.read_at ? "text-slate-500" : "bg-slate-50 font-medium text-slate-900"}`}
-              >
-                <div>{n.title}</div>
-                {n.body && <div className="mt-0.5 text-xs font-normal text-slate-500">{n.body}</div>}
-                <div className="mt-0.5 text-xs font-normal text-slate-400">
-                  {new Date(n.created_at).toLocaleString("ru-RU")}
-                </div>
-              </button>
-            ))}
+            {(notifications ?? []).map((n) => {
+              const spaceId = n.payload.space_id as string | undefined;
+              const itemId = n.payload.item_id as string | undefined;
+              const entryId = n.payload.entry_id as string | undefined;
+              return (
+                <button
+                  key={n.id}
+                  onClick={() => {
+                    if (!n.read_at) markRead.mutate(n.id);
+                    if (spaceId && itemId) {
+                      setOpen(false);
+                      onOpenReminder(spaceId, itemId, entryId);
+                    }
+                  }}
+                  className={`block w-full border-b px-3 py-2 text-left text-sm ${n.read_at ? "text-slate-500" : "bg-slate-50 font-medium text-slate-900"}`}
+                >
+                  <div>{n.title}</div>
+                  {n.body && <div className="mt-0.5 text-xs font-normal text-slate-500">{n.body}</div>}
+                  <div className="mt-0.5 text-xs font-normal text-slate-400">
+                    {new Date(n.created_at).toLocaleString("ru-RU")}
+                  </div>
+                </button>
+              );
+            })}
           </div>
         </>
       )}
