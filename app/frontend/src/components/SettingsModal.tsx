@@ -7,8 +7,14 @@ import {
   useSkills,
   useUpdateCustomInstructions,
   useUpdateDisabledTools,
+  useUpdateTtsVoice,
 } from "../api/hooks";
 import Spinner from "./Spinner";
+
+const VOICE_PRESETS = [
+  { value: "default_low", label: "Мужской" },
+  { value: "default_high", label: "Женский" },
+];
 
 export default function SettingsModal({ onClose }: { onClose: () => void }) {
   const { data: me } = useMe();
@@ -17,9 +23,14 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
   const deleteMemory = useDeleteMemory();
   const updateInstructions = useUpdateCustomInstructions();
   const updateDisabledTools = useUpdateDisabledTools();
+  const updateTtsVoice = useUpdateTtsVoice();
 
   const [instructions, setInstructions] = useState(me?.custom_instructions ?? "");
   const [saved, setSaved] = useState(false);
+  const [customVoiceId, setCustomVoiceId] = useState("");
+
+  const currentVoice = me?.tts_voice ?? "default_low";
+  const isPresetVoice = VOICE_PRESETS.some((v) => v.value === currentVoice);
 
   async function handleSave() {
     await updateInstructions.mutateAsync(instructions);
@@ -114,6 +125,48 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
               <div className="mt-2 text-xs text-slate-400">
                 Всегда включено: {coreSkills.map((s) => s.label).join(", ")}.
               </div>
+            )}
+          </div>
+
+          <div className="mb-6">
+            <div className="mb-1 text-sm font-medium text-slate-900">Голос озвучивания</div>
+            <div className="mb-2 text-xs text-slate-400">
+              У Palabra нет «стилей» — только два готовых голоса и возможность указать свой voice_id с Palabra
+              Platform.
+            </div>
+            <div className="flex gap-1.5">
+              {VOICE_PRESETS.map((preset) => (
+                <button
+                  key={preset.value}
+                  onClick={() => updateTtsVoice.mutate(preset.value)}
+                  disabled={updateTtsVoice.isPending}
+                  className={`rounded border px-3 py-1.5 text-sm disabled:opacity-50 ${
+                    currentVoice === preset.value
+                      ? "border-slate-900 bg-slate-900 text-white"
+                      : "border-slate-300 text-slate-700 hover:bg-slate-50"
+                  }`}
+                >
+                  {preset.label}
+                </button>
+              ))}
+            </div>
+            <div className="mt-2 flex items-center gap-2">
+              <input
+                value={customVoiceId}
+                onChange={(e) => setCustomVoiceId(e.target.value)}
+                placeholder="Свой voice_id с Palabra Platform"
+                className="w-full rounded border px-3 py-1.5 text-sm"
+              />
+              <button
+                onClick={() => customVoiceId.trim() && updateTtsVoice.mutate(customVoiceId.trim())}
+                disabled={updateTtsVoice.isPending || !customVoiceId.trim()}
+                className="shrink-0 rounded border border-slate-300 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+              >
+                Применить
+              </button>
+            </div>
+            {!isPresetVoice && (
+              <div className="mt-1 text-xs text-slate-400">Сейчас используется свой голос: {currentVoice}</div>
             )}
           </div>
 

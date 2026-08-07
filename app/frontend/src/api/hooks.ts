@@ -69,6 +69,14 @@ export function useUpdateDisabledTools() {
   });
 }
 
+export function useUpdateTtsVoice() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (tts_voice: string) => api.patch<User>("/auth/me", { tts_voice }),
+    onSuccess: (user) => qc.setQueryData(["me"], user),
+  });
+}
+
 export function useLogout() {
   const qc = useQueryClient();
   return useMutation({

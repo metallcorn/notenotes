@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import re
 
 import httpx
 import websockets
@@ -46,6 +47,35 @@ def _tts_configured(settings: Settings) -> bool:
     return False
 
 
+# Ответы ассистента приходят в Markdown, а озвучивается сырой message.content
+# как есть — TTS либо спотыкается на "звёздочка звёздочка", либо читает URL
+# целиком, либо (таблицы) превращается в кашу из "пайп тире тире тире".
+# Убираем разметку до синтеза, а не просим модель писать голый текст: одна
+# и та же реплика одновременно рендерится как markdown в чате и озвучивается.
+_MD_TABLE_SEP_RE = re.compile(r"^\s*\|?[\s:|-]+\|?\s*$")
+_MD_LINK_RE = re.compile(r"\[([^\]]*)\]\([^)]*\)")
+_MD_HEADER_RE = re.compile(r"^#{1,6}\s*", re.MULTILINE)
+_MD_LIST_MARKER_RE = re.compile(r"^\s*(?:[-*+]|\d+\.)\s+", re.MULTILINE)
+_MD_HR_RE = re.compile(r"^\s*([-*_])\1{2,}\s*$", re.MULTILINE)
+
+
+def _strip_markdown_for_speech(text: str) -> str:
+    lines = [ln for ln in text.split("\n") if not _MD_TABLE_SEP_RE.match(ln)]
+    # Пайпы таблицы — по краям строки убираем совсем, между ячейками меняем
+    # на ", " — иначе остаётся висячая запятая с обеих сторон строки.
+    lines = [ln.strip().strip("|").strip() for ln in lines]
+    text = "\n".join(lines)
+    text = _MD_LINK_RE.sub(r"\1", text)
+    text = _MD_HEADER_RE.sub("", text)
+    text = _MD_LIST_MARKER_RE.sub("", text)
+    text = _MD_HR_RE.sub("", text)
+    text = re.sub(r"\s*\|\s*", ", ", text)
+    text = re.sub(r"[*_`]{1,3}", "", text)
+    text = re.sub(r"[ \t]+", " ", text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
+
+
 @router.post("/transcribe", response_model=TranscribeOut)
 async def transcribe(audio: UploadFile = File(...), user: User = Depends(get_current_user)) -> TranscribeOut:
     settings = get_settings()
@@ -74,13 +104,13 @@ async def speak(payload: SpeakIn, user: User = Depends(get_current_user)) -> Res
     if not _tts_configured(settings):
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Озвучивание ещё не настроено")
 
-    text = payload.text.strip()
+    text = _strip_markdown_for_speech(payload.text.strip())
     if not text:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Пустой текст")
 
     client = get_tts_client()
     try:
-        audio_bytes = await client.synthesize(text)
+        audio_bytes = await client.synthesize(text, voice_id=user.tts_voice)
     except Exception:
         logger.exception("Ошибка обращения к TTS-провайдеру")
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Не получилось озвучить ответ") from None

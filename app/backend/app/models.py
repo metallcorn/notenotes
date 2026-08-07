@@ -27,6 +27,9 @@ class User(Base):
     # Имена тулов из app/tools/registry.py, которые пользователь выключил
     # в настройках («Умения ассистента») — пустой список значит всё включено.
     disabled_tools: Mapped[list[str]] = mapped_column(JSONB, default=list, server_default="[]")
+    # voice_id для Palabra TTS как есть — "default_low"/"default_high"
+    # (built-in мужской/женский) или свой id голоса с Palabra Platform.
+    tts_voice: Mapped[str] = mapped_column(String(128), default="default_low", server_default="default_low")
 
 
 class Space(Base):

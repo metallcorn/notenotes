@@ -44,10 +44,12 @@ class UserOut(BaseModel):
     created_at: datetime
     custom_instructions: str = ""
     disabled_tools: list[str] = []
+    tts_voice: str = "default_low"
 
 
 class UserUpdate(BaseModel):
-    # Оба поля опциональны — PATCH меняет только то, что передано, не
-    # затирает второе значение, если фронтенд обновляет их порознь.
+    # Все поля опциональны — PATCH меняет только то, что передано, не
+    # затирает остальные, если фронтенд обновляет их порознь.
     custom_instructions: str | None = Field(default=None, max_length=4000)
     disabled_tools: list[str] | None = None
+    tts_voice: str | None = Field(default=None, min_length=1, max_length=128)

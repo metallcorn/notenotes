@@ -5,6 +5,7 @@ export interface User {
   created_at: string;
   custom_instructions: string;
   disabled_tools: string[];
+  tts_voice: string;
 }
 
 export interface Skill {

@@ -84,6 +84,8 @@ async def update_me(
         user.disabled_tools = [
             name for name in payload.disabled_tools if SKILL_CATALOG.get(name, {}).get("toggleable")
         ]
+    if payload.tts_voice is not None:
+        user.tts_voice = payload.tts_voice.strip()
     await db.commit()
     await db.refresh(user)
     return user

@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import io
 import json
+import re
 import wave
 
 import websockets
@@ -19,13 +20,28 @@ _WS_URL_BY_REGION = {
 }
 SAMPLE_RATE = 24000
 TEXT_CHUNK_LIMIT = 1000  # лимит протокола — 1024 символа на одно text-сообщение
+DEFAULT_SPEED = 1.15  # чуть быстрее нормы (диапазон протокола 0.0–2.0), по просьбе — "чуть быстрее, но с паузами"
+
+_SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?…:])\s+|\n{2,}")
 
 
 def _chunk_text(text: str, limit: int = TEXT_CHUNK_LIMIT) -> list[str]:
-    chunks = []
-    while text:
-        chunks.append(text[:limit])
-        text = text[limit:]
+    """Дробим по границам предложений/абзацев, не по количеству символов —
+    is_eos ставится на каждом таком чанке (не только на последнем), а это и
+    есть единственный рычаг паузы, который даёт протокол (SSML/break-тегов
+    Palabra не поддерживает — проверено по документации). Раньше резали
+    ровно по TEXT_CHUNK_LIMIT символов и слали is_eos только на последнем
+    куске всего текста — модель получала "это не конец предложения" почти
+    везде, включая места, где предложение реально заканчивалось, поэтому
+    речь лилась без пауз."""
+    sentences = [s.strip() for s in _SENTENCE_SPLIT_RE.split(text) if s.strip()]
+    chunks: list[str] = []
+    for sentence in sentences:
+        while len(sentence) > limit:
+            chunks.append(sentence[:limit])
+            sentence = sentence[limit:]
+        if sentence:
+            chunks.append(sentence)
     return chunks or [""]
 
 
@@ -46,7 +62,7 @@ class PalabraClient:
         self._language = language
         self._voice_id = voice_id
 
-    async def synthesize(self, text: str) -> bytes:
+    async def synthesize(self, text: str, voice_id: str | None = None) -> bytes:
         chunks = []
         async with websockets.connect(f"{self._url}?token={self._api_key}") as ws:
             await ws.send(
@@ -55,15 +71,17 @@ class PalabraClient:
                         "type": "init",
                         "language": self._language,
                         "model": "auto",
-                        "voice_options": {"voice_id": self._voice_id, "speed": 1.0},
+                        "voice_options": {"voice_id": voice_id or self._voice_id, "speed": DEFAULT_SPEED},
                         "output": {"format": "pcm", "sample_rate": SAMPLE_RATE},
                     }
                 )
             )
 
-            text_parts = _chunk_text(text)
-            for i, part in enumerate(text_parts):
-                await ws.send(json.dumps({"type": "text", "text": part, "is_eos": i == len(text_parts) - 1}))
+            # is_eos на КАЖДОМ куске, не только на последнем — граница чанка
+            # здесь и есть граница предложения/абзаца (см. _chunk_text), а
+            # это единственный сигнал паузы, который понимает протокол.
+            for part in _chunk_text(text):
+                await ws.send(json.dumps({"type": "text", "text": part, "is_eos": True}))
 
             async for raw in ws:
                 message = json.loads(raw)
