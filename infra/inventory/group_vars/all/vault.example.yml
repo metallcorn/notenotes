@@ -15,7 +15,22 @@ vault_postgres_password: "ЗАМЕНИ"
 vault_redis_password: "ЗАМЕНИ"
 vault_luks_passphrase: "ЗАМЕНИ"
 vault_restic_password: "ЗАМЕНИ"
+# Подписывает сессионные JWT backend'а. Смена значения разлогинит всех
+# пользователей (все выданные cookie перестанут проходить проверку подписи).
+vault_app_secret_key: "ЗАМЕНИ"
 
 # Access key из панели MEGA S4. Нужны только при restic_backend: s4.
 vault_restic_s4_access_key: "ЗАМЕНИ"
 vault_restic_s4_secret_key: "ЗАМЕНИ"
+
+# Фаза 2: AI-ассистент. Необязательны — main.yml подставляет '' по умолчанию,
+# без ключей ассистент просто не сможет вызвать LLM/веб-поиск.
+vault_llm_api_key: "ЗАМЕНИ"     # ключ Mistral (console.mistral.ai)
+vault_tavily_api_key: "ЗАМЕНИ"  # ключ Tavily (tavily.com)
+
+# Голосовой ассистент (ТЗ §10a, §14). ASR_PROVIDER в app.env.j2 по умолчанию
+# deepgram — чтобы включить whisper вместо него, поменяй ASR_PROVIDER там же.
+# Без PALABRA_API_KEY не работает озвучивание ответов.
+vault_deepgram_api_key: "ЗАМЕНИ"  # console.deepgram.com
+vault_whisper_api_key: "ЗАМЕНИ"   # платформенный ключ OpenAI (Whisper API)
+vault_palabra_api_key: "ЗАМЕНИ"   # platform.palabra.ai

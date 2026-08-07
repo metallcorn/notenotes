@@ -27,6 +27,40 @@
     chdir: "{{ notenotes_compose_dir }}"
   changed_when: false
 
+- name: Sync application source code to the server
+  # notenotes_root содержит только compose/ (без секретов, см. notenotes_layout).
+  # Код backend/frontend живёт в репозитории и синкается сюда при каждом
+  # деплое — Dockerfile backend'а собирает его отсюда (build.context в
+  # docker-compose.yml.j2). playbook_dir — infra/playbooks, поэтому два
+  # уровня вверх — корень репозитория.
+  #
+  # rsync_path нужен отдельно от become игры: synchronize запускает rsync по
+  # ssh в обход обычного пайплайна модулей, поэтому become на уровне таска
+  # его не поднимает — без sudo на удалённой стороне запись в notenotes_root
+  # (root:root, 0755) упадёт с Permission denied.
+  ansible.posix.synchronize:
+    src: "{{ playbook_dir }}/../../app/"
+    dest: "{{ notenotes_root }}/app/"
+    delete: true
+    rsync_path: "sudo rsync"
+    rsync_opts:
+      - "--exclude=node_modules"
+      - "--exclude=dist"
+      - "--exclude=__pycache__"
+      - "--exclude=.venv"
+      - "--exclude=*.pyc"
+  when: notenotes_backend_deployed
+  notify: Restart notenotes stack
+
+- name: Build application images
+  # Без --build в notenotes.service.j2 (см. комментарий там) — свежий образ
+  # нужен уже к моменту systemd start, поэтому собираем его здесь явно.
+  ansible.builtin.command:
+    cmd: docker compose build
+    chdir: "{{ notenotes_compose_dir }}"
+  when: notenotes_backend_deployed
+  changed_when: true
+
 - name: Publish the Caddy site fragment to the shared edge proxy
   # Приложение владеет только своим фрагментом. Общий Caddyfile не трогаем —
   # это и позволяет добавлять приложения, не редактируя чужие конфиги.

@@ -406,10 +406,16 @@ DNAT происходит в `nat/PREROUTING`, то есть до `FORWARD`. Д�
 
 Вне этой конфигурации:
 
-- **Код приложения** — FastAPI-бэкенд и React-фронт. Заготовки сервисов
-  закомментированы в `docker-compose.yml`, окружение для них — в `app.env`.
-  Когда backend появится: раскомментировать сервисы и поставить
-  `notenotes_backend_deployed: true`.
+- **Код приложения** — FastAPI-бэкенд и React-фронт, `app/backend` и
+  `app/frontend` в репозитории. Сервис `backend` включён в
+  `docker-compose.yml` (`notenotes_backend_deployed: true`), собирается из
+  Dockerfile'а backend'а (multi-stage: сначала фронтенд, потом сам backend
+  отдаёт его статику). Сервис `worker` под очередь OCR/авто-тегов (Фаза 2)
+  пока закомментирован.
+  `make stack` сам синкает `app/` на сервер через rsync (задача «Sync
+  application source code» в роли `notenotes_stack`) и пересобирает образ —
+  отдельного шага деплоя не требуется, но rsync должен быть установлен
+  локально, на машине, откуда запускается Ansible.
 - **Client-side «сейф»** ТЗ §16.2 — работа в приложении, Фаза 4.
 - **Записи в панели Hostens** — вне Ansible.
 - **Prometheus/Grafana** — на 4 GB RAM не оправданы. Наблюдаемость: journald

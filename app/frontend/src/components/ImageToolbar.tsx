@@ -1,0 +1,82 @@
+import { useState } from "react";
+import type { Editor } from "@tiptap/core";
+import { Expand } from "lucide-react";
+
+const WIDTHS = [
+  { label: "Маленькая", value: "25%" },
+  { label: "Средняя", value: "50%" },
+  { label: "Крупная", value: "75%" },
+];
+
+const ALIGNS: { label: string; value: "left" | "center" | "right" }[] = [
+  { label: "Слева", value: "left" },
+  { label: "По центру", value: "center" },
+  { label: "Справа", value: "right" },
+];
+
+export default function ImageToolbar({ editor }: { editor: Editor }) {
+  const [lightbox, setLightbox] = useState(false);
+  const attrs = editor.getAttributes("image") as { src?: string; alt?: string | null; width?: string | null; align?: string | null };
+
+  function setAttrs(patch: Record<string, string | null>) {
+    editor.chain().focus().updateAttributes("image", patch).run();
+  }
+
+  return (
+    <>
+      <div className="flex flex-wrap items-center gap-3 border-b bg-amber-50 px-3 py-1.5 text-xs">
+        <span className="text-slate-500">Картинка:</span>
+        <button
+          onClick={() => setLightbox(true)}
+          title="Открыть в полный размер"
+          className="flex items-center gap-1 rounded bg-white px-1.5 py-0.5 text-slate-600 hover:bg-slate-100"
+        >
+          <Expand size={14} />
+          Открыть
+        </button>
+        <div className="flex gap-0.5">
+          {WIDTHS.map((w) => (
+            <button
+              key={w.value}
+              onClick={() => setAttrs({ width: attrs.width === w.value ? null : w.value })}
+              className={`rounded px-1.5 py-0.5 ${
+                attrs.width === w.value ? "bg-slate-900 text-white" : "bg-white text-slate-600 hover:bg-slate-100"
+              }`}
+            >
+              {w.label}
+            </button>
+          ))}
+          <button
+            onClick={() => setAttrs({ width: null })}
+            className={`rounded px-1.5 py-0.5 ${
+              !attrs.width ? "bg-slate-900 text-white" : "bg-white text-slate-600 hover:bg-slate-100"
+            }`}
+          >
+            Оригинал
+          </button>
+        </div>
+        <div className="flex gap-0.5">
+          {ALIGNS.map((a) => (
+            <button
+              key={a.value}
+              onClick={() => setAttrs({ align: attrs.align === a.value ? null : a.value })}
+              className={`rounded px-1.5 py-0.5 ${
+                attrs.align === a.value ? "bg-slate-900 text-white" : "bg-white text-slate-600 hover:bg-slate-100"
+              }`}
+            >
+              {a.label}
+            </button>
+          ))}
+        </div>
+      </div>
+      {lightbox && attrs.src && (
+        <div
+          onClick={() => setLightbox(false)}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"
+        >
+          <img src={attrs.src} alt={attrs.alt ?? ""} className="max-h-full max-w-full object-contain" />
+        </div>
+      )}
+    </>
+  );
+}

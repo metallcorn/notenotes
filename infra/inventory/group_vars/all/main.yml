@@ -75,9 +75,9 @@ notenotes_compose_dir: "{{ notenotes_root }}/compose"
 notenotes_data_dir: "{{ encrypted_mount }}/notenotes"
 notenotes_secrets_dir: "{{ notenotes_data_dir }}/secrets"
 notenotes_internal_network: notenotes_internal
-# Переключить в true, когда в docker-compose.yml раскомментирован сервис
-# backend: тогда фрагмент Caddy начнёт проксировать на него вместо заглушки.
-notenotes_backend_deployed: false
+# Сервис backend раскомментирован в docker-compose.yml.j2 — фрагмент Caddy
+# проксирует на него вместо заглушки.
+notenotes_backend_deployed: true
 
 # --- PostgreSQL + pgvector (только для notenotes) ---------------------------
 # Версия пинуется явно: апгрейд мажора Postgres должен быть осознанным шагом,
@@ -139,7 +139,17 @@ notify_telegram_enabled: false
 # --- Маппинг секретов из vault ---------------------------------------------
 postgres_password: "{{ vault_postgres_password }}"
 redis_password: "{{ vault_redis_password }}"
+# Подписывает сессионные JWT backend'а (app/backend/app/security.py).
+app_secret_key: "{{ vault_app_secret_key }}"
 luks_passphrase: "{{ vault_luks_passphrase }}"
 restic_password: "{{ vault_restic_password }}"
 restic_s4_access_key: "{{ vault_restic_s4_access_key | default('') }}"
 restic_s4_secret_key: "{{ vault_restic_s4_secret_key | default('') }}"
+# Фаза 2: AI-ассистент. default('') — чтобы деплой не падал, пока ключи не
+# добавлены в vault руками (ansible-vault edit); без них ассистент просто
+# не сможет обратиться к LLM/Tavily, остальное приложение не пострадает.
+llm_api_key: "{{ vault_llm_api_key | default('') }}"
+tavily_api_key: "{{ vault_tavily_api_key | default('') }}"
+deepgram_api_key: "{{ vault_deepgram_api_key | default('') }}"
+whisper_api_key: "{{ vault_whisper_api_key | default('') }}"
+palabra_api_key: "{{ vault_palabra_api_key | default('') }}"

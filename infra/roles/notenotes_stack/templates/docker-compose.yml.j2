@@ -103,31 +103,46 @@ services:
         max-size: "{{ docker_log_max_size }}"
         max-file: "{{ docker_log_max_file }}"
 
-  # --- Заготовки под Фазу 1 из ТЗ §19 ---------------------------------------
-  # Раскомментировать, когда появится код. Секреты — из app.env внутри тома.
+  # backend — ТЗ §19, Фаза 1. Секреты приходят из app.env внутри тома.
+  #
+  # Контекст сборки — {{ notenotes_root }} (куда синкается репозиторий, см.
+  # задачу «Sync application source code» в этой роли), а не
+  # {{ notenotes_root }}/app/backend: Dockerfile backend'а сам собирает
+  # фронтенд отдельной stage и копирует её в свою статику, поэтому ему нужен
+  # доступ и к app/frontend. Контейнер один — второго под фронтенд в бюджете
+  # памяти хоста нет (см. README).
   #
   # ВАЖНО про alias в сети edge. Все приложения хоста делят сеть edge, и
   # DNS-именем сервиса внутри неё по умолчанию становится имя сервиса из
   # compose. Если у politrain тоже появится сервис `backend`, имена столкнутся,
   # и Caddy начнёт попадать в чужой контейнер. Поэтому в edge выставляется
   # явный alias с префиксом приложения, и фрагмент Caddy ссылается на него.
-  #
-  # backend:
-  #   build: {{ notenotes_root }}/app/backend
-  #   restart: on-failure:3
-  #   env_file:
-  #     - {{ notenotes_secrets_dir }}/app.env
-  #   volumes:
-  #     - {{ notenotes_data_dir }}/uploads:/data/uploads
-  #   networks:
-  #     {{ edge_network }}:
-  #       aliases:
-  #         - notenotes-backend
-  #     {{ notenotes_internal_network }}:
-  #   depends_on:
-  #     postgres: {condition: service_healthy}
-  #     redis: {condition: service_healthy}
-  #   mem_limit: 768m
+  backend:
+    build:
+      context: {{ notenotes_root }}
+      dockerfile: app/backend/Dockerfile
+    restart: on-failure:3
+    env_file:
+      - {{ notenotes_secrets_dir }}/app.env
+    volumes:
+      - {{ notenotes_data_dir }}/uploads:/data/uploads
+    networks:
+      {{ edge_network }}:
+        aliases:
+          - notenotes-backend
+      {{ notenotes_internal_network }}:
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+    mem_limit: 768m
+    logging:
+      driver: json-file
+      options:
+        max-size: "{{ docker_log_max_size }}"
+        max-file: "{{ docker_log_max_file }}"
+
+  # --- Заготовка под Фазу 2 из ТЗ §19 ---------------------------------------
+  # Раскомментировать, когда появится очередь (OCR/авто-теги).
   #
   # worker:
   #   # Очередь OCR (ТЗ §9) и батч авто-тегов (ТЗ §8.2).
