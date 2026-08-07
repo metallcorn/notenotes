@@ -7,6 +7,7 @@ from starlette.requests import Request
 
 from app.routers import (
     auth,
+    calendar,
     dialogs,
     feedback,
     folders,
@@ -24,6 +25,7 @@ from app.routers import (
 
 app = FastAPI(title="Notenotes")
 app.include_router(auth.router)
+app.include_router(calendar.router)
 app.include_router(spaces.router)
 app.include_router(folders.router)
 app.include_router(tags.router)

@@ -26,7 +26,6 @@ import { useDeleteDialogMessage, useDialog, useSendDialogMessage, useSpeak, useU
 import type { DialogMessage } from "../api/types";
 import { uiStorage, type ContentWidth } from "../lib/storage";
 import { downloadFile, sanitizeFilename, wrapHtmlDocument } from "../lib/export";
-import { buildIcs } from "../lib/ics";
 import ConfirmDialog from "./ConfirmDialog";
 import ExportMenu from "./ExportMenu";
 import PromptDialog from "./PromptDialog";
@@ -135,15 +134,25 @@ function CalendarEventLinks({ message, results }: { message: DialogMessage; resu
 
   return (
     <div className="mt-1.5 flex flex-wrap gap-1.5">
-      {events.map((event, i) => (
-        <button
-          key={i}
-          onClick={() => downloadFile(`${sanitizeFilename(event.title)}.ics`, buildIcs(event), "text/calendar;charset=utf-8")}
-          className="flex items-center gap-1 rounded-full border border-slate-300 bg-white px-3 py-1 text-xs text-slate-700 hover:border-slate-400 hover:bg-slate-50"
-        >
-          <CalendarPlus size={13} /> Добавить в календарь
-        </button>
-      ))}
+      {events.map((event, i) => {
+        const params = new URLSearchParams({
+          title: event.title,
+          start: event.start,
+          end: event.end,
+          all_day: String(event.all_day),
+          location: event.location ?? "",
+          description: event.description ?? "",
+        });
+        return (
+          <a
+            key={i}
+            href={`/api/calendar/event.ics?${params.toString()}`}
+            className="flex items-center gap-1 rounded-full border border-slate-300 bg-white px-3 py-1 text-xs text-slate-700 hover:border-slate-400 hover:bg-slate-50"
+          >
+            <CalendarPlus size={13} /> Добавить в календарь
+          </a>
+        );
+      })}
     </div>
   );
 }
