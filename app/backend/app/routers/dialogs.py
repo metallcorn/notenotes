@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app import realtime
 from app.core.config import get_settings
 from app.db import get_db
 from app.deps import ensure_space_access, get_current_user
@@ -358,6 +359,7 @@ async def delete_message(
     item.content = _flatten_transcript(remaining)
     await db.commit()
     await db.refresh(item)
+    await realtime.notify_space(item.space_id, "dialogs")
     return _serialize(item)
 
 
@@ -510,4 +512,5 @@ async def send_message(
     item.content = _flatten_transcript(records)
     await db.commit()
     await db.refresh(item)
+    await realtime.notify_space(item.space_id, "dialogs")
     return _serialize(item)

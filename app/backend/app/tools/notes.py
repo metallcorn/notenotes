@@ -7,6 +7,7 @@ from typing import Any
 from fastapi import HTTPException
 from sqlalchemy import select
 
+from app import realtime
 from app.deps import ensure_space_access
 from app.llm.base import ToolDefinition
 from app.models import Folder, Item, ItemTag, ItemVersion, Space, SpaceMember, Tag
@@ -153,6 +154,7 @@ async def update_note(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
 
     await ctx.db.commit()
     await ctx.db.refresh(item)
+    await realtime.notify_space(item.space_id, "items")
     return {"id": str(item.id), "title": item.title}
 
 
@@ -171,6 +173,7 @@ async def delete_note(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
     item = await _get_item_cross_space(ctx, args.get("item_id"))
     item.deleted_at = datetime.now(timezone.utc)
     await ctx.db.commit()
+    await realtime.notify_space(item.space_id, "items")
     return {"id": str(item.id), "deleted": True}
 
 
@@ -208,6 +211,7 @@ async def add_tag(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
         ctx.db.add(ItemTag(item_id=item.id, tag_id=tag.id, user_id=ctx.user_id))
 
     await ctx.db.commit()
+    await realtime.notify_space(item.space_id, "items")
     return {"item_id": str(item.id), "tag": tag_name}
 
 
@@ -278,6 +282,7 @@ async def create_folder(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any
     ctx.db.add(folder)
     await ctx.db.commit()
     await ctx.db.refresh(folder)
+    await realtime.notify_space(folder.space_id, "folders")
     return {"id": str(folder.id), "name": folder.name, "space_id": str(folder.space_id)}
 
 

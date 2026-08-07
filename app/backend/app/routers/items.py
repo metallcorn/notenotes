@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app import realtime
 from app.db import get_db
 from app.deps import ensure_space_access, get_current_user
 from app.models import Folder, Item, ItemTag, ItemVersion, Tag, User
@@ -81,6 +82,7 @@ async def create_item_row(
     db.add(item)
     await db.commit()
     await db.refresh(item)
+    await realtime.notify_space(item.space_id, "dialogs" if material_type == "dialog" else "items")
     return item
 
 
@@ -190,6 +192,7 @@ async def update_item(
 
     await db.commit()
     await db.refresh(item)
+    await realtime.notify_space(item.space_id, "items")
     return await _serialize(db, item, user.id)
 
 
@@ -203,6 +206,7 @@ async def delete_item(
     item = await _get_accessible_item(db, user, item_id)
     item.deleted_at = datetime.now(timezone.utc)
     await db.commit()
+    await realtime.notify_space(item.space_id, "items")
 
 
 @router.get("/trash/list", response_model=list[ItemOut])
@@ -227,6 +231,7 @@ async def restore_item(
     item.deleted_at = None
     await db.commit()
     await db.refresh(item)
+    await realtime.notify_space(item.space_id, "items")
     return await _serialize(db, item, user.id)
 
 
@@ -237,8 +242,10 @@ async def delete_item_permanent(
     # Единственный по-настоящему разрушительный путь во всём API — только
     # из корзины, руками, никогда через AI-тул.
     item = await _get_accessible_item(db, user, item_id, include_deleted=True)
+    space_id = item.space_id
     await db.delete(item)
     await db.commit()
+    await realtime.notify_space(space_id, "items")
 
 
 @router.get("/{item_id}/versions", response_model=list[ItemVersionOut])
@@ -273,6 +280,7 @@ async def revert_version(
 
     await db.commit()
     await db.refresh(item)
+    await realtime.notify_space(item.space_id, "items")
     return await _serialize(db, item, user.id)
 
 
@@ -291,6 +299,7 @@ async def add_tag(
     if existing.scalar_one_or_none() is None:
         db.add(ItemTag(item_id=item.id, tag_id=tag.id, user_id=user.id))
         await db.commit()
+        await realtime.notify_space(item.space_id, "items")
 
     return await _serialize(db, item, user.id)
 
@@ -307,5 +316,6 @@ async def remove_tag(
     if link is not None:
         await db.delete(link)
         await db.commit()
+        await realtime.notify_space(item.space_id, "items")
 
     return await _serialize(db, item, user.id)

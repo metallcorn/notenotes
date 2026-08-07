@@ -4,6 +4,7 @@ import { useSpaces } from "../api/hooks";
 import { uiStorage, type ViewMode } from "../lib/storage";
 import { withViewTransition } from "../lib/viewTransition";
 import { useVersionCheck } from "../lib/useVersionCheck";
+import { useSpaceSync } from "../lib/useSpaceSync";
 import CreateSpaceButton from "../components/CreateSpaceButton";
 import SpaceSection from "../components/SpaceSection";
 import TagList from "../components/TagList";
@@ -24,6 +25,7 @@ export default function AppShell() {
   const updateAvailable = useVersionCheck();
 
   const [activeSpaceId, setActiveSpaceId] = useState<string | undefined>(undefined);
+  useSpaceSync(activeSpaceId);
   const [activeFolderId, setActiveFolderId] = useState<string | null>(null);
   const [tagId, setTagId] = useState<string | null>(null);
   const [selectedItemId, setSelectedItemIdState] = useState<string | null>(null);

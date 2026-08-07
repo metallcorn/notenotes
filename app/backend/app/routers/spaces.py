@@ -1,13 +1,16 @@
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app import realtime
+from app.core.config import get_settings
 from app.db import get_db
 from app.deps import ensure_space_access, get_current_user
 from app.models import Space, SpaceMember, User
 from app.schemas.space import SpaceCreate, SpaceOut, SpaceUpdate
+from app.security import decode_session_token
 
 router = APIRouter(prefix="/api/spaces", tags=["spaces"])
 
@@ -51,3 +54,34 @@ async def update_space(
     await db.commit()
     await db.refresh(space)
     return space
+
+
+@router.websocket("/{space_id}/ws")
+async def space_ws(websocket: WebSocket, space_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> None:
+    """Клиент ничего не шлёт — только держит соединение и получает лёгкий
+    сигнал {"kind": "items"|"folders"|"dialogs"} при изменениях в этом
+    спейсе (своих или от других участников/ассистента), чтобы перезапросить
+    соответствующие react-query кэши."""
+    await websocket.accept()
+
+    settings = get_settings()
+    session_token = websocket.cookies.get(settings.session_cookie_name)
+    user_id = decode_session_token(session_token) if session_token else None
+    if user_id is None:
+        await websocket.close(code=4401)
+        return
+
+    try:
+        await ensure_space_access(db, space_id, user_id)
+    except HTTPException:
+        await websocket.close(code=4404)
+        return
+
+    realtime.register(space_id, websocket)
+    try:
+        while True:
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        pass
+    finally:
+        realtime.unregister(space_id, websocket)

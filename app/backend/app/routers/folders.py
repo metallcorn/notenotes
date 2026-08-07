@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app import realtime
 from app.db import get_db
 from app.deps import ensure_space_access, get_current_user
 from app.models import Folder, User
@@ -43,6 +44,7 @@ async def create_folder(
     db.add(folder)
     await db.commit()
     await db.refresh(folder)
+    await realtime.notify_space(folder.space_id, "folders")
     return folder
 
 
@@ -71,6 +73,7 @@ async def update_folder(
 
     await db.commit()
     await db.refresh(folder)
+    await realtime.notify_space(folder.space_id, "folders")
     return folder
 
 
@@ -79,5 +82,7 @@ async def delete_folder(
     folder_id: uuid.UUID, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
 ) -> None:
     folder = await _get_owned_folder(db, user, folder_id)
+    space_id = folder.space_id
     await db.delete(folder)
     await db.commit()
+    await realtime.notify_space(space_id, "folders")
