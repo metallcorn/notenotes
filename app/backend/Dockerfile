@@ -17,6 +17,10 @@ WORKDIR /app
 # сам backend-процесс остаётся root (нужно, чтобы уметь дропнуть привилегии
 # в форкнутом ребёнке через setuid/setgid), а код модели выполняется под ним.
 RUN useradd --no-create-home --uid 10001 --shell /usr/sbin/nologin sandbox
+# ffmpeg — извлечь звук из видео перед распознаванием речи (app/transcription.py).
+# Только бинарь, без демона — память ест лишь пока реально идёт транскод,
+# а очередь обрабатывает видео по одному, так что пиковая память предсказуема.
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg && rm -rf /var/lib/apt/lists/*
 COPY app/backend/requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 COPY app/backend/app ./app

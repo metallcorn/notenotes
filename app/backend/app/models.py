@@ -126,6 +126,9 @@ class Upload(Base):
     filename: Mapped[str] = mapped_column(String(255))
     content_type: Mapped[str] = mapped_column(String(100))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    # Расшифровка речи из видео (app/transcription.py) — none для не-видео.
+    transcription_status: Mapped[str] = mapped_column(String(20), default="none", server_default="none")
+    transcript: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 class ItemVersion(Base):

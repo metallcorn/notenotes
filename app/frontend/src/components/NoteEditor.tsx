@@ -234,12 +234,18 @@ export default function NoteEditor({
     try {
       const uploaded = await uploadFile.mutateAsync({ file, onProgress: setUploadProgress });
       const isVideo = uploaded.content_type.startsWith("video/");
+      // Плейсхолдер — точная строка, которую backend ищет и заменяет на
+      // готовую расшифровку (app/transcription.py, placeholder_text()) —
+      // держать в одном месте на фронте не получится, но текст должен
+      // совпадать 1:1, иначе замена не найдёт, куда вписать результат.
+      const placeholder = `[Расшифровка ${uploaded.id} обрабатывается…]`;
       if (mode === "wysiwyg" && editor) {
         if (isVideo) {
           editor
             .chain()
             .focus()
             .insertContent({ type: "video", attrs: { src: uploaded.url, filename: uploaded.filename } })
+            .insertContent({ type: "paragraph", content: [{ type: "text", text: placeholder }] })
             .run();
         } else {
           editor
@@ -251,7 +257,7 @@ export default function NoteEditor({
       } else if (isVideo) {
         setContent(
           (c) =>
-            `${c}\n\n<video src="${uploaded.url}" controls preload="metadata" style="max-width: 100%; max-height: 70vh;"></video>\n`,
+            `${c}\n\n<video src="${uploaded.url}" controls preload="metadata" style="max-width: 100%; max-height: 70vh;"></video>\n\n${placeholder}\n`,
         );
       } else {
         setContent((c) => `${c}\n\n[${uploaded.filename}](${uploaded.url})\n`);

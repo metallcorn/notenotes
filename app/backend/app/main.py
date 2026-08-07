@@ -8,6 +8,7 @@ from starlette.responses import FileResponse
 from starlette.requests import Request
 
 from app.cleanup import run_periodic_sweep
+from app.transcription import resume_pending, run_worker as run_transcription_worker
 from app.routers import (
     ai_text,
     auth,
@@ -30,10 +31,13 @@ from app.routers import (
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     sweep_task = asyncio.create_task(run_periodic_sweep())
+    transcription_task = asyncio.create_task(run_transcription_worker())
+    await resume_pending()
     try:
         yield
     finally:
         sweep_task.cancel()
+        transcription_task.cancel()
 
 
 app = FastAPI(title="Notenotes", lifespan=lifespan)
