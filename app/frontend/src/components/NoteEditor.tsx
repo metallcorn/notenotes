@@ -168,14 +168,24 @@ export default function NoteEditor({
   }
 
   // Без выделения — вся заметка целиком (заменяем весь документ). С
-  // выделением — только выбранный фрагмент. Результат вставляется как
-  // обычный текст, не как Markdown: у selection нет своего markdown-
-  // сериализатора в tiptap-markdown, а для короткого фрагмента (обычно
-  // проза, не вложенная структура) это разумный компромисс.
+  // выделением — только выбранный фрагмент.
+  //
+  // ВАЖНО: textBetween() (то, что было тут раньше) вытаскивает ЧИСТЫЙ
+  // текст без marks — ссылки, жирный и т.д. терялись ещё до отправки в
+  // модель, до всякого промпта (реальная жалоба: пропадали ссылки при
+  // переформатировании выделенного текста). editor.storage.markdown
+  // .serializer.serialize() принимает произвольный Fragment, не только
+  // весь документ — им можно сериализовать именно slice выделения С
+  // marks. Симметрично при вставке: insertContentAt в этой библиотеке
+  // патчится так, что парсит markdown (включая [text](url) обратно в
+  // настоящую ссылку), а не вставляет как голый текст — plain insertContent
+  // так не умеет.
   async function applyAiAction(action: AiAction, instruction?: string) {
     if (!editor || aiLoading) return;
     const { from, to, empty } = editor.state.selection;
-    const text = empty ? editor.storage.markdown.getMarkdown() : editor.state.doc.textBetween(from, to, "\n");
+    const text = empty
+      ? editor.storage.markdown.getMarkdown()
+      : editor.storage.markdown.serializer.serialize(editor.state.doc.slice(from, to).content);
     if (!text.trim()) return;
 
     setAiError(null);
@@ -187,7 +197,7 @@ export default function NoteEditor({
         editor.commands.setContent(result);
         setContent(result);
       } else {
-        editor.chain().focus().deleteRange({ from, to }).insertContent(result).run();
+        editor.chain().focus().insertContentAt({ from, to }, result).run();
       }
     } catch {
       setAiError("Не получилось выполнить действие ИИ — попробуй ещё раз");
