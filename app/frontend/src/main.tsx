@@ -23,3 +23,12 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
     </QueryClientProvider>
   </React.StrictMode>,
 );
+
+// PWA-установка (кнопка "На главный экран"/"Установить"). Только в проде —
+// в dev-сборке (если она когда-нибудь понадобится) сервис-воркер только
+// мешал бы горячей перезагрузке.
+if (import.meta.env.PROD && "serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("/sw.js");
+  });
+}
