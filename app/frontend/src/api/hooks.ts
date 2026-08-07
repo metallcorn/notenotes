@@ -350,6 +350,15 @@ export function useSendDialogMessage(dialogId: string | undefined) {
     onSuccess: (dialog) => {
       qc.setQueryData(["dialog", dialogId], dialog);
       qc.invalidateQueries({ queryKey: ["dialogs", dialog.space_id] });
+      // Ассистент меняет заметки/списки/папки/теги через свои тулы на
+      // бэкенде, в обход обычных мутаций фронтенда — без этого сайдбар не
+      // узнаёт об изменениях, пока страницу не перезагрузят вручную
+      // (реальная жалоба). Тул мог задеть любой спейс пользователя (ТЗ
+      // §10a — не только текущий), поэтому инвалидируем широко, не по
+      // конкретному space_id.
+      qc.invalidateQueries({ queryKey: ["items"] });
+      qc.invalidateQueries({ queryKey: ["folders"] });
+      qc.invalidateQueries({ queryKey: ["tags"] });
     },
   });
 }

@@ -239,6 +239,48 @@ async def list_folders(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]
     }
 
 
+CREATE_FOLDER = ToolDefinition(
+    name="create_folder",
+    description=(
+        "Создать новую папку. Без parent_id — в корне текущего спейса диалога; с parent_id — "
+        "вложенная папка (должна принадлежать тому же спейсу, где создаётся). Используй это, "
+        "когда пользователь просит разложить заметки по папкам, а не только предполагай, что "
+        "папка уже есть — сначала list_folders, и только если её правда нет, создавай."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "name": {"type": "string", "description": "Название папки"},
+            "parent_id": {"type": "string", "description": "id родительской папки; не указывать — папка в корне"},
+        },
+        "required": ["name"],
+    },
+)
+
+
+async def create_folder(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
+    name = str(args.get("name", "")).strip()
+    if not name:
+        raise ToolError("Название папки не может быть пустым")
+
+    parent_id_raw = args.get("parent_id")
+    parent_id: uuid.UUID | None = None
+    if parent_id_raw:
+        try:
+            parent_id = uuid.UUID(str(parent_id_raw))
+        except ValueError:
+            raise ToolError(f"Некорректный id родительской папки: {parent_id_raw}") from None
+        parent = await ctx.db.get(Folder, parent_id)
+        if parent is None or parent.space_id != ctx.space_id:
+            raise ToolError("Родительская папка не найдена в текущем спейсе")
+
+    folder = Folder(space_id=ctx.space_id, parent_id=parent_id, name=name)
+    ctx.db.add(folder)
+    await ctx.db.commit()
+    await ctx.db.refresh(folder)
+    return {"id": str(folder.id), "name": folder.name, "space_id": str(folder.space_id)}
+
+
 LIST_ITEMS_IN_FOLDER = ToolDefinition(
     name="list_items_in_folder",
     description=(
