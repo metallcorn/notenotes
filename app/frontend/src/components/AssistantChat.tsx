@@ -167,8 +167,13 @@ function CalendarEventLinks({ message, results }: { message: DialogMessage; resu
     return `https://calendar.google.com/calendar/render?${params.toString()}`;
   }
 
+  // Один пузырь чата может нести несколько событий сразу (агентный цикл
+  // теперь склеивает весь ход в один пузырь — см. groupMessages) — плоский
+  // ряд одинаково подписанных кнопок было не отличить одно от другого
+  // (реальная жалоба). Подписываем каждую пару кнопок названием события и
+  // ставим их в свою строку, а не всё вперемешку.
   return (
-    <div className="mt-1.5 flex flex-wrap gap-1.5">
+    <div className="mt-1.5 flex flex-col gap-1">
       {events.map((event, i) => {
         const icsParams = new URLSearchParams({
           title: event.title,
@@ -179,7 +184,8 @@ function CalendarEventLinks({ message, results }: { message: DialogMessage; resu
           description: event.description ?? "",
         });
         return (
-          <span key={i} className="flex flex-wrap gap-1.5">
+          <div key={i} className="flex flex-wrap items-center gap-1.5">
+            <span className="text-xs text-slate-500">{event.title}:</span>
             <a
               href={googleCalendarUrl(event)}
               target="_blank"
@@ -194,7 +200,7 @@ function CalendarEventLinks({ message, results }: { message: DialogMessage; resu
             >
               <CalendarPlus size={13} /> Скачать .ics
             </a>
-          </span>
+          </div>
         );
       })}
     </div>
@@ -223,10 +229,15 @@ function MapsLinkButtons({ message, results }: { message: DialogMessage; results
   // строим его на фронтенде из уже известного query, не трогая бэкенд
   // (та же логика, что у двух кнопок календаря): пользователь хочет
   // выбирать между экосистемами, а не только Google.
+  //
+  // Подписываем каждую пару кнопок местом, которое она открывает, и ставим
+  // в свою строку — та же причина, что у CalendarEventLinks: несколько
+  // мест в одном пузыре иначе неотличимы друг от друга.
   return (
-    <div className="mt-1.5 flex flex-wrap gap-1.5">
+    <div className="mt-1.5 flex flex-col gap-1">
       {links.map((link, i) => (
-        <span key={i} className="flex flex-wrap gap-1.5">
+        <div key={i} className="flex flex-wrap items-center gap-1.5">
+          <span className="text-xs text-slate-500">{link.query}:</span>
           <a
             href={link.url}
             target="_blank"
@@ -243,7 +254,7 @@ function MapsLinkButtons({ message, results }: { message: DialogMessage; results
           >
             <MapPin size={13} /> Apple Карты
           </a>
-        </span>
+        </div>
       ))}
     </div>
   );
