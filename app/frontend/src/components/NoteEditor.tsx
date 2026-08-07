@@ -1,4 +1,4 @@
-import { useEditor, EditorContent } from "@tiptap/react";
+import { useEditor, EditorContent, BubbleMenu } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import LinkExtension from "@tiptap/extension-link";
 import CodeBlockLowlight from "@tiptap/extension-code-block-lowlight";
@@ -15,6 +15,7 @@ import { uiStorage, type ContentWidth } from "../lib/storage";
 import { downloadFile, inlineImages, sanitizeFilename, wrapHtmlDocument } from "../lib/export";
 import {
   useAddItemTag,
+  useAiTransform,
   useCreateTag,
   useDeleteItem,
   useFolders,
@@ -26,6 +27,7 @@ import {
 } from "../api/hooks";
 import VersionHistoryPanel from "./VersionHistoryPanel";
 import EditorToolbar from "./EditorToolbar";
+import AiMenu, { type AiAction } from "./AiMenu";
 import ImageToolbar from "./ImageToolbar";
 import CodeBlockToolbar from "./CodeBlockToolbar";
 import TableToolbar from "./TableToolbar";
@@ -60,6 +62,7 @@ export default function NoteEditor({
   const removeTag = useRemoveItemTag(itemId);
   const createTag = useCreateTag();
   const { data: folders } = useFolders(item?.space_id);
+  const aiTransform = useAiTransform();
 
   const [mode, setMode] = useState<Mode>("wysiwyg");
   const [title, setTitle] = useState("");
@@ -72,6 +75,8 @@ export default function NoteEditor({
   const [showColorPicker, setShowColorPicker] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [contentWidth, setContentWidth] = useState<ContentWidth>(() => uiStorage.getContentWidth());
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
 
   const savedRef = useRef({ title: "", content: "" });
   const pendingRef = useRef<{ id: string; title: string; content: string } | null>(null);
@@ -158,6 +163,37 @@ export default function NoteEditor({
       editor.commands.setContent(content || "");
     }
     setMode(next);
+  }
+
+  // Без выделения — вся заметка целиком (заменяем весь документ). С
+  // выделением — только выбранный фрагмент. Результат вставляется как
+  // обычный текст, не как Markdown: у selection нет своего markdown-
+  // сериализатора в tiptap-markdown, а для короткого фрагмента (обычно
+  // проза, не вложенная структура) это разумный компромисс.
+  async function applyAiAction(action: AiAction, instruction?: string) {
+    if (!editor || aiLoading) return;
+    const { from, to, empty } = editor.state.selection;
+    const text = empty ? editor.storage.markdown.getMarkdown() : editor.state.doc.textBetween(from, to, "\n");
+    if (!text.trim()) return;
+
+    setAiError(null);
+    setAiLoading(true);
+    editor.setEditable(false);
+    try {
+      const { result } = await aiTransform.mutateAsync({ action, text, instruction });
+      if (empty) {
+        editor.commands.setContent(result);
+        setContent(result);
+      } else {
+        editor.chain().focus().deleteRange({ from, to }).insertContent(result).run();
+      }
+    } catch {
+      setAiError("Не получилось выполнить действие ИИ — попробуй ещё раз");
+      setTimeout(() => setAiError(null), 4000);
+    } finally {
+      editor.setEditable(true);
+      setAiLoading(false);
+    }
   }
 
   async function onPickImage(e: ChangeEvent<HTMLInputElement>) {
@@ -438,7 +474,12 @@ export default function NoteEditor({
             uploading={uploadFile.isPending}
             contentWidth={contentWidth}
             onContentWidthChange={changeContentWidth}
+            onAiAction={applyAiAction}
+            aiLoading={aiLoading}
           />
+        )}
+        {aiError && (
+          <div className="border-b bg-red-50 px-3 py-1.5 text-xs text-red-700">{aiError}</div>
         )}
         {showImageToolbar && editor && <ImageToolbar editor={editor} />}
         {showCodeBlockToolbar && editor && <CodeBlockToolbar editor={editor} />}
@@ -446,7 +487,16 @@ export default function NoteEditor({
         <div className="flex min-h-0 flex-1 overflow-hidden">
           <div className="min-h-0 flex-1 overflow-y-auto p-4">
             {mode === "wysiwyg" ? (
-              <EditorContent editor={editor} className={`tiptap ${widthClass}`} />
+              <>
+                {editor && (
+                  <BubbleMenu editor={editor} shouldShow={({ state }) => !state.selection.empty}>
+                    <div className="rounded border bg-white shadow-lg">
+                      <AiMenu onAction={applyAiAction} loading={aiLoading} />
+                    </div>
+                  </BubbleMenu>
+                )}
+                <EditorContent editor={editor} className={`tiptap ${widthClass}`} />
+              </>
             ) : (
               <textarea
                 value={content}

@@ -23,6 +23,7 @@ import {
   Undo2,
 } from "lucide-react";
 import type { ContentWidth } from "../lib/storage";
+import AiMenu, { type AiAction } from "./AiMenu";
 import Spinner from "./Spinner";
 
 function ToolbarButton({
@@ -61,6 +62,8 @@ export default function EditorToolbar({
   uploading,
   contentWidth,
   onContentWidthChange,
+  onAiAction,
+  aiLoading,
 }: {
   editor: Editor | null;
   onInsertImage: () => void;
@@ -68,11 +71,15 @@ export default function EditorToolbar({
   uploading: boolean;
   contentWidth: ContentWidth;
   onContentWidthChange: (width: ContentWidth) => void;
+  onAiAction: (action: AiAction, instruction?: string) => void;
+  aiLoading: boolean;
 }) {
   if (!editor) return null;
 
   return (
     <div className="flex flex-nowrap items-center gap-0.5 overflow-x-auto border-b bg-slate-50 px-2 py-1">
+      <AiMenu onAction={onAiAction} loading={aiLoading} />
+      <span className="mx-1 h-4 w-px shrink-0 bg-slate-300" />
       <ToolbarButton
         title="Заголовок 1"
         active={editor.isActive("heading", { level: 1 })}

@@ -77,6 +77,13 @@ export function useUpdateTtsVoice() {
   });
 }
 
+export function useAiTransform() {
+  return useMutation({
+    mutationFn: (payload: { action: "summarize" | "reformat" | "rewrite"; text: string; instruction?: string }) =>
+      api.post<{ result: string }>("/ai/transform", payload),
+  });
+}
+
 export function useLogout() {
   const qc = useQueryClient();
   return useMutation({
