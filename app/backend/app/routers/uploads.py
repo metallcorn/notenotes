@@ -82,6 +82,32 @@ async def create_upload(
     return UploadOut(id=upload.id, url=f"/api/uploads/{upload.id}", filename=upload.filename, content_type=content_type)
 
 
+@router.post("/{upload_id}/reprocess", status_code=status.HTTP_202_ACCEPTED)
+async def reprocess_upload(
+    upload_id: uuid.UUID, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+) -> dict:
+    """Повторный запуск OCR/расшифровки — нужен файлам, загруженным до того,
+    как появились vision.py/transcription.py (для них воркер никогда не
+    запускался), а также если распознавание в первый раз не задалось."""
+    upload = await db.get(Upload, upload_id)
+    if upload is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Файл не найден")
+    await ensure_space_access(db, upload.space_id, user.id)
+
+    if not (upload.content_type.startswith("video/") or upload.content_type.startswith("image/")):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Распознавание доступно только для видео и картинок")
+
+    upload.transcription_status = "pending"
+    await db.commit()
+
+    if upload.content_type.startswith("video/"):
+        enqueue_transcription(upload.id)
+    else:
+        enqueue_vision(upload.id)
+
+    return {"status": "pending"}
+
+
 @router.get("/{upload_id}")
 async def get_upload(
     upload_id: uuid.UUID, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)

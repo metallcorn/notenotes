@@ -504,6 +504,17 @@ export function useUploadFile(spaceId: string | undefined) {
   });
 }
 
+// Повторный запуск OCR/расшифровки — для файлов, загруженных до появления
+// vision.py/transcription.py, или если распознавание не задалось с первого
+// раза. Результат прилетает не из ответа мутации, а тем же путём, что и при
+// обычной загрузке — фоновый воркер заменит плейсхолдер в content заметки,
+// и WS-нотификация ("items") сама обновит открытую заметку.
+export function useReprocessUpload() {
+  return useMutation({
+    mutationFn: (uploadId: string) => api.post(`/uploads/${uploadId}/reprocess`),
+  });
+}
+
 // --- notifications ---------------------------------------------------------
 
 export function useNotifications() {
