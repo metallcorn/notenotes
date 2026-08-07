@@ -27,7 +27,13 @@ export default function NotificationBell({ updateAvailable }: { updateAvailable:
       {open && (
         <>
           <div className="fixed inset-0 z-20" onClick={() => setOpen(false)} />
-          <div className="absolute bottom-full right-0 z-30 mb-1 max-h-96 w-72 max-w-[calc(100vw-1.5rem)] overflow-y-auto rounded border bg-white shadow-lg">
+          {/* На мобиле сайдбар — вся ширина экрана, и кнопка (после flex-1
+              у UserMenu) оказывается у правого края экрана — right-0 держит
+              панель на экране. На десктопе сайдбар всего 256px (w-64) и
+              приклеен к левому краю окна — та же кнопка оказывается у
+              левого края ЭКРАНА, и right-0 там уводит панель за левый край.
+              Нужен разный якорь на разных брейкпоинтах, не один и тот же. */}
+          <div className="absolute bottom-full right-0 z-30 mb-1 max-h-96 w-72 max-w-[calc(100vw-1.5rem)] overflow-y-auto rounded border bg-white shadow-lg lg:right-auto lg:left-0">
             <div className="flex items-center justify-between border-b px-3 py-2">
               <span className="text-xs font-medium uppercase tracking-wide text-slate-400">Уведомления</span>
               {(notifications ?? []).some((n) => !n.read_at) && (
