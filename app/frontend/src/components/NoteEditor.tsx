@@ -555,18 +555,25 @@ export default function NoteEditor({
         {showTableToolbar && editor && <TableToolbar editor={editor} />}
         <div className="flex min-h-0 flex-1 overflow-hidden">
           <div className="min-h-0 flex-1 overflow-y-auto p-4">
-            {mode === "wysiwyg" ? (
-              <>
-                {editor && (
-                  <BubbleMenu editor={editor} shouldShow={({ state }) => !state.selection.empty}>
-                    <div className="rounded border bg-white shadow-lg">
-                      <AiMenu onAction={applyAiAction} loading={aiLoading} />
-                    </div>
-                  </BubbleMenu>
-                )}
-                <EditorContent editor={editor} className={`tiptap ${widthClass}`} />
-              </>
-            ) : (
+            {/* EditorContent/BubbleMenu держат собственный DOM в обход React
+                (ProseMirror-вью и tippy.js-попап у BubbleMenu) — полное
+                размонтирование этой ветки при переключении режима (было:
+                тернарник) роняло React с "Failed to execute 'removeChild'"
+                и белым экраном без ErrorBoundary. Теперь ветка всегда
+                смонтирована, режим переключается через CSS, а не через
+                unmount. */}
+            {editor && (
+              <BubbleMenu editor={editor} shouldShow={({ state }) => mode === "wysiwyg" && !state.selection.empty}>
+                <div className="rounded border bg-white shadow-lg">
+                  <AiMenu onAction={applyAiAction} loading={aiLoading} />
+                </div>
+              </BubbleMenu>
+            )}
+            <EditorContent
+              editor={editor}
+              className={`tiptap ${widthClass} ${mode === "wysiwyg" ? "" : "hidden"}`}
+            />
+            {mode === "raw" && (
               <textarea
                 value={content}
                 onChange={(e) => setContent(e.target.value)}

@@ -5,6 +5,7 @@ import LoginPage from "./pages/LoginPage";
 import RegisterPage from "./pages/RegisterPage";
 import AppShell from "./pages/AppShell";
 import FeedbackWidget from "./components/FeedbackWidget";
+import ErrorBoundary from "./components/ErrorBoundary";
 
 function RequireAuth({ children }: { children: ReactElement }) {
   const { data: user, isLoading, isError } = useMe();
@@ -57,7 +58,9 @@ export default function App() {
           path="/*"
           element={
             <RequireAuth>
-              <AppShell />
+              <ErrorBoundary>
+                <AppShell />
+              </ErrorBoundary>
             </RequireAuth>
           }
         />
