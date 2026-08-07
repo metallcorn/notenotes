@@ -16,7 +16,11 @@ router = APIRouter(prefix="/api/uploads", tags=["uploads"])
 # Произвольные файлы (ТЗ §9 — файл как item — придёт в Фазе 2; пока это
 # просто вложение к заметке). Тип не ограничиваем: файл никогда не
 # исполняется, только отдаётся обратно через авторизованный FileResponse.
-MAX_UPLOAD_BYTES = 25 * 1024 * 1024
+# 300 МБ хватает на видео с телефона в разумном качестве (диск — 27 ГБ
+# свободно, не узкое место); раньше было 25 МБ — заимствовано у лимита
+# Whisper API для голосовых сообщений, для видео категорически мало.
+MAX_UPLOAD_BYTES = 300 * 1024 * 1024
+_STREAM_CHUNK_BYTES = 1024 * 1024
 
 
 def _upload_path(upload_id: uuid.UUID) -> Path:
@@ -32,10 +36,6 @@ async def create_upload(
 ) -> UploadOut:
     await ensure_space_access(db, space_id, user.id)
 
-    data = await file.read(MAX_UPLOAD_BYTES + 1)
-    if len(data) > MAX_UPLOAD_BYTES:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Файл больше 25 МБ")
-
     content_type = file.content_type or "application/octet-stream"
     upload = Upload(
         space_id=space_id,
@@ -48,7 +48,24 @@ async def create_upload(
 
     upload_dir = Path(get_settings().upload_dir)
     upload_dir.mkdir(parents=True, exist_ok=True)
-    _upload_path(upload.id).write_bytes(data)
+    dest = _upload_path(upload.id)
+
+    # Пишем на диск чанками, не читаем файл целиком в память — backend
+    # ограничен 768 МБ (docker-compose.yml.j2), а с потолком 300 МБ на
+    # аплоад чтение целиком в bytes перед записью держало бы это в памяти
+    # одним куском на весь запрос, легко несколько таких параллельно — OOM.
+    total = 0
+    try:
+        with dest.open("wb") as out:
+            while chunk := await file.read(_STREAM_CHUNK_BYTES):
+                total += len(chunk)
+                if total > MAX_UPLOAD_BYTES:
+                    raise HTTPException(status.HTTP_400_BAD_REQUEST, "Файл больше 300 МБ")
+                out.write(chunk)
+    except HTTPException:
+        dest.unlink(missing_ok=True)
+        await db.rollback()
+        raise
 
     await db.commit()
     return UploadOut(id=upload.id, url=f"/api/uploads/{upload.id}", filename=upload.filename, content_type=content_type)

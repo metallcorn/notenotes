@@ -35,6 +35,7 @@ import Spinner from "./Spinner";
 import ConfirmDialog from "./ConfirmDialog";
 import ExportMenu from "./ExportMenu";
 import { ResizableImage } from "../extensions/ResizableImage";
+import { Video } from "../extensions/Video";
 import { SlashCommand } from "../extensions/SlashCommand";
 
 const EmojiPickerPopover = lazy(() => import("./EmojiPickerPopover"));
@@ -88,6 +89,7 @@ export default function NoteEditor({
       StarterKit.configure({ codeBlock: false }),
       CodeBlockLowlight.configure({ lowlight }),
       ResizableImage,
+      Video,
       LinkExtension.configure({ HTMLAttributes: { target: "_blank", rel: "noopener noreferrer" } }),
       Table.configure({ resizable: false }),
       TableRow,
@@ -213,12 +215,25 @@ export default function NoteEditor({
     e.target.value = "";
     if (!file || !item) return;
     const uploaded = await uploadFile.mutateAsync(file);
+    const isVideo = uploaded.content_type.startsWith("video/");
     if (mode === "wysiwyg" && editor) {
-      editor
-        .chain()
-        .focus()
-        .insertContent({ type: "text", text: uploaded.filename, marks: [{ type: "link", attrs: { href: uploaded.url } }] })
-        .run();
+      if (isVideo) {
+        editor
+          .chain()
+          .focus()
+          .insertContent({ type: "video", attrs: { src: uploaded.url, filename: uploaded.filename } })
+          .run();
+      } else {
+        editor
+          .chain()
+          .focus()
+          .insertContent({ type: "text", text: uploaded.filename, marks: [{ type: "link", attrs: { href: uploaded.url } }] })
+          .run();
+      }
+    } else if (isVideo) {
+      setContent(
+        (c) => `${c}\n\n<video src="${uploaded.url}" controls preload="metadata" style="max-width: 100%;"></video>\n`,
+      );
     } else {
       setContent((c) => `${c}\n\n[${uploaded.filename}](${uploaded.url})\n`);
     }
