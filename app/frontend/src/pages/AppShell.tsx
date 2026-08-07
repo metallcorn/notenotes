@@ -26,6 +26,9 @@ export default function AppShell() {
 
   const [activeSpaceId, setActiveSpaceId] = useState<string | undefined>(undefined);
   useSpaceSync(activeSpaceId);
+  useEffect(() => {
+    if (activeSpaceId) uiStorage.setLastSpaceId(activeSpaceId);
+  }, [activeSpaceId]);
   const [activeFolderId, setActiveFolderId] = useState<string | null>(null);
   const [tagId, setTagId] = useState<string | null>(null);
   const [selectedItemId, setSelectedItemIdState] = useState<string | null>(null);
@@ -62,7 +65,12 @@ export default function AppShell() {
     restoredRef.current = true;
     const saved = uiStorage.getActiveSelection();
     const valid = saved && spaces.some((s) => s.id === saved.spaceId) ? saved : null;
-    const spaceId = valid?.spaceId ?? spaces[0].id;
+    // lastSpaceId — приоритетнее activeSelection: тот пишется только из
+    // выбора папки в Заметках, а lastSpaceId — из любого экрана, включая
+    // Ассистента (см. комментарий в storage.ts).
+    const lastSpaceId = uiStorage.getLastSpaceId();
+    const validLastSpaceId = lastSpaceId && spaces.some((s) => s.id === lastSpaceId) ? lastSpaceId : null;
+    const spaceId = validLastSpaceId ?? valid?.spaceId ?? spaces[0].id;
     setActiveSpaceId(spaceId);
 
     // Экран (заметки/ассистент/корзина) — отдельная ось от папки/заметки:
@@ -195,6 +203,22 @@ export default function AppShell() {
           sidebarCollapsed ? "lg:hidden" : "lg:flex"
         } w-full shrink-0 flex-col border-r bg-slate-50 lg:w-64`}
       >
+        {/* На десктопе строка поиска уже есть в панели списка заметок,
+            видна одновременно с сайдбаром. На мобиле экраны сменяют друг
+            друга по одному — без этого поиск был доступен только после
+            захода в конкретную папку, не с главного экрана (жалоба). */}
+        <div className="border-b p-3 lg:hidden">
+          <SearchBar
+            value={query}
+            onChange={(v) => {
+              setQuery(v);
+              if (v.trim()) {
+                setViewMode("notes");
+                withViewTransition(() => setMobileView("list"));
+              }
+            }}
+          />
+        </div>
         {/* Скроллится только список спейсов/папок/тегов — футер профиля
             нарочно СНАРУЖИ этого div: иначе overflow-y-auto родителя
             обрезает всплывающие окна UserMenu/NotificationBell, у которых

@@ -42,6 +42,16 @@ export const uiStorage = {
   getActiveSelection: (): ActiveSelection | null => read<ActiveSelection | null>("activeSelection", null),
   setActiveSelection: (v: ActiveSelection | null): void => write("activeSelection", v),
 
+  // Отдельно от activeSelection: тот пишется только из выбора папки в
+  // Заметках (selectFolder) — если последним пользователь сидел в
+  // Ассистенте, activeSelection.spaceId мог быть про другой (старый)
+  // спейс. При рестарте это резолвило дефолтный спейс не туда, и список
+  // диалогов ассистента выглядел пустым — "куда-то пропали чаты"
+  // (реальная жалоба). lastSpaceId пишется при КАЖДОЙ смене активного
+  // спейса, независимо от экрана (заметки/ассистент/корзина).
+  getLastSpaceId: (): string | null => read<string | null>("lastSpaceId", null),
+  setLastSpaceId: (v: string | null): void => write("lastSpaceId", v),
+
   // Ширина текста в редакторе — как в Confluence: узкий/широкий/во весь
   // экран. Глобальная настройка чтения, не свойство конкретной заметки.
   getContentWidth: (): ContentWidth => read<ContentWidth>("contentWidth", "narrow"),
