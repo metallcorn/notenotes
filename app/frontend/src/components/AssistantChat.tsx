@@ -132,10 +132,27 @@ function CalendarEventLinks({ message, results }: { message: DialogMessage; resu
 
   if (events.length === 0) return null;
 
+  // Google Calendar понимает публичный, документированный URL-шаблон —
+  // строим его сами из уже известных данных тула, а не доверяем модели
+  // написать такую ссылку текстом (та же причина, что и у create_maps_link).
+  // Без "Z" в датах Google трактует время как локальное для календаря
+  // открывающего — то же "floating time" поведение, что и у .ics-файла.
+  function googleCalendarUrl(event: (typeof events)[number]): string {
+    const fmt = (iso: string) => (event.all_day ? iso.replace(/-/g, "") : iso.replace(/[-:]/g, ""));
+    const params = new URLSearchParams({
+      action: "TEMPLATE",
+      text: event.title,
+      dates: `${fmt(event.start)}/${fmt(event.end)}`,
+    });
+    if (event.location) params.set("location", event.location);
+    if (event.description) params.set("details", event.description);
+    return `https://calendar.google.com/calendar/render?${params.toString()}`;
+  }
+
   return (
     <div className="mt-1.5 flex flex-wrap gap-1.5">
       {events.map((event, i) => {
-        const params = new URLSearchParams({
+        const icsParams = new URLSearchParams({
           title: event.title,
           start: event.start,
           end: event.end,
@@ -144,13 +161,22 @@ function CalendarEventLinks({ message, results }: { message: DialogMessage; resu
           description: event.description ?? "",
         });
         return (
-          <a
-            key={i}
-            href={`/api/calendar/event.ics?${params.toString()}`}
-            className="flex items-center gap-1 rounded-full border border-slate-300 bg-white px-3 py-1 text-xs text-slate-700 hover:border-slate-400 hover:bg-slate-50"
-          >
-            <CalendarPlus size={13} /> Добавить в календарь
-          </a>
+          <span key={i} className="flex flex-wrap gap-1.5">
+            <a
+              href={googleCalendarUrl(event)}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-1 rounded-full border border-slate-300 bg-white px-3 py-1 text-xs text-slate-700 hover:border-slate-400 hover:bg-slate-50"
+            >
+              <CalendarPlus size={13} /> Google Календарь
+            </a>
+            <a
+              href={`/api/calendar/event.ics?${icsParams.toString()}`}
+              className="flex items-center gap-1 rounded-full border border-slate-300 bg-white px-3 py-1 text-xs text-slate-700 hover:border-slate-400 hover:bg-slate-50"
+            >
+              <CalendarPlus size={13} /> Скачать .ics
+            </a>
+          </span>
         );
       })}
     </div>
