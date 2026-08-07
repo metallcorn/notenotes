@@ -39,7 +39,7 @@ export const Video = Node.create({
       mergeAttributes(HTMLAttributes, {
         controls: "",
         preload: "metadata",
-        style: "max-width: 100%; border-radius: 0.375rem;",
+        style: "max-width: 100%; max-height: 70vh; border-radius: 0.375rem;",
       }),
     ];
   },
@@ -54,7 +54,7 @@ export const Video = Node.create({
           const { src, filename } = node.attrs;
           const filenameAttr = filename ? ` data-filename="${filename.replace(/"/g, "&quot;")}"` : "";
           state.write(
-            `<video src="${src.replace(/"/g, "&quot;")}" controls preload="metadata" style="max-width: 100%;"${filenameAttr}></video>`,
+            `<video src="${src.replace(/"/g, "&quot;")}" controls preload="metadata" style="max-width: 100%; max-height: 70vh;"${filenameAttr}></video>`,
           );
         },
         parse: {},

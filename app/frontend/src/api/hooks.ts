@@ -485,10 +485,10 @@ export function useSearch(q: string) {
 
 export function useUploadFile(spaceId: string | undefined) {
   return useMutation({
-    mutationFn: async (file: File) => {
+    mutationFn: async ({ file, onProgress }: { file: File; onProgress?: (pct: number) => void }) => {
       const form = new FormData();
       form.append("file", file);
-      return api.post<UploadResult>(`/uploads?space_id=${spaceId}`, form);
+      return api.uploadWithProgress<UploadResult>(`/uploads?space_id=${spaceId}`, form, onProgress);
     },
   });
 }

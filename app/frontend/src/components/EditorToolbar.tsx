@@ -59,7 +59,7 @@ export default function EditorToolbar({
   editor,
   onInsertImage,
   onInsertFile,
-  uploading,
+  uploadProgress,
   contentWidth,
   onContentWidthChange,
   onAiAction,
@@ -68,13 +68,14 @@ export default function EditorToolbar({
   editor: Editor | null;
   onInsertImage: () => void;
   onInsertFile: () => void;
-  uploading: boolean;
+  uploadProgress: number | null;
   contentWidth: ContentWidth;
   onContentWidthChange: (width: ContentWidth) => void;
   onAiAction: (action: AiAction, instruction?: string) => void;
   aiLoading: boolean;
 }) {
   if (!editor) return null;
+  const uploading = uploadProgress !== null;
 
   return (
     <div className="flex flex-nowrap items-center gap-0.5 overflow-x-auto border-b bg-slate-50 px-2 py-1">
@@ -176,6 +177,7 @@ export default function EditorToolbar({
       <ToolbarButton title="Файл" disabled={uploading} onClick={onInsertFile}>
         {uploading ? <Spinner size={16} /> : <FileUp size={16} />}
       </ToolbarButton>
+      {uploading && <span className="shrink-0 text-xs tabular-nums text-slate-500">{uploadProgress}%</span>}
       <span className="mx-1 h-4 w-px shrink-0 bg-slate-300" />
       <ToolbarButton title="Отменить" disabled={!editor.can().undo()} onClick={() => editor.chain().focus().undo().run()}>
         <Undo2 size={16} />

@@ -78,6 +78,7 @@ export default function NoteEditor({
   const [contentWidth, setContentWidth] = useState<ContentWidth>(() => uiStorage.getContentWidth());
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
 
   const savedRef = useRef({ title: "", content: "" });
   const pendingRef = useRef<{ id: string; title: string; content: string } | null>(null);
@@ -212,11 +213,16 @@ export default function NoteEditor({
     const file = e.target.files?.[0];
     e.target.value = "";
     if (!file || !item) return;
-    const uploaded = await uploadFile.mutateAsync(file);
-    if (mode === "wysiwyg" && editor) {
-      editor.chain().focus().setImage({ src: uploaded.url }).run();
-    } else {
-      setContent((c) => `${c}\n\n![](${uploaded.url})\n`);
+    setUploadProgress(0);
+    try {
+      const uploaded = await uploadFile.mutateAsync({ file, onProgress: setUploadProgress });
+      if (mode === "wysiwyg" && editor) {
+        editor.chain().focus().setImage({ src: uploaded.url }).run();
+      } else {
+        setContent((c) => `${c}\n\n![](${uploaded.url})\n`);
+      }
+    } finally {
+      setUploadProgress(null);
     }
   }
 
@@ -224,28 +230,34 @@ export default function NoteEditor({
     const file = e.target.files?.[0];
     e.target.value = "";
     if (!file || !item) return;
-    const uploaded = await uploadFile.mutateAsync(file);
-    const isVideo = uploaded.content_type.startsWith("video/");
-    if (mode === "wysiwyg" && editor) {
-      if (isVideo) {
-        editor
-          .chain()
-          .focus()
-          .insertContent({ type: "video", attrs: { src: uploaded.url, filename: uploaded.filename } })
-          .run();
+    setUploadProgress(0);
+    try {
+      const uploaded = await uploadFile.mutateAsync({ file, onProgress: setUploadProgress });
+      const isVideo = uploaded.content_type.startsWith("video/");
+      if (mode === "wysiwyg" && editor) {
+        if (isVideo) {
+          editor
+            .chain()
+            .focus()
+            .insertContent({ type: "video", attrs: { src: uploaded.url, filename: uploaded.filename } })
+            .run();
+        } else {
+          editor
+            .chain()
+            .focus()
+            .insertContent({ type: "text", text: uploaded.filename, marks: [{ type: "link", attrs: { href: uploaded.url } }] })
+            .run();
+        }
+      } else if (isVideo) {
+        setContent(
+          (c) =>
+            `${c}\n\n<video src="${uploaded.url}" controls preload="metadata" style="max-width: 100%; max-height: 70vh;"></video>\n`,
+        );
       } else {
-        editor
-          .chain()
-          .focus()
-          .insertContent({ type: "text", text: uploaded.filename, marks: [{ type: "link", attrs: { href: uploaded.url } }] })
-          .run();
+        setContent((c) => `${c}\n\n[${uploaded.filename}](${uploaded.url})\n`);
       }
-    } else if (isVideo) {
-      setContent(
-        (c) => `${c}\n\n<video src="${uploaded.url}" controls preload="metadata" style="max-width: 100%;"></video>\n`,
-      );
-    } else {
-      setContent((c) => `${c}\n\n[${uploaded.filename}](${uploaded.url})\n`);
+    } finally {
+      setUploadProgress(null);
     }
   }
 
@@ -496,7 +508,7 @@ export default function NoteEditor({
             editor={editor}
             onInsertImage={() => imageInputRef.current?.click()}
             onInsertFile={() => fileInputRef.current?.click()}
-            uploading={uploadFile.isPending}
+            uploadProgress={uploadProgress}
             contentWidth={contentWidth}
             onContentWidthChange={changeContentWidth}
             onAiAction={applyAiAction}

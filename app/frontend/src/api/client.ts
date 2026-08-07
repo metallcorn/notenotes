@@ -56,6 +56,40 @@ async function postForBlob(path: string, body: unknown): Promise<Blob> {
   return res.blob();
 }
 
+// fetch() не даёт события прогресса аплоада ни в каком широко совместимом
+// виде — только XMLHttpRequest умеет xhr.upload.onprogress. Видео на
+// десятки-сотни МБ грузится не мгновенно, и раньше пользователь просто не
+// видел, что вообще происходит (жалоба).
+function uploadWithProgress<T>(path: string, form: FormData, onProgress?: (pct: number) => void): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", `${BASE}${path}`);
+    xhr.withCredentials = true;
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable && onProgress) onProgress(Math.round((e.loaded / e.total) * 100));
+    };
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try {
+          resolve(JSON.parse(xhr.responseText) as T);
+        } catch {
+          reject(new ApiError(xhr.status, "Некорректный ответ сервера"));
+        }
+        return;
+      }
+      let message = xhr.statusText;
+      try {
+        message = JSON.parse(xhr.responseText).detail ?? message;
+      } catch {
+        // тело не JSON — оставляем statusText
+      }
+      reject(new ApiError(xhr.status, message));
+    };
+    xhr.onerror = () => reject(new ApiError(0, "Сетевая ошибка"));
+    xhr.send(form);
+  });
+}
+
 export const api = {
   get: <T>(path: string) => request<T>(path),
   post: <T>(path: string, body?: unknown, signal?: AbortSignal) =>
@@ -67,4 +101,5 @@ export const api = {
   patch: <T>(path: string, body?: unknown) => request<T>(path, { method: "PATCH", body: JSON.stringify(body) }),
   delete: <T>(path: string) => request<T>(path, { method: "DELETE" }),
   postForBlob,
+  uploadWithProgress,
 };

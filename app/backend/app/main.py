@@ -1,3 +1,5 @@
+import asyncio
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -5,6 +7,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.responses import FileResponse
 from starlette.requests import Request
 
+from app.cleanup import run_periodic_sweep
 from app.routers import (
     ai_text,
     auth,
@@ -24,7 +27,16 @@ from app.routers import (
     voice,
 )
 
-app = FastAPI(title="Notenotes")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    sweep_task = asyncio.create_task(run_periodic_sweep())
+    try:
+        yield
+    finally:
+        sweep_task.cancel()
+
+
+app = FastAPI(title="Notenotes", lifespan=lifespan)
 app.include_router(ai_text.router)
 app.include_router(auth.router)
 app.include_router(calendar.router)
