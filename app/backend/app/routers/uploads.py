@@ -11,6 +11,7 @@ from app.deps import ensure_space_access, get_current_user
 from app.models import Upload, User
 from app.schemas.upload import UploadOut
 from app.transcription import enqueue_transcription
+from app.vision import enqueue_vision
 
 router = APIRouter(prefix="/api/uploads", tags=["uploads"])
 
@@ -68,13 +69,15 @@ async def create_upload(
         await db.rollback()
         raise
 
-    if content_type.startswith("video/"):
+    if content_type.startswith("video/") or content_type.startswith("image/"):
         upload.transcription_status = "pending"
 
     await db.commit()
 
     if content_type.startswith("video/"):
         enqueue_transcription(upload.id)
+    elif content_type.startswith("image/"):
+        enqueue_vision(upload.id)
 
     return UploadOut(id=upload.id, url=f"/api/uploads/{upload.id}", filename=upload.filename, content_type=content_type)
 

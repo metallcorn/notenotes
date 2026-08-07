@@ -163,8 +163,14 @@ async def run_worker() -> None:
 
 async def resume_pending() -> None:
     async with async_session() as db:
+        # content_type-фильтр обязателен: transcription_status/transcript
+        # теперь общие поля с app/vision.py (картинки же) — без фильтра
+        # тут подхватились бы и незавершённые задачи анализа изображений.
         result = await db.execute(
-            select(Upload.id).where(Upload.transcription_status.in_(["pending", "processing"]))
+            select(Upload.id).where(
+                Upload.content_type.like("video/%"),
+                Upload.transcription_status.in_(["pending", "processing"]),
+            )
         )
         for row in result.all():
             enqueue_transcription(row[0])

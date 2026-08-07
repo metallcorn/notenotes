@@ -216,10 +216,19 @@ export default function NoteEditor({
     setUploadProgress(0);
     try {
       const uploaded = await uploadFile.mutateAsync({ file, onProgress: setUploadProgress });
+      // Плейсхолдер — точная строка, которую backend ищет и заменяет на
+      // готовое описание/OCR (app/vision.py, placeholder_text()); должна
+      // совпадать 1:1, тот же приём, что и у видео-расшифровки.
+      const placeholder = `[Описание изображения ${uploaded.id} обрабатывается…]`;
       if (mode === "wysiwyg" && editor) {
-        editor.chain().focus().setImage({ src: uploaded.url }).run();
+        editor
+          .chain()
+          .focus()
+          .setImage({ src: uploaded.url })
+          .insertContent({ type: "paragraph", content: [{ type: "text", text: placeholder }] })
+          .run();
       } else {
-        setContent((c) => `${c}\n\n![](${uploaded.url})\n`);
+        setContent((c) => `${c}\n\n![](${uploaded.url})\n\n${placeholder}\n`);
       }
     } finally {
       setUploadProgress(null);

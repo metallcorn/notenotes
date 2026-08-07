@@ -126,7 +126,11 @@ class Upload(Base):
     filename: Mapped[str] = mapped_column(String(255))
     content_type: Mapped[str] = mapped_column(String(100))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    # Расшифровка речи из видео (app/transcription.py) — none для не-видео.
+    # Фоновая расшифровка содержимого файла — речь из видео
+    # (app/transcription.py) или описание/OCR картинки (app/vision.py).
+    # Общие поля для обоих: по смыслу одно и то же ("вытащить текст из
+    # файла в фоне"), отдельные таблицы ради этого не нужны. none — для
+    # файлов, которые не обрабатываются (не видео и не изображение).
     transcription_status: Mapped[str] = mapped_column(String(20), default="none", server_default="none")
     transcript: Mapped[str | None] = mapped_column(Text, nullable=True)
 
