@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import base64
 import io
 import json
@@ -23,6 +24,7 @@ TEXT_CHUNK_LIMIT = 1000  # лимит протокола — 1024 символа
 DEFAULT_SPEED = 1.15  # чуть быстрее нормы (диапазон протокола 0.0–2.0), по просьбе — "чуть быстрее, но с паузами"
 
 _SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?…:])\s+|\n{2,}")
+_HAS_WORD_CHAR_RE = re.compile(r"\w", re.UNICODE)
 
 
 def _chunk_text(text: str, limit: int = TEXT_CHUNK_LIMIT) -> list[str]:
@@ -34,6 +36,11 @@ def _chunk_text(text: str, limit: int = TEXT_CHUNK_LIMIT) -> list[str]:
     куске всего текста — модель получала "это не конец предложения" почти
     везде, включая места, где предложение реально заканчивалось, поэтому
     речь лилась без пауз."""
+    # Без единой буквы/цифры (голая пунктуация — "...", "-", обрывок после
+    # чистки markdown) — Palabra на такой чанк не всегда шлёт last_chunk,
+    # и цикл ожидания в synthesize() виснет навсегда (поймали живьём: текст
+    # "." вешал запрос на неопределённое время). Не отправляем такие чанки
+    # вообще, а не просто на них полагаемся.
     sentences = [s.strip() for s in _SENTENCE_SPLIT_RE.split(text) if s.strip()]
     chunks: list[str] = []
     for sentence in sentences:
@@ -42,7 +49,11 @@ def _chunk_text(text: str, limit: int = TEXT_CHUNK_LIMIT) -> list[str]:
             sentence = sentence[limit:]
         if sentence:
             chunks.append(sentence)
-    return chunks or [""]
+    # Может вернуться пустым (весь текст — голая пунктуация) — это осознанно,
+    # НЕ подменяем на [""]: пустой чанк вызывает то же зависание, что и
+    # чанк из одной точки, только на уровень выше. Вызывающая сторона
+    # обязана проверить пустой список сама и не открывать соединение вовсе.
+    return [c for c in chunks if _HAS_WORD_CHAR_RE.search(c)]
 
 
 def _pcm_to_wav(pcm: bytes, sample_rate: int) -> bytes:
@@ -63,6 +74,22 @@ class PalabraClient:
         self._voice_id = voice_id
 
     async def synthesize(self, text: str, voice_id: str | None = None) -> bytes:
+        # Защита от зависания: любое расхождение с протоколом (last_chunk
+        # не пришёл на какой-то чанк по неизвестной нам причине) иначе
+        # вешает запрос навсегда — лучше явная ошибка через 30 секунд, чем
+        # "TTS не отвечает" без объяснений.
+        try:
+            return await asyncio.wait_for(self._synthesize(text, voice_id), timeout=30)
+        except asyncio.TimeoutError:
+            raise RuntimeError("Palabra TTS не ответила вовремя") from None
+
+    async def _synthesize(self, text: str, voice_id: str | None = None) -> bytes:
+        text_parts = _chunk_text(text)
+        if not text_parts:
+            # Голая пунктуация после чистки markdown — говорить нечего,
+            # не открываем соединение вовсе (см. комментарий в _chunk_text).
+            return _pcm_to_wav(b"", SAMPLE_RATE)
+
         chunks = []
         async with websockets.connect(f"{self._url}?token={self._api_key}") as ws:
             await ws.send(
@@ -80,7 +107,6 @@ class PalabraClient:
             # is_eos на КАЖДОМ куске, не только на последнем — граница чанка
             # здесь и есть граница предложения/абзаца (см. _chunk_text), а
             # это единственный сигнал паузы, который понимает протокол.
-            text_parts = _chunk_text(text)
             for part in text_parts:
                 await ws.send(json.dumps({"type": "text", "text": part, "is_eos": True}))
 
