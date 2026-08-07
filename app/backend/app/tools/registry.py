@@ -121,7 +121,15 @@ def list_skills(disabled: set[str]) -> list[dict[str, Any]]:
     ]
 
 
-async def dispatch(name: str, ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
+async def dispatch(name: str, ctx: ToolContext, args: dict[str, Any], disabled: set[str] | None = None) -> dict[str, Any]:
+    # Проверка независима от того, что мы передали модели в tools —
+    # на практике модель иногда возвращает tool_call на имя, которого не
+    # было в объявленных ей тулах (наблюдали живьём с run_python), поэтому
+    # dispatch не может полагаться только на то, что "модель не должна была
+    # это вызвать". Отключённый тул отказывает здесь тоже, а не только
+    # отсутствует в описании для модели.
+    if disabled and name in disabled:
+        return {"error": f"Инструмент {name} отключён в настройках пользователя"}
     entry = _build_registry().get(name)
     if entry is None:
         return {"error": f"Неизвестный инструмент: {name}"}
