@@ -515,6 +515,29 @@ export function useReprocessUpload() {
   });
 }
 
+// --- telegram ---------------------------------------------------------------
+
+export function useTelegramStatus() {
+  return useQuery<{ linked: boolean }>({
+    queryKey: ["telegram-status"],
+    queryFn: () => api.get<{ linked: boolean }>("/telegram/status"),
+  });
+}
+
+export function useTelegramLinkCode() {
+  return useMutation({
+    mutationFn: () => api.post<{ deep_link: string; expires_at: string }>("/telegram/link-code"),
+  });
+}
+
+export function useTelegramUnlink() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.delete("/telegram/link"),
+    onSuccess: () => qc.setQueryData(["telegram-status"], { linked: false }),
+  });
+}
+
 // --- notifications ---------------------------------------------------------
 
 export function useNotifications() {

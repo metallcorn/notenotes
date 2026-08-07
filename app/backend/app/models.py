@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, String, Text, UniqueConstraint, func
+from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, String, Text, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -184,6 +184,33 @@ class Notification(Base):
     # NULL — обычное немедленное уведомление. С датой в будущем — не
     # отдаётся списком, пока не наступит (напоминания ассистента).
     trigger_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+
+
+class TelegramLink(Base):
+    """Привязка Telegram-аккаунта к notenotes-пользователю (простой Bot
+    API, не MTProto — ТЗ, Фаза 2 «Каналы»). chat_id уникален: один
+    Telegram-аккаунт не может быть привязан к двум пользователям сразу.
+    Персональный спейс создаётся один раз при первой успешной привязке —
+    у каждого пользователя свой, общего инбокса на всех нет намеренно."""
+
+    __tablename__ = "telegram_links"
+
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    chat_id: Mapped[int] = mapped_column(BigInteger, unique=True, index=True)
+    space_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("spaces.id", ondelete="CASCADE"))
+    linked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class TelegramLinkCode(Base):
+    """Одноразовый код для /start в боте — генерируется из уже
+    залогиненной веб-сессии (POST /api/telegram/link-code), живёт 10
+    минут, удаляется сразу после использования."""
+
+    __tablename__ = "telegram_link_codes"
+
+    code: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
 class AssistantMemory(Base):

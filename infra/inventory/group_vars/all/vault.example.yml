@@ -34,3 +34,12 @@ vault_tavily_api_key: "ЗАМЕНИ"  # ключ Tavily (tavily.com)
 vault_deepgram_api_key: "ЗАМЕНИ"  # console.deepgram.com
 vault_whisper_api_key: "ЗАМЕНИ"   # платформенный ключ OpenAI (Whisper API)
 vault_palabra_api_key: "ЗАМЕНИ"   # platform.palabra.ai
+
+# Telegram-бот как канал захвата заметок (обычный Bot API, не MTProto).
+# Токен и username — от @BotFather в Telegram. webhook_secret — случайная
+# строка (та же openssl rand -base64 32), Telegram присылает её обратно в
+# заголовке каждого запроса на вебхук, ей мы отличаем настоящие запросы от
+# кого угодно, кто узнает URL вебхука.
+vault_telegram_bot_token: "ЗАМЕНИ"     # токен от @BotFather
+vault_telegram_bot_username: "ЗАМЕНИ"  # username бота без @, например notenotes_bot
+vault_telegram_webhook_secret: "ЗАМЕНИ"

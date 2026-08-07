@@ -9,6 +9,7 @@ from starlette.requests import Request
 
 from app.autotag import run_worker as run_autotag_worker
 from app.cleanup import run_periodic_sweep
+from app.telegram_bot import register_webhook as register_telegram_webhook, run_worker as run_telegram_worker
 from app.transcription import resume_pending as resume_transcription, run_worker as run_transcription_worker
 from app.vision import resume_pending as resume_vision, run_worker as run_vision_worker
 from app.routers import (
@@ -26,6 +27,7 @@ from app.routers import (
     skills,
     spaces,
     tags,
+    telegram,
     uploads,
     voice,
 )
@@ -36,8 +38,10 @@ async def lifespan(app: FastAPI):
     transcription_task = asyncio.create_task(run_transcription_worker())
     vision_task = asyncio.create_task(run_vision_worker())
     autotag_task = asyncio.create_task(run_autotag_worker())
+    telegram_task = asyncio.create_task(run_telegram_worker())
     await resume_transcription()
     await resume_vision()
+    await register_telegram_webhook()
     try:
         yield
     finally:
@@ -45,6 +49,7 @@ async def lifespan(app: FastAPI):
         transcription_task.cancel()
         vision_task.cancel()
         autotag_task.cancel()
+        telegram_task.cancel()
 
 
 app = FastAPI(title="Notenotes", lifespan=lifespan)
@@ -64,6 +69,7 @@ app.include_router(voice.router)
 app.include_router(lists.router)
 app.include_router(memories.router)
 app.include_router(skills.router)
+app.include_router(telegram.router)
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 

@@ -37,6 +37,13 @@ class Settings(BaseSettings):
     palabra_api_key: str = ""
     palabra_region: str = "eu"
 
+    # Telegram-бот как канал захвата заметок (ТЗ, Фаза 2 «Каналы») —
+    # обычный Bot API с вебхуком, не MTProto (тот — Фаза 3, доступ к
+    # каналам пользователя, отдельная и более рискованная задача).
+    telegram_bot_token: str = ""
+    telegram_bot_username: str = ""
+    telegram_webhook_secret: str = ""
+
 
 @lru_cache
 def get_settings() -> Settings:

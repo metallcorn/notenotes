@@ -1,10 +1,13 @@
 import { useState } from "react";
-import { Trash2, X } from "lucide-react";
+import { Send, Trash2, X } from "lucide-react";
 import {
   useDeleteMemory,
   useMe,
   useMemories,
   useSkills,
+  useTelegramLinkCode,
+  useTelegramStatus,
+  useTelegramUnlink,
   useUpdateCustomInstructions,
   useUpdateDisabledTools,
   useUpdateTtsVoice,
@@ -24,10 +27,14 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
   const updateInstructions = useUpdateCustomInstructions();
   const updateDisabledTools = useUpdateDisabledTools();
   const updateTtsVoice = useUpdateTtsVoice();
+  const { data: telegramStatus } = useTelegramStatus();
+  const telegramLinkCode = useTelegramLinkCode();
+  const telegramUnlink = useTelegramUnlink();
 
   const [instructions, setInstructions] = useState(me?.custom_instructions ?? "");
   const [saved, setSaved] = useState(false);
   const [customVoiceId, setCustomVoiceId] = useState("");
+  const [telegramDeepLink, setTelegramDeepLink] = useState<string | null>(null);
 
   const currentVoice = me?.tts_voice ?? "default_low";
   const isPresetVoice = VOICE_PRESETS.some((v) => v.value === currentVoice);
@@ -167,6 +174,53 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
             </div>
             {!isPresetVoice && (
               <div className="mt-1 text-xs text-slate-400">Сейчас используется свой голос: {currentVoice}</div>
+            )}
+          </div>
+
+          <div className="mb-6">
+            <div className="mb-1 text-sm font-medium text-slate-900">Telegram</div>
+            <div className="mb-2 text-xs text-slate-400">
+              Подключите бота — присылайте ему текст, фото, голосовые и видео, они автоматически станут заметками
+              в отдельном личном спейсе «Telegram» (с авто-тегами и OCR, как и везде).
+            </div>
+            {telegramStatus?.linked ? (
+              <div className="flex items-center justify-between gap-2 rounded border px-3 py-2 text-sm">
+                <span className="text-slate-700">Подключено ✅</span>
+                <button
+                  onClick={() => telegramUnlink.mutate()}
+                  disabled={telegramUnlink.isPending}
+                  className="rounded border border-slate-300 px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                >
+                  {telegramUnlink.isPending ? <Spinner size={12} /> : "Отключить"}
+                </button>
+              </div>
+            ) : telegramDeepLink ? (
+              <a
+                href={telegramDeepLink}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center justify-center gap-2 rounded bg-sky-500 px-3 py-1.5 text-sm text-white hover:bg-sky-600"
+              >
+                <Send size={14} />
+                Открыть в Telegram
+              </a>
+            ) : (
+              <button
+                onClick={() =>
+                  telegramLinkCode
+                    .mutateAsync()
+                    .then((r) => setTelegramDeepLink(r.deep_link))
+                    .catch(() => {})
+                }
+                disabled={telegramLinkCode.isPending}
+                className="flex items-center gap-2 rounded bg-slate-900 px-3 py-1.5 text-sm text-white disabled:opacity-50"
+              >
+                {telegramLinkCode.isPending && <Spinner size={14} className="text-white" />}
+                Подключить
+              </button>
+            )}
+            {telegramLinkCode.isError && (
+              <div className="mt-1 text-xs text-red-600">Telegram-бот пока не настроен на сервере.</div>
             )}
           </div>
 

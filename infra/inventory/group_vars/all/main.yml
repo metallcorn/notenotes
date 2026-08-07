@@ -153,3 +153,8 @@ tavily_api_key: "{{ vault_tavily_api_key | default('') }}"
 deepgram_api_key: "{{ vault_deepgram_api_key | default('') }}"
 whisper_api_key: "{{ vault_whisper_api_key | default('') }}"
 palabra_api_key: "{{ vault_palabra_api_key | default('') }}"
+# Telegram-бот (Bot API, не MTProto) — канал захвата заметок. Без токена
+# приложение просто не регистрирует вебхук, ничего не ломается.
+telegram_bot_token: "{{ vault_telegram_bot_token | default('') }}"
+telegram_bot_username: "{{ vault_telegram_bot_username | default('') }}"
+telegram_webhook_secret: "{{ vault_telegram_webhook_secret | default('') }}"
