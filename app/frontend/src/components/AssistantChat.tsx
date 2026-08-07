@@ -37,8 +37,22 @@ import Spinner from "./Spinner";
 // ассистентом», не запись одного клипа с батч-загрузкой после).
 // Ссылки от ассистента (веб-поиск и т.п.) всегда во внешней вкладке —
 // иначе клик уводит из чата совсем, без возврата назад в разумном месте.
+// max-h/w здесь принципиальны: ассистент вставляет ![]() на найденные в
+// заметках картинки (см. SYSTEM_PROMPT_BASE в dialogs.py), а исходник может
+// быть каким угодно большого разрешения — без ограничения размера картинка
+// разъезжалась бы шире пузыря сообщения и ломала вёрстку чата.
 const markdownComponents: Components = {
   a: ({ node: _node, ...props }) => <a {...props} target="_blank" rel="noopener noreferrer" />,
+  img: ({ node: _node, alt, ...props }) => (
+    <a href={props.src} target="_blank" rel="noopener noreferrer" className="block">
+      <img
+        {...props}
+        alt={alt ?? ""}
+        loading="lazy"
+        className="my-1 max-h-64 max-w-full rounded border border-slate-200 object-contain"
+      />
+    </a>
+  ),
 };
 
 const SILENCE_AUTO_SEND_MS = 2000;
