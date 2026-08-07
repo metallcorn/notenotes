@@ -27,7 +27,7 @@ export default function NotificationBell({ updateAvailable }: { updateAvailable:
       {open && (
         <>
           <div className="fixed inset-0 z-20" onClick={() => setOpen(false)} />
-          <div className="absolute bottom-full left-0 z-30 mb-1 max-h-96 w-72 max-w-[calc(100vw-1.5rem)] overflow-y-auto rounded border bg-white shadow-lg">
+          <div className="absolute bottom-full right-0 z-30 mb-1 max-h-96 w-72 max-w-[calc(100vw-1.5rem)] overflow-y-auto rounded border bg-white shadow-lg">
             <div className="flex items-center justify-between border-b px-3 py-2">
               <span className="text-xs font-medium uppercase tracking-wide text-slate-400">Уведомления</span>
               {(notifications ?? []).some((n) => !n.read_at) && (
