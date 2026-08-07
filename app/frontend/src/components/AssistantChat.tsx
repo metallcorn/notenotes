@@ -201,18 +201,31 @@ function MapsLinkButtons({ message, results }: { message: DialogMessage; results
 
   if (links.length === 0) return null;
 
+  // Apple Maps понимает такой же публичный URL-шаблон, как Google Maps —
+  // строим его на фронтенде из уже известного query, не трогая бэкенд
+  // (та же логика, что у двух кнопок календаря): пользователь хочет
+  // выбирать между экосистемами, а не только Google.
   return (
     <div className="mt-1.5 flex flex-wrap gap-1.5">
       {links.map((link, i) => (
-        <a
-          key={i}
-          href={link.url}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="flex items-center gap-1 rounded-full border border-slate-300 bg-white px-3 py-1 text-xs text-slate-700 hover:border-slate-400 hover:bg-slate-50"
-        >
-          <MapPin size={13} /> Открыть на карте
-        </a>
+        <span key={i} className="flex flex-wrap gap-1.5">
+          <a
+            href={link.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-1 rounded-full border border-slate-300 bg-white px-3 py-1 text-xs text-slate-700 hover:border-slate-400 hover:bg-slate-50"
+          >
+            <MapPin size={13} /> Google Карты
+          </a>
+          <a
+            href={`https://maps.apple.com/?q=${encodeURIComponent(link.query)}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-1 rounded-full border border-slate-300 bg-white px-3 py-1 text-xs text-slate-700 hover:border-slate-400 hover:bg-slate-50"
+          >
+            <MapPin size={13} /> Apple Карты
+          </a>
+        </span>
       ))}
     </div>
   );
