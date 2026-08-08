@@ -61,7 +61,18 @@ SKILL_CATALOG: dict[str, dict[str, Any]] = {
     "create_maps_link": {"label": "Карты и навигация", "description": "Готовит ссылку на место в Google Maps", "toggleable": True},
     "create_reminder": {"label": "Напоминания", "description": "Создаёт напоминание в центре уведомлений на выбранное время", "toggleable": True},
     "run_python": {"label": "Python-вычисления", "description": "Точные вычисления в изолированной песочнице", "toggleable": True},
+    "show_note_images": {
+        "label": "Картинки в чате",
+        "description": "Показывает найденную в заметках картинку прямо в ответе, если она по теме",
+        "toggleable": True,
+    },
 }
+
+# show_note_images не вызываемый тул (нет ToolDefinition/handler — это
+# переключаемое поведение поверх get_note/search_base, см.
+# SHOW_NOTE_IMAGES_SKILL в routers/dialogs.py), поэтому его нет в
+# _build_registry() и list_skills() ниже не нашёл бы его обычным способом.
+PROMPT_ONLY_SKILLS = {"show_note_images"}
 
 
 def _build_registry() -> dict[str, tuple[ToolDefinition, ToolHandler]]:
@@ -121,7 +132,7 @@ def list_skills(disabled: set[str]) -> list[dict[str, Any]]:
             "enabled": name not in disabled,
         }
         for name, meta in SKILL_CATALOG.items()
-        if name in available
+        if name in available or name in PROMPT_ONLY_SKILLS
     ]
 
 

@@ -126,7 +126,20 @@ SYSTEM_PROMPT_BASE = (
     "свободный текст — не вызывай suggest_replies.\n\n"
     "Удаление заметки перемещает её в корзину, не безвозвратно, но вызывай "
     "его только когда пользователь действительно просит удалить. Содержимое "
-    "заметок пиши в формате Markdown.\n\n"
+    "заметок пиши в формате Markdown."
+)
+
+# Не настоящий тул (нет ToolDefinition/handler — модели нечего вызывать),
+# а переключаемое ПОВЕДЕНИЕ поверх get_note/search_base, которые и так
+# отдают контент целиком. Раньше жило безусловно в SYSTEM_PROMPT_BASE и не
+# отображалось в «Умениях ассистента» — с точки зрения пользователя это
+# несогласованность с остальными скиллами (web_search, calendar и т.п.),
+# у которых есть явный переключатель. Гейтится так же, как
+# TOOL_PROMPT_FRAGMENTS, но по сырому disabled_tools, а не enabled_tools
+# (последний собран из реальных ToolDefinition и никогда не будет
+# содержать имя без тула — см. SKILL_CATALOG/list_skills в tools/registry.py).
+SHOW_NOTE_IMAGES_SKILL = "show_note_images"
+SHOW_NOTE_IMAGES_PROMPT_FRAGMENT = (
     "Если через get_note/search_base нашлась заметка с картинкой (она в "
     "содержимом как markdown ![]() или как HTML <img src=\"...\">) и картинка "
     "по смыслу отвечает на вопрос пользователя — покажи её прямо в своём "
@@ -235,12 +248,16 @@ TOOL_PROMPT_FRAGMENTS: dict[str, str] = {
 }
 
 
-def _build_system_prompt(memory_facts: list[str], custom_instructions: str, enabled_tools: set[str]) -> str:
+def _build_system_prompt(
+    memory_facts: list[str], custom_instructions: str, enabled_tools: set[str], disabled_tools: set[str]
+) -> str:
     # ISO, не локализованное имя дня недели — strftime("%A") в контейнере
     # без ru_RU-локали всё равно выдал бы английское имя, а модели ISO-даты
     # достаточно, чтобы правильно резолвить "на этой неделе"/"вчера" и т.п.
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     prompt = f"Сегодняшняя дата: {today} (ISO, UTC).\n\n" + SYSTEM_PROMPT_BASE
+    if SHOW_NOTE_IMAGES_SKILL not in disabled_tools:
+        prompt += "\n\n" + SHOW_NOTE_IMAGES_PROMPT_FRAGMENT
     for tool_name, fragment in TOOL_PROMPT_FRAGMENTS.items():
         if tool_name in enabled_tools:
             prompt += "\n\n" + fragment
@@ -503,7 +520,7 @@ async def run_dialog_turn(db: AsyncSession, user: User, item: Item, content: str
     )
     memory_facts = [row[0] for row in memories_result.all()]
     enabled_tool_names = {d.name for d in tool_definitions}
-    system_prompt = _build_system_prompt(memory_facts, user.custom_instructions, enabled_tool_names)
+    system_prompt = _build_system_prompt(memory_facts, user.custom_instructions, enabled_tool_names, disabled_tool_names)
     tool_call_leak_retried = False
 
     for _ in range(MAX_TOOL_ITERATIONS):
