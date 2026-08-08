@@ -148,7 +148,12 @@ export default function NoteList({
   onSelect: (id: string) => void;
 }) {
   const effectiveFolderId = tagId ? null : folderId;
-  const { data: items, isLoading } = useItems(spaceId, effectiveFolderId, tagId);
+  // По тегу — кросс-спейсово (тег не привязан к одному спейсу, заметки под
+  // ним могут лежать в разных): spaceId здесь остаётся нужен НИЖЕ, для
+  // "+ Заметка"/"+ Список" (создание всегда идёт в текущий активный спейс),
+  // но не как фильтр списка.
+  const effectiveSpaceId = tagId ? undefined : spaceId;
+  const { data: items, isLoading } = useItems(effectiveSpaceId, effectiveFolderId, tagId);
   const createItem = useCreateItem();
   const createList = useCreateList();
 

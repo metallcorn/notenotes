@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { Editor } from "@tiptap/core";
 import { Expand, Sparkles } from "lucide-react";
 import { useReprocessUpload } from "../api/hooks";
+import ImageLightbox from "./ImageLightbox";
 import Spinner from "./Spinner";
 
 const WIDTHS = [
@@ -99,12 +100,7 @@ export default function ImageToolbar({ editor }: { editor: Editor }) {
         </div>
       </div>
       {lightbox && attrs.src && (
-        <div
-          onClick={() => setLightbox(false)}
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"
-        >
-          <img src={attrs.src} alt={attrs.alt ?? ""} className="max-h-full max-w-full object-contain" />
-        </div>
+        <ImageLightbox src={attrs.src} alt={attrs.alt ?? undefined} onClose={() => setLightbox(false)} />
       )}
     </>
   );

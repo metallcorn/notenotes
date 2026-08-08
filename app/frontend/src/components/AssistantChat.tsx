@@ -1,4 +1,4 @@
-import { FormEvent, KeyboardEvent, useEffect, useRef, useState } from "react";
+import { FormEvent, KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   AlignCenter,
@@ -28,6 +28,7 @@ import { uiStorage, type ContentWidth } from "../lib/storage";
 import { downloadFile, sanitizeFilename, wrapHtmlDocument } from "../lib/export";
 import ConfirmDialog from "./ConfirmDialog";
 import ExportMenu from "./ExportMenu";
+import ImageLightbox from "./ImageLightbox";
 import PromptDialog from "./PromptDialog";
 import Spinner from "./Spinner";
 
@@ -41,19 +42,28 @@ import Spinner from "./Spinner";
 // заметках картинки (см. SYSTEM_PROMPT_BASE в dialogs.py), а исходник может
 // быть каким угодно большого разрешения — без ограничения размера картинка
 // разъезжалась бы шире пузыря сообщения и ломала вёрстку чата.
-const markdownComponents: Components = {
-  a: ({ node: _node, ...props }) => <a {...props} target="_blank" rel="noopener noreferrer" />,
-  img: ({ node: _node, alt, ...props }) => (
-    <a href={props.src} target="_blank" rel="noopener noreferrer" className="block">
+//
+// Функция, а не модульная константа: клик по картинке должен открывать
+// тот же полноэкранный ImageLightbox, что уже есть у картинок в заметках
+// (ImageToolbar.tsx) — раньше картинка была обёрнута в <a target="_blank">,
+// и клик её либо скачивал, либо открывал голым файлом без UI (жалоба).
+// Для этого нужен доступ к стейту компонента, отсюда useMemo ниже.
+function buildMarkdownComponents(onImageClick: (src: string, alt: string) => void): Components {
+  return {
+    a: ({ node: _node, ...props }) => <a {...props} target="_blank" rel="noopener noreferrer" />,
+    img: ({ node: _node, alt, src, ...props }) => (
       <img
         {...props}
+        src={src}
         alt={alt ?? ""}
         loading="lazy"
-        className="my-1 max-h-64 max-w-full rounded border border-slate-200 object-contain"
+        role="button"
+        onClick={() => src && onImageClick(src, alt ?? "")}
+        className="my-1 max-h-64 max-w-full cursor-zoom-in rounded border border-slate-200 object-contain"
       />
-    </a>
-  ),
-};
+    ),
+  };
+}
 
 const SILENCE_AUTO_SEND_MS = 2000;
 const SILENCE_VOLUME_THRESHOLD = 0.02;
@@ -140,6 +150,68 @@ function CreatedItemLinks({
           className="flex items-center gap-1 rounded-full border border-slate-300 bg-white px-3 py-1 text-xs text-slate-700 hover:border-slate-400 hover:bg-slate-50"
         >
           Открыть «{link.title}» <ChevronRight size={11} />
+        </button>
+      ))}
+    </div>
+  );
+}
+
+const _MARKDOWN_IMAGE_RE = /!\[[^\]]*\]\(([^)]+)\)/g;
+
+// get_note/search_base не участвуют в CreatedItemLinks (та ищет только
+// create_note/create_list) — картинка, которую ассистент показал В СВОЁМ
+// ОТВЕТЕ (см. SHOW_NOTE_IMAGES_PROMPT_FRAGMENT в dialogs.py), до сих пор
+// никак не сопоставлялась с заметкой-источником, поэтому не было чипа
+// «Открыть заметку» под ней (реальная жалоба). Сопоставляем по тому же
+// URL: он у ассистента ДОЛЖЕН быть буквально таким же, как в content/
+// excerpt найденной заметки — так требует промпт.
+function ImageSourceLinks({
+  message,
+  results,
+  onOpenItem,
+}: {
+  message: DialogMessage;
+  results: DialogMessage[];
+  onOpenItem: (id: string, materialType: "note" | "list") => void;
+}) {
+  const shownUrls = Array.from(message.content.matchAll(_MARKDOWN_IMAGE_RE)).map((m) => m[1]);
+  if (shownUrls.length === 0) return null;
+
+  const notes = message.tool_calls
+    .filter((tc) => tc.name === "get_note" || tc.name === "search_base")
+    .flatMap((tc) => {
+      const result = results.find((r) => r.tool_call_id === tc.id);
+      if (!result) return [];
+      try {
+        const parsed = JSON.parse(result.content);
+        const candidates: Array<Record<string, unknown>> =
+          tc.name === "get_note" ? [parsed] : Array.isArray(parsed.results) ? parsed.results : [];
+        return candidates
+          .filter((item) => typeof item.id === "string" && !item.error)
+          .map((item) => ({
+            id: item.id as string,
+            title: (item.title as string) || "без названия",
+            materialType: (item.material_type === "list" ? "list" : "note") as "note" | "list",
+            text: (item.content as string) ?? (item.excerpt as string) ?? "",
+          }));
+      } catch {
+        return [];
+      }
+    })
+    .filter((note) => shownUrls.some((url) => note.text.includes(url)));
+
+  const uniqueNotes = Array.from(new Map(notes.map((n) => [n.id, n])).values());
+  if (uniqueNotes.length === 0) return null;
+
+  return (
+    <div className="mt-1.5 flex flex-wrap gap-1.5">
+      {uniqueNotes.map((note) => (
+        <button
+          key={note.id}
+          onClick={() => onOpenItem(note.id, note.materialType)}
+          className="flex items-center gap-1 rounded-full border border-slate-300 bg-white px-3 py-1 text-xs text-slate-700 hover:border-slate-400 hover:bg-slate-50"
+        >
+          Открыть «{note.title}» <ChevronRight size={11} />
         </button>
       ))}
     </div>
@@ -391,6 +463,11 @@ export default function AssistantChat({
   const [voiceError, setVoiceError] = useState<string | null>(null);
   const [silenceProgress, setSilenceProgress] = useState(0);
   const [chatWidth, setChatWidth] = useState<ContentWidth>(() => uiStorage.getChatContentWidth());
+  const [lightboxImage, setLightboxImage] = useState<{ src: string; alt: string } | null>(null);
+  const markdownComponents = useMemo(
+    () => buildMarkdownComponents((src, alt) => setLightboxImage({ src, alt })),
+    [],
+  );
   const bottomRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -852,6 +929,9 @@ export default function AssistantChat({
                 {message.tool_calls.length > 0 && (
                   <CreatedItemLinks message={message} results={toolResults} onOpenItem={onOpenItem} />
                 )}
+                {message.tool_calls.length > 0 && (
+                  <ImageSourceLinks message={message} results={toolResults} onOpenItem={onOpenItem} />
+                )}
                 {message.tool_calls.length > 0 && <CalendarEventLinks message={message} results={toolResults} />}
                 {message.tool_calls.length > 0 && <MapsLinkButtons message={message} results={toolResults} />}
                 {message.role === "assistant" && message.content && (
@@ -1006,6 +1086,10 @@ export default function AssistantChat({
           }}
           onCancel={() => setRenamingTitle(false)}
         />
+      )}
+
+      {lightboxImage && (
+        <ImageLightbox src={lightboxImage.src} alt={lightboxImage.alt} onClose={() => setLightboxImage(null)} />
       )}
     </div>
   );

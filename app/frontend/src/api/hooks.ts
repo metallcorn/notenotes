@@ -203,14 +203,17 @@ export function useDeleteTag() {
 
 export function useItems(spaceId: string | undefined, folderId?: string | null, tagId?: string | null) {
   return useQuery<Item[]>({
-    queryKey: ["items", spaceId, folderId ?? null, tagId ?? null],
+    queryKey: ["items", spaceId ?? null, folderId ?? null, tagId ?? null],
     queryFn: () => {
-      const params = new URLSearchParams({ space_id: spaceId! });
+      const params = new URLSearchParams();
+      // Без spaceId — кросс-спейсовый запрос по тегу (тег не привязан к
+      // одному спейсу, см. routers/items.py:list_items).
+      if (spaceId) params.set("space_id", spaceId);
       if (folderId) params.set("folder_id", folderId);
       if (tagId) params.set("tag_id", tagId);
       return api.get<Item[]>(`/items?${params.toString()}`);
     },
-    enabled: !!spaceId,
+    enabled: !!spaceId || !!tagId,
   });
 }
 

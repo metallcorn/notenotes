@@ -10,7 +10,7 @@ from app import realtime
 from app.autotag import enqueue_autotag, suggest_tags_now
 from app.db import get_db
 from app.deps import ensure_space_access, get_current_user
-from app.models import Folder, Item, ItemTag, ItemVersion, Tag, Upload, User
+from app.models import Folder, Item, ItemTag, ItemVersion, SpaceMember, Tag, Upload, User
 from app.schemas.item import ItemCreate, ItemMoveSpace, ItemOut, ItemUpdate, ItemVersionOut
 from app.schemas.tag import ItemTagOut
 
@@ -102,16 +102,35 @@ async def create_item_row(
 
 @router.get("", response_model=list[ItemOut])
 async def list_items(
-    space_id: uuid.UUID,
+    space_id: uuid.UUID | None = None,
     folder_id: str | None = None,
     tag_id: uuid.UUID | None = None,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> list[ItemOut]:
-    await ensure_space_access(db, space_id, user.id)
-    query = select(Item).where(
-        Item.space_id == space_id, Item.material_type.in_(("note", "list")), Item.deleted_at.is_(None)
-    )
+    if space_id is not None:
+        await ensure_space_access(db, space_id, user.id)
+        query = select(Item).where(
+            Item.space_id == space_id, Item.material_type.in_(("note", "list")), Item.deleted_at.is_(None)
+        )
+    elif tag_id is not None:
+        # Тег — сущность пользователя (Tag.user_id), не спейса: заметки под
+        # одним тегом реально лежат в разных спейсах. Без space_id (клик по
+        # тегу в сайдбаре, не по папке) фильтруем кросс-спейсово — иначе тег,
+        # у которого все заметки не в текущем активном спейсе, выглядел бы
+        # пустым, хотя заметки есть (реальная жалоба). Тот же join, что уже
+        # в search_items (routers/search.py).
+        query = (
+            select(Item)
+            .join(SpaceMember, SpaceMember.space_id == Item.space_id)
+            .where(
+                SpaceMember.user_id == user.id,
+                Item.material_type.in_(("note", "list")),
+                Item.deleted_at.is_(None),
+            )
+        )
+    else:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Нужен space_id или tag_id")
 
     if folder_id == "root":
         query = query.where(Item.folder_id.is_(None))
