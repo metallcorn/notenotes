@@ -10,7 +10,7 @@ import { createLowlight, common } from "lowlight";
 import { Markdown } from "tiptap-markdown";
 import { Suspense, lazy, useEffect, useRef, useState } from "react";
 import type { ChangeEvent } from "react";
-import { ChevronLeft, Code2, Eye, FileText, History, Palette, Pin, PinOff, Sparkles, Trash2 } from "lucide-react";
+import { ChevronLeft, Code2, Eye, FileText, History, Palette, Pin, PinOff, Sparkles, Tag as TagIcon, Trash2 } from "lucide-react";
 import { uiStorage, type ContentWidth } from "../lib/storage";
 import { downloadFile, inlineImages, sanitizeFilename, wrapHtmlDocument } from "../lib/export";
 import {
@@ -351,225 +351,244 @@ export default function NoteEditor({
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex flex-wrap items-center gap-2 border-b p-3">
-        <button
-          onClick={onBack}
-          className="-ml-1 flex h-8 w-8 shrink-0 items-center justify-center text-slate-500 md:hidden"
-        >
-          <ChevronLeft size={18} />
-        </button>
-        <div className="relative">
+      <div className="flex flex-col border-b">
+        {/* Ряд 1: заголовок — намеренно НЕ flex-wrap и без переменной по
+            длине компании (теги раньше стояли прямо тут и при их количестве
+            заголовок сжимался/переносился — жалоба в отзыве). Только
+            фиксированные по ширине элементы делят с ним строку. */}
+        <div className="flex items-center gap-2 p-3 pb-2">
           <button
-            onClick={() => setShowEmojiPicker((v) => !v)}
-            title="Иконка заметки"
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded border text-lg hover:bg-slate-50"
+            onClick={onBack}
+            className="-ml-1 flex h-8 w-8 shrink-0 items-center justify-center text-slate-500 md:hidden"
           >
-            {item.icon || "🙂"}
+            <ChevronLeft size={18} />
           </button>
-          {showEmojiPicker && (
-            <Suspense
-              fallback={
-                <div className="absolute z-20 mt-1 flex h-24 w-24 items-center justify-center rounded border bg-white shadow-lg">
-                  <Spinner size={20} />
-                </div>
-              }
-            >
-              <EmojiPickerPopover
-                onSelect={(emoji) => updateItem.mutate({ id: item.id, icon: emoji })}
-                onClose={() => setShowEmojiPicker(false)}
-              />
-            </Suspense>
-          )}
-        </div>
-        <input
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          placeholder="Без названия"
-          style={item.color ? { color: item.color } : undefined}
-          className="min-w-[160px] flex-1 text-lg font-semibold outline-none"
-        />
-        <select
-          value={item.folder_id ?? ""}
-          onChange={(e) => updateItem.mutate({ id: item.id, folder_id: e.target.value || null })}
-          className="rounded border px-1.5 py-1 text-xs text-slate-600"
-        >
-          <option value="">Без папки</option>
-          {(folders ?? []).map((folder) => (
-            <option key={folder.id} value={folder.id}>
-              {folder.name}
-            </option>
-          ))}
-        </select>
-        {item.tags.map((tag) => (
-          <span
-            key={tag.id}
-            title={tag.auto ? "Автоматически предложенный тег" : undefined}
-            className={`flex items-center gap-1 rounded-full px-2 py-0.5 text-xs ${
-              tag.auto
-                ? "border border-dashed border-violet-300 bg-violet-50 text-violet-700"
-                : "bg-slate-100 text-slate-600"
-            }`}
-          >
-            {tag.auto && <Sparkles size={10} />}
-            #{tag.name}
-            <button onClick={() => removeTag.mutate(tag.id)} className="text-slate-400 hover:text-red-600">
-              ×
-            </button>
-          </span>
-        ))}
-        <div className="relative">
-          <button
-            onClick={() => {
-              setShowTagPicker((v) => !v);
-              setTagQuery("");
-            }}
-            className="rounded-full border border-dashed px-2 py-0.5 text-xs text-slate-400 hover:text-slate-700"
-          >
-            + тег
-          </button>
-          {showTagPicker && (
-            <div className="absolute z-10 mt-1 w-52 rounded border bg-white p-1 shadow-lg">
-              <input
-                autoFocus
-                value={tagQuery}
-                onChange={(e) => setTagQuery(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && !tagExactMatch && tagQuery.trim()) createAndAttachTag();
-                }}
-                placeholder="Найти или создать тег"
-                className="mb-1 w-full rounded border px-2 py-1 text-xs outline-none"
-              />
-              <div className="max-h-40 overflow-y-auto">
-                {filteredAvailableTags.map((tag) => (
-                  <button
-                    key={tag.id}
-                    onClick={() => {
-                      addTag.mutate(tag.id);
-                      setShowTagPicker(false);
-                    }}
-                    className="block w-full rounded px-2 py-1 text-left text-xs hover:bg-slate-100"
-                  >
-                    #{tag.name}
-                  </button>
-                ))}
-                {tagQuery.trim() && !tagExactMatch && (
-                  <button
-                    onClick={createAndAttachTag}
-                    disabled={createTag.isPending}
-                    className="flex w-full items-center gap-1.5 rounded px-2 py-1 text-left text-xs text-slate-600 hover:bg-slate-100 disabled:opacity-50"
-                  >
-                    {createTag.isPending && <Spinner size={12} />}
-                    Создать «{tagQuery.trim()}»
-                  </button>
-                )}
-                {filteredAvailableTags.length === 0 && !tagQuery.trim() && (
-                  <div className="px-2 py-1 text-xs text-slate-400">Нет доступных тегов</div>
-                )}
-              </div>
-            </div>
-          )}
-        </div>
-        <button
-          onClick={() => suggestTags.mutate()}
-          disabled={suggestTags.isPending}
-          title="Предложить теги по содержимому заметки"
-          className="flex items-center gap-1 rounded-full border border-dashed px-2 py-0.5 text-xs text-violet-500 hover:text-violet-700 disabled:opacity-50"
-        >
-          {suggestTags.isPending ? <Spinner size={12} /> : <Sparkles size={12} />}
-          Предложить теги
-        </button>
-
-        {pdfLinks.map((pdf) => (
-          <button
-            key={pdf.uploadId}
-            onClick={() => handleReprocessPdf(pdf.uploadId)}
-            disabled={reprocessUpload.isPending}
-            title={`Распознать текст в ${pdf.filename} (для сканов без текстового слоя)`}
-            className="flex items-center gap-1 rounded-full border border-dashed px-2 py-0.5 text-xs text-slate-500 hover:text-slate-800 disabled:opacity-50"
-          >
-            {reprocessUpload.isPending ? <Spinner size={12} /> : <FileText size={12} />}
-            Распознать {pdf.filename}
-          </button>
-        ))}
-
-        <div className="ml-auto flex shrink-0 items-center gap-1">
-          <span className="mr-1 flex w-20 items-center gap-1 text-xs text-slate-400">
-            {status === "saving" && <Spinner size={12} />}
-            {status === "saving" ? "Сохраняем…" : status === "saved" ? "Сохранено" : ""}
-          </span>
-          <div className="flex overflow-hidden rounded border">
+          <div className="relative shrink-0">
             <button
-              onClick={() => switchMode("wysiwyg")}
-              title="WYSIWYG"
-              className={`flex h-8 w-8 items-center justify-center ${mode === "wysiwyg" ? "bg-slate-900 text-white" : "text-slate-500 hover:bg-slate-50"}`}
+              onClick={() => setShowEmojiPicker((v) => !v)}
+              title="Иконка заметки"
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded border text-lg hover:bg-slate-50"
             >
-              <Eye size={16} />
+              {item.icon || "🙂"}
             </button>
-            <button
-              onClick={() => switchMode("raw")}
-              title="Markdown"
-              className={`flex h-8 w-8 items-center justify-center ${mode === "raw" ? "bg-slate-900 text-white" : "text-slate-500 hover:bg-slate-50"}`}
-            >
-              <Code2 size={16} />
-            </button>
+            {showEmojiPicker && (
+              <Suspense
+                fallback={
+                  <div className="absolute z-20 mt-1 flex h-24 w-24 items-center justify-center rounded border bg-white shadow-lg">
+                    <Spinner size={20} />
+                  </div>
+                }
+              >
+                <EmojiPickerPopover
+                  onSelect={(emoji) => updateItem.mutate({ id: item.id, icon: emoji })}
+                  onClose={() => setShowEmojiPicker(false)}
+                />
+              </Suspense>
+            )}
           </div>
-          <div className="relative">
-            <button
-              onClick={() => setShowColorPicker((v) => !v)}
-              title="Цвет заголовка"
-              className="flex h-8 w-8 items-center justify-center rounded border text-slate-600 hover:bg-slate-50"
-            >
-              <Palette size={16} />
-            </button>
-            {showColorPicker && (
-              <div className="absolute right-0 z-20 mt-1 flex w-40 flex-wrap gap-1 rounded border bg-white p-2 shadow-lg">
-                <button
-                  onClick={() => {
-                    updateItem.mutate({ id: item.id, color: null });
-                    setShowColorPicker(false);
-                  }}
-                  title="Без цвета"
-                  className="h-6 w-6 rounded-full border text-xs text-slate-400"
-                >
-                  ×
-                </button>
-                {COLORS.map((c) => (
+          <input
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            placeholder="Без названия"
+            style={item.color ? { color: item.color } : undefined}
+            className="min-w-0 flex-1 text-lg font-semibold outline-none"
+          />
+          <div className="flex shrink-0 items-center gap-1">
+            <span className="mr-1 flex w-20 items-center gap-1 text-xs text-slate-400">
+              {status === "saving" && <Spinner size={12} />}
+              {status === "saving" ? "Сохраняем…" : status === "saved" ? "Сохранено" : ""}
+            </span>
+            <div className="flex overflow-hidden rounded border">
+              <button
+                onClick={() => switchMode("wysiwyg")}
+                title="WYSIWYG"
+                className={`flex h-8 w-8 items-center justify-center ${mode === "wysiwyg" ? "bg-slate-900 text-white" : "text-slate-500 hover:bg-slate-50"}`}
+              >
+                <Eye size={16} />
+              </button>
+              <button
+                onClick={() => switchMode("raw")}
+                title="Markdown"
+                className={`flex h-8 w-8 items-center justify-center ${mode === "raw" ? "bg-slate-900 text-white" : "text-slate-500 hover:bg-slate-50"}`}
+              >
+                <Code2 size={16} />
+              </button>
+            </div>
+            <div className="relative">
+              <button
+                onClick={() => setShowColorPicker((v) => !v)}
+                title="Цвет заголовка"
+                className="flex h-8 w-8 items-center justify-center rounded border text-slate-600 hover:bg-slate-50"
+              >
+                <Palette size={16} />
+              </button>
+              {showColorPicker && (
+                <div className="absolute right-0 z-20 mt-1 flex w-40 flex-wrap gap-1 rounded border bg-white p-2 shadow-lg">
                   <button
-                    key={c}
                     onClick={() => {
-                      updateItem.mutate({ id: item.id, color: c });
+                      updateItem.mutate({ id: item.id, color: null });
                       setShowColorPicker(false);
                     }}
-                    style={{ backgroundColor: c }}
-                    className="h-6 w-6 rounded-full border"
-                  />
-                ))}
+                    title="Без цвета"
+                    className="h-6 w-6 rounded-full border text-xs text-slate-400"
+                  >
+                    ×
+                  </button>
+                  {COLORS.map((c) => (
+                    <button
+                      key={c}
+                      onClick={() => {
+                        updateItem.mutate({ id: item.id, color: c });
+                        setShowColorPicker(false);
+                      }}
+                      style={{ backgroundColor: c }}
+                      className="h-6 w-6 rounded-full border"
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+            <button
+              onClick={() => updateItem.mutate({ id: item.id, pinned: !item.pinned })}
+              title={item.pinned ? "Открепить" : "Закрепить как важное"}
+              className={`flex h-8 w-8 items-center justify-center rounded border ${item.pinned ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-slate-50"}`}
+            >
+              {item.pinned ? <PinOff size={16} /> : <Pin size={16} />}
+            </button>
+            <button
+              onClick={() => setShowHistory((v) => !v)}
+              title="История версий"
+              className="flex h-8 w-8 items-center justify-center rounded border text-slate-600 hover:bg-slate-50"
+            >
+              <History size={16} />
+            </button>
+            <ExportMenu onExport={handleExport} />
+            <button
+              onClick={() => setConfirmingDelete(true)}
+              disabled={deleteItem.isPending}
+              title="Удалить заметку"
+              className="flex h-8 w-8 items-center justify-center rounded border text-red-600 hover:bg-red-50 disabled:opacity-50"
+            >
+              {deleteItem.isPending ? <Spinner size={16} /> : <Trash2 size={16} />}
+            </button>
+          </div>
+        </div>
+
+        {/* Ряд 2: папка + теги — здесь можно и перенестись на новую строку,
+            заголовок сверху уже не задет. Теги свёрнуты в выпадающий список
+            (как папка — <select>), а не показаны все чипами сразу — та же
+            причина. */}
+        <div className="flex flex-wrap items-center gap-2 px-3 pb-3">
+          <select
+            value={item.folder_id ?? ""}
+            onChange={(e) => updateItem.mutate({ id: item.id, folder_id: e.target.value || null })}
+            className="rounded border px-1.5 py-1 text-xs text-slate-600"
+          >
+            <option value="">Без папки</option>
+            {(folders ?? []).map((folder) => (
+              <option key={folder.id} value={folder.id}>
+                {folder.name}
+              </option>
+            ))}
+          </select>
+
+          <div className="relative">
+            <button
+              onClick={() => {
+                setShowTagPicker((v) => !v);
+                setTagQuery("");
+              }}
+              className="flex items-center gap-1 rounded-full border border-dashed px-2 py-0.5 text-xs text-slate-500 hover:text-slate-700"
+            >
+              <TagIcon size={12} />
+              {item.tags.length > 0 ? `Теги (${item.tags.length})` : "+ тег"}
+            </button>
+            {showTagPicker && (
+              <div className="absolute z-10 mt-1 w-56 rounded border bg-white p-1 shadow-lg">
+                {item.tags.length > 0 && (
+                  <div className="mb-1 flex flex-wrap gap-1 border-b p-1 pb-2">
+                    {item.tags.map((tag) => (
+                      <span
+                        key={tag.id}
+                        title={tag.auto ? "Автоматически предложенный тег" : undefined}
+                        className={`flex items-center gap-1 rounded-full px-2 py-0.5 text-xs ${
+                          tag.auto
+                            ? "border border-dashed border-violet-300 bg-violet-50 text-violet-700"
+                            : "bg-slate-100 text-slate-600"
+                        }`}
+                      >
+                        {tag.auto && <Sparkles size={10} />}
+                        #{tag.name}
+                        <button onClick={() => removeTag.mutate(tag.id)} className="text-slate-400 hover:text-red-600">
+                          ×
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+                <input
+                  autoFocus
+                  value={tagQuery}
+                  onChange={(e) => setTagQuery(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !tagExactMatch && tagQuery.trim()) createAndAttachTag();
+                  }}
+                  placeholder="Найти или создать тег"
+                  className="mb-1 w-full rounded border px-2 py-1 text-xs outline-none"
+                />
+                <div className="max-h-40 overflow-y-auto">
+                  {filteredAvailableTags.map((tag) => (
+                    <button
+                      key={tag.id}
+                      onClick={() => {
+                        addTag.mutate(tag.id);
+                        setShowTagPicker(false);
+                      }}
+                      className="block w-full rounded px-2 py-1 text-left text-xs hover:bg-slate-100"
+                    >
+                      #{tag.name}
+                    </button>
+                  ))}
+                  {tagQuery.trim() && !tagExactMatch && (
+                    <button
+                      onClick={createAndAttachTag}
+                      disabled={createTag.isPending}
+                      className="flex w-full items-center gap-1.5 rounded px-2 py-1 text-left text-xs text-slate-600 hover:bg-slate-100 disabled:opacity-50"
+                    >
+                      {createTag.isPending && <Spinner size={12} />}
+                      Создать «{tagQuery.trim()}»
+                    </button>
+                  )}
+                  {filteredAvailableTags.length === 0 && !tagQuery.trim() && (
+                    <div className="px-2 py-1 text-xs text-slate-400">Нет доступных тегов</div>
+                  )}
+                </div>
               </div>
             )}
           </div>
+
           <button
-            onClick={() => updateItem.mutate({ id: item.id, pinned: !item.pinned })}
-            title={item.pinned ? "Открепить" : "Закрепить как важное"}
-            className={`flex h-8 w-8 items-center justify-center rounded border ${item.pinned ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-slate-50"}`}
+            onClick={() => suggestTags.mutate()}
+            disabled={suggestTags.isPending}
+            title="Предложить теги по содержимому заметки"
+            className="flex items-center gap-1 rounded-full border border-dashed px-2 py-0.5 text-xs text-violet-500 hover:text-violet-700 disabled:opacity-50"
           >
-            {item.pinned ? <PinOff size={16} /> : <Pin size={16} />}
+            {suggestTags.isPending ? <Spinner size={12} /> : <Sparkles size={12} />}
+            Предложить теги
           </button>
-          <button
-            onClick={() => setShowHistory((v) => !v)}
-            title="История версий"
-            className="flex h-8 w-8 items-center justify-center rounded border text-slate-600 hover:bg-slate-50"
-          >
-            <History size={16} />
-          </button>
-          <ExportMenu onExport={handleExport} />
-          <button
-            onClick={() => setConfirmingDelete(true)}
-            disabled={deleteItem.isPending}
-            title="Удалить заметку"
-            className="flex h-8 w-8 items-center justify-center rounded border text-red-600 hover:bg-red-50 disabled:opacity-50"
-          >
-            {deleteItem.isPending ? <Spinner size={16} /> : <Trash2 size={16} />}
-          </button>
+
+          {pdfLinks.map((pdf) => (
+            <button
+              key={pdf.uploadId}
+              onClick={() => handleReprocessPdf(pdf.uploadId)}
+              disabled={reprocessUpload.isPending}
+              title={`Распознать текст в ${pdf.filename} (для сканов без текстового слоя)`}
+              className="flex items-center gap-1 rounded-full border border-dashed px-2 py-0.5 text-xs text-slate-500 hover:text-slate-800 disabled:opacity-50"
+            >
+              {reprocessUpload.isPending ? <Spinner size={12} /> : <FileText size={12} />}
+              Распознать {pdf.filename}
+            </button>
+          ))}
         </div>
       </div>
 

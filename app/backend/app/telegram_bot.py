@@ -64,6 +64,13 @@ def enqueue_update(update: dict) -> None:
 
 
 _MARKDOWN_MARKS_RE = re.compile(r"[*_`~]")
+# text_link-сущности от _entities_to_markdown иногда попадают в начало
+# сообщения (например, эмодзи-ссылка на превью в репост-ботах) — ![alt](url)
+# или [text](url) целиком заменяем на alt/text, а не оставляем скобки и URL
+# видимыми в названии заметки. Пустой alt (обычная картинка ![](url)) даёт
+# пустую строку — та же логика "пустая строка не годится в заголовок" ниже
+# просто переходит на следующую строку контента.
+_MARKDOWN_LINK_OR_IMAGE_RE = re.compile(r"!?\[([^\]]*)\]\([^)]*\)")
 
 
 def _derive_title(text: str, fallback: str = "") -> str:
@@ -71,10 +78,13 @@ def _derive_title(text: str, fallback: str = "") -> str:
     берём первую непустую строку контента, как заголовок пользователь чаще
     всего и держит там сам. lstrip("#") — заголовок markdown ("# Рецепт
     борща") решётке в названии заметки не нужен; сама строка уже могла
-    получить **bold**/_italic_/`code` от _entities_to_markdown — эти
-    маркеры тоже убираем, в названии заметки они не нужны, только мусор."""
+    получить **bold**/_italic_/`code`/[ссылки](url) от _entities_to_markdown
+    — эта разметка тоже убирается, в названии заметки она не нужна, только
+    мусор (скобки, звёздочки, голый URL)."""
     for line in text.splitlines():
-        stripped = _MARKDOWN_MARKS_RE.sub("", line.strip().lstrip("#")).strip()
+        candidate = line.strip().lstrip("#")
+        candidate = _MARKDOWN_LINK_OR_IMAGE_RE.sub(lambda m: m.group(1), candidate)
+        stripped = _MARKDOWN_MARKS_RE.sub("", candidate).strip()
         if stripped:
             return stripped[:80]
     return fallback
