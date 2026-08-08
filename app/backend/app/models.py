@@ -30,6 +30,10 @@ class User(Base):
     # voice_id для Palabra TTS как есть — "default_low"/"default_high"
     # (built-in мужской/женский) или свой id голоса с Palabra Platform.
     tts_voice: Mapped[str] = mapped_column(String(128), default="default_low", server_default="default_low")
+    # Гейтит авто-обработку загрузок (OCR картинок, расшифровка видео,
+    # авто-OCR PDF-сканов) — по умолчанию включена, поведение для тех,
+    # кто настройку не трогал, не меняется.
+    auto_process_uploads: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
 
 
 class Space(Base):

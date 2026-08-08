@@ -8,6 +8,7 @@ import {
   useTelegramLinkCode,
   useTelegramStatus,
   useTelegramUnlink,
+  useUpdateAutoProcessUploads,
   useUpdateCustomInstructions,
   useUpdateDisabledTools,
   useUpdateTtsVoice,
@@ -28,6 +29,7 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
   const updateInstructions = useUpdateCustomInstructions();
   const updateDisabledTools = useUpdateDisabledTools();
   const updateTtsVoice = useUpdateTtsVoice();
+  const updateAutoProcessUploads = useUpdateAutoProcessUploads();
   const { data: telegramStatus } = useTelegramStatus();
   const telegramLinkCode = useTelegramLinkCode();
   const telegramUnlink = useTelegramUnlink();
@@ -188,6 +190,29 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
             {!isPresetVoice && (
               <div className="mt-1 text-xs text-slate-400">Сейчас используется свой голос: {currentVoice}</div>
             )}
+          </div>
+
+          <div className="mb-6">
+            <div className="flex items-center justify-between gap-2 rounded border px-2 py-1.5">
+              <div className="min-w-0">
+                <div className="text-sm text-slate-900">Обработка загруженных файлов</div>
+                <div className="text-xs text-slate-400">
+                  Автоматически распознавать текст в картинках, видео и PDF при загрузке — не только по кнопке
+                  «Распознать».
+                </div>
+              </div>
+              <button
+                role="switch"
+                aria-checked={me?.auto_process_uploads ?? true}
+                onClick={() => updateAutoProcessUploads.mutate(!(me?.auto_process_uploads ?? true))}
+                disabled={updateAutoProcessUploads.isPending}
+                className={`flex h-5 w-9 shrink-0 items-center rounded-full px-0.5 transition-colors disabled:opacity-50 ${
+                  me?.auto_process_uploads ?? true ? "justify-end bg-slate-900" : "justify-start bg-slate-200"
+                }`}
+              >
+                <span className="h-4 w-4 rounded-full bg-white shadow" />
+              </button>
+            </div>
           </div>
 
           <div className="mb-6">

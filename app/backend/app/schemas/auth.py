@@ -45,6 +45,7 @@ class UserOut(BaseModel):
     custom_instructions: str = ""
     disabled_tools: list[str] = []
     tts_voice: str = "default_low"
+    auto_process_uploads: bool = True
 
 
 class UserUpdate(BaseModel):
@@ -53,3 +54,4 @@ class UserUpdate(BaseModel):
     custom_instructions: str | None = Field(default=None, max_length=4000)
     disabled_tools: list[str] | None = None
     tts_voice: str | None = Field(default=None, min_length=1, max_length=128)
+    auto_process_uploads: bool | None = None

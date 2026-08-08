@@ -15,11 +15,13 @@ from app.vision import _replace_in_referencing_items
 
 logger = logging.getLogger(__name__)
 
-# Ручной OCR сканов PDF — только по кнопке, не автоматически (по просьбе:
-# текстовый слой extract_text() вытаскивает сразу при загрузке бесплатно и
-# локально через PyMuPDF, без сети; а прогонять каждую страницу скана
-# через Mistral vision может быть долго и небесплатно для многостраничных
-# документов, поэтому только по явному запросу). Один воркер — тот же
+# OCR сканов PDF — текстовый слой extract_text() вытаскивает сразу при
+# загрузке бесплатно и локально через PyMuPDF, без сети; а прогонять
+# каждую страницу скана через Mistral vision может быть долго и
+# небесплатно для многостраничных документов, поэтому это отдельная
+# очередь. Автоматически запускается только для небольших файлов
+# (см. AUTO_OCR_MAX_PDF_BYTES в routers/uploads.py/telegram_bot.py) —
+# для остальных только по кнопке «Распознать». Один воркер — тот же
 # принцип, что у vision.py/transcription.py/autotag.py.
 _queue: "asyncio.Queue[uuid.UUID]" = asyncio.Queue()
 
@@ -29,13 +31,44 @@ _MIN_TEXT_LEN = 40
 _MAX_TEXT_CHARS = 20000
 _MAX_OCR_PAGES = 20  # защита от сканов на многие сотни страниц
 
+# Выше этого — скан-PDF без текстового слоя не распознаётся автоматически
+# при загрузке, только по кнопке: постраничная vision-OCR многостраничного
+# скана может быть долгой и не бесплатной, не то, что нужно без явного
+# запроса пользователя на каждой загрузке.
+AUTO_OCR_MAX_PDF_BYTES = 5 * 1024 * 1024
+
 
 def _upload_path(upload_id: uuid.UUID) -> Path:
     return Path(get_settings().upload_dir) / str(upload_id)
 
 
 def placeholder_text(upload_id: uuid.UUID) -> str:
-    return f"[Распознавание PDF {upload_id} обрабатывается…]"
+    # Без квадратных скобок — см. transcription.placeholder_text: они
+    # экранируются в \[ \] при автосохранении WYSIWYG-редактора и ломают
+    # поиск-замену плейсхолдера на готовую карточку.
+    return f"⏳ Распознавание PDF {upload_id} обрабатывается…"
+
+
+def serialize_document_attachment(url: str, filename: str, text: str) -> str:
+    """Тот же формат (один самодостаточный тег на одной строке, текст в
+    атрибуте), что сериализует фронтенд-нода DocumentAttachment.ts —
+    чтобы карточка после автоматического OCR выглядела так же, как у
+    файлов, распознанных сразу при загрузке. Экранирование в том же
+    порядке: & -> &amp;, реальные переносы строк -> &#10; (чтобы весь тег
+    остался на одной строке — иначе markdown-it оборвал бы html_block на
+    первой пустой строке внутри многостраничного текста), потом " ->
+    &quot;. Браузерный DOMParser декодирует сущности обратно при чтении
+    атрибута, ничего вручную на фронте разбирать не нужно."""
+
+    def esc(s: str) -> str:
+        return s.replace("&", "&amp;").replace("\n", "&#10;").replace('"', "&quot;")
+
+    parts = [f'data-url="{esc(url)}"']
+    if filename:
+        parts.append(f'data-filename="{esc(filename)}"')
+    if text:
+        parts.append(f'data-text="{esc(text)}"')
+    return f"<div data-doc-attachment {' '.join(parts)}></div>"
 
 
 def extract_text(pdf_bytes: bytes) -> str:
@@ -83,6 +116,7 @@ async def _process(upload_id: uuid.UUID) -> None:
         upload = await db.get(Upload, upload_id)
         if upload is None:
             return
+        filename = upload.filename
         upload.transcription_status = "processing"
         await db.commit()
 
@@ -115,7 +149,7 @@ async def _process(upload_id: uuid.UUID) -> None:
         logger.warning("OCR PDF %s не дал результата", upload_id)
         return
 
-    formatted = f"**Распознанный текст PDF:**\n\n{result}"
+    formatted = serialize_document_attachment(f"/api/uploads/{upload_id}", filename, result)
     await _replace_in_referencing_items(upload_id, placeholder_text(upload_id), formatted)
 
 

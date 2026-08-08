@@ -36,7 +36,7 @@ export default function ImageToolbar({ editor }: { editor: Editor }) {
     editor
       .chain()
       .focus()
-      .insertContentAt(to, { type: "paragraph", content: [{ type: "text", text: `[Описание изображения ${uploadId} обрабатывается…]` }] })
+      .insertContentAt(to, { type: "paragraph", content: [{ type: "text", text: `⏳ Описание изображения ${uploadId} обрабатывается…` }] })
       .run();
     await reprocess.mutateAsync(uploadId);
   }

@@ -35,7 +35,12 @@ def _upload_path(upload_id: uuid.UUID) -> Path:
 
 
 def placeholder_text(upload_id: uuid.UUID) -> str:
-    return f"[Расшифровка {upload_id} обрабатывается…]"
+    # Без квадратных скобок: tiptap-markdown при автосохранении экранирует
+    # [ и ] в обычном тексте как \[ \] (чтобы не спутать с markdown-ссылкой),
+    # и плейсхолдер переставал совпадать с этой строкой при поиске-замене
+    # (реально пойманный баг — карточка так и оставалась плейсхолдером
+    # навсегда после WYSIWYG-загрузки).
+    return f"⏳ Расшифровка {upload_id} обрабатывается…"
 
 
 def enqueue_transcription(upload_id: uuid.UUID) -> None:

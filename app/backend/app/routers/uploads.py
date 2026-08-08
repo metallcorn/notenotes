@@ -10,6 +10,7 @@ from app.db import get_db
 from app.deps import ensure_space_access, get_current_user
 from app.models import Upload, User
 from app.schemas.upload import UploadOut
+from app.pdf_processing import AUTO_OCR_MAX_PDF_BYTES
 from app.pdf_processing import enqueue_ocr as enqueue_pdf_ocr
 from app.pdf_processing import extract_text as extract_pdf_text
 from app.transcription import enqueue_transcription
@@ -71,23 +72,32 @@ async def create_upload(
         await db.rollback()
         raise
 
-    if content_type.startswith("video/") or content_type.startswith("image/"):
+    is_pdf = content_type == "application/pdf"
+    # Текстовый слой PDF — сразу, синхронно, локально (PyMuPDF, без сети),
+    # независимо от настройки автообработки: это бесплатно и мгновенно,
+    # не то же самое, что дорогой постраничный OCR ниже.
+    pdf_text = extract_pdf_text(dest.read_bytes()) if is_pdf else None
+
+    auto = user.auto_process_uploads
+    pdf_ocr_queued = False
+    if auto and (content_type.startswith("video/") or content_type.startswith("image/")):
         upload.transcription_status = "pending"
+    elif auto and is_pdf and not pdf_text and total <= AUTO_OCR_MAX_PDF_BYTES:
+        # Скан без текстового слоя — раньше распознавался только по кнопке
+        # «Распознать»; для небольших файлов (типичный чек/страница, не
+        # многостраничная книга) дорогая постраничная vision-OCR не настолько
+        # долгая/дорогая, чтобы требовать лишнего клика.
+        upload.transcription_status = "pending"
+        pdf_ocr_queued = True
 
     await db.commit()
 
-    if content_type.startswith("video/"):
+    if auto and content_type.startswith("video/"):
         enqueue_transcription(upload.id)
-    elif content_type.startswith("image/"):
+    elif auto and content_type.startswith("image/"):
         enqueue_vision(upload.id)
-
-    # Текстовый слой PDF — сразу, синхронно, локально (PyMuPDF, без сети):
-    # раньше это делалось только для загрузок через Telegram-бота
-    # (telegram_bot.py), веб-загрузка вставляла голую ссылку без текста
-    # вообще — заметка с PDF была ненаходима поиском, пока пользователь
-    # вручную не нажимал «Распознать» (а та кнопка — OCR через vision,
-    # избыточно дорогой путь для PDF, у которого текстовый слой и так есть).
-    pdf_text = extract_pdf_text(dest.read_bytes()) if content_type == "application/pdf" else None
+    elif pdf_ocr_queued:
+        enqueue_pdf_ocr(upload.id)
 
     return UploadOut(
         id=upload.id,
@@ -95,6 +105,7 @@ async def create_upload(
         filename=upload.filename,
         content_type=content_type,
         pdf_text=pdf_text,
+        pdf_ocr_queued=pdf_ocr_queued,
     )
 
 
@@ -105,8 +116,9 @@ async def reprocess_upload(
     """Повторный запуск OCR/расшифровки — нужен файлам, загруженным до того,
     как появились vision.py/transcription.py (для них воркер никогда не
     запускался), а также если распознавание в первый раз не задалось. Для
-    PDF — это единственный способ его вообще запустить: сканы без
-    текстового слоя автоматически не распознаются (могут быть долгими),
+    PDF — основной способ запустить его вручную: сканы без текстового слоя
+    крупнее AUTO_OCR_MAX_PDF_BYTES или при выключенной auto_process_uploads
+    автоматически не распознаются (могут быть долгими),
     только по этому явному запросу."""
     upload = await db.get(Upload, upload_id)
     if upload is None:

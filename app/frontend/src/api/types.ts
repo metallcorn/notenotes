@@ -6,6 +6,7 @@ export interface User {
   custom_instructions: string;
   disabled_tools: string[];
   tts_voice: string;
+  auto_process_uploads: boolean;
 }
 
 export interface Skill {
@@ -117,6 +118,7 @@ export interface UploadResult {
   filename: string;
   content_type: string;
   pdf_text: string | null;
+  pdf_ocr_queued: boolean;
 }
 
 export interface ItemVersion {

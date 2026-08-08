@@ -78,6 +78,14 @@ export function useUpdateTtsVoice() {
   });
 }
 
+export function useUpdateAutoProcessUploads() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (auto_process_uploads: boolean) => api.patch<User>("/auth/me", { auto_process_uploads }),
+    onSuccess: (user) => qc.setQueryData(["me"], user),
+  });
+}
+
 export function useAiTransform() {
   return useMutation({
     mutationFn: (payload: { action: "summarize" | "reformat" | "rewrite"; text: string; instruction?: string }) =>

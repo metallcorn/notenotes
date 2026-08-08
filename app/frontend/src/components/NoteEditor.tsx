@@ -10,7 +10,7 @@ import { createLowlight, common } from "lowlight";
 import { Markdown } from "tiptap-markdown";
 import { Suspense, lazy, useEffect, useRef, useState } from "react";
 import type { ChangeEvent } from "react";
-import { ChevronLeft, Code2, Eye, FileText, History, Palette, Pin, PinOff, Sparkles, Tag as TagIcon, Trash2 } from "lucide-react";
+import { ChevronLeft, Code2, Eye, History, Palette, Pin, PinOff, Sparkles, Tag as TagIcon, Trash2 } from "lucide-react";
 import { uiStorage, type ContentWidth } from "../lib/storage";
 import { downloadFile, inlineImages, sanitizeFilename, wrapHtmlDocument } from "../lib/export";
 import {
@@ -22,7 +22,6 @@ import {
   useItem,
   useMoveItemSpace,
   useRemoveItemTag,
-  useReprocessUpload,
   useSpaces,
   useSuggestTags,
   useTags,
@@ -41,6 +40,7 @@ import ExportMenu from "./ExportMenu";
 import { ResizableImage } from "../extensions/ResizableImage";
 import { Video } from "../extensions/Video";
 import { LinkPreview } from "../extensions/LinkPreview";
+import { DocumentAttachment, serializeDocumentAttachment } from "../extensions/DocumentAttachment";
 import { SlashCommand } from "../extensions/SlashCommand";
 
 // Только когда вставленный текст ЦЕЛИКОМ — голая ссылка (случай "вставил
@@ -74,7 +74,6 @@ export default function NoteEditor({
   const addTag = useAddItemTag(itemId);
   const removeTag = useRemoveItemTag(itemId);
   const suggestTags = useSuggestTags(itemId);
-  const reprocessUpload = useReprocessUpload();
   const createTag = useCreateTag();
   const { data: folders } = useFolders(item?.space_id);
   const { data: spaces } = useSpaces();
@@ -99,6 +98,7 @@ export default function NoteEditor({
 
   const savedRef = useRef({ title: "", content: "" });
   const pendingRef = useRef<{ id: string; title: string; content: string } | null>(null);
+  const loadedItemIdRef = useRef<string | null>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -109,6 +109,7 @@ export default function NoteEditor({
       ResizableImage,
       Video,
       LinkPreview,
+      DocumentAttachment,
       LinkExtension.configure({ HTMLAttributes: { target: "_blank", rel: "noopener noreferrer" } }),
       Table.configure({ resizable: false }),
       TableRow,
@@ -161,8 +162,28 @@ export default function NoteEditor({
     savedRef.current = { title: item.title, content: item.content };
     editor?.commands.setContent(item.content || "");
     setStatus("idle");
+    loadedItemIdRef.current = item.id;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [item?.id]);
+
+  // Ту же заметку могли обновить в фоне, пока она открыта — например,
+  // распознавание PDF/картинки/видео закончилось и плейсхолдер
+  // "обрабатывается…" заменился на готовый результат (useSpaceSync
+  // инвалидирует запрос конкретной заметки на WS-сигнал). Подхватываем
+  // это, только если у пользователя нет своих несохранённых правок —
+  // иначе следующий автосейв тут же затёр бы фоновый результат обратно
+  // устаревшим текстом (реально пойманный баг: карточка так и оставалась
+  // плейсхолдером навсегда).
+  useEffect(() => {
+    if (!item || item.id !== loadedItemIdRef.current) return;
+    if (item.content === savedRef.current.content) return;
+    const hasPendingLocalEdit = content !== savedRef.current.content || title !== savedRef.current.title;
+    if (hasPendingLocalEdit) return;
+    setContent(item.content);
+    savedRef.current = { ...savedRef.current, content: item.content };
+    editor?.commands.setContent(item.content || "");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [item?.content]);
 
   // Автосохранение с дебаунсом. Каждое изменение title/content создаёт
   // на бэкенде запись в item_versions — поэтому не сохраняем на каждый
@@ -259,7 +280,7 @@ export default function NoteEditor({
       // Плейсхолдер — точная строка, которую backend ищет и заменяет на
       // готовое описание/OCR (app/vision.py, placeholder_text()); должна
       // совпадать 1:1, тот же приём, что и у видео-расшифровки.
-      const placeholder = `[Описание изображения ${uploaded.id} обрабатывается…]`;
+      const placeholder = `⏳ Описание изображения ${uploaded.id} обрабатывается…`;
       if (mode === "wysiwyg" && editor) {
         editor
           .chain()
@@ -283,16 +304,13 @@ export default function NoteEditor({
     try {
       const uploaded = await uploadFile.mutateAsync({ file, onProgress: setUploadProgress });
       const isVideo = uploaded.content_type.startsWith("video/");
-      // Текстовый слой PDF вытаскивается сразу на бэкенде (см. routers/
-      // uploads.py) — если есть, вставляем его следом за ссылкой на файл,
-      // тем же форматом, что и у Telegram-загрузок, чтобы заметка сразу
-      // находилась поиском, без ручного нажатия «Распознать».
-      const pdfText = uploaded.pdf_text;
       // Плейсхолдер — точная строка, которую backend ищет и заменяет на
-      // готовую расшифровку (app/transcription.py, placeholder_text()) —
-      // держать в одном месте на фронте не получится, но текст должен
-      // совпадать 1:1, иначе замена не найдёт, куда вписать результат.
-      const placeholder = `[Расшифровка ${uploaded.id} обрабатывается…]`;
+      // готовый результат (app/transcription.py и app/pdf_processing.py,
+      // placeholder_text()) — держать в одном месте на фронте не
+      // получится, но текст должен совпадать 1:1, иначе замена не найдёт,
+      // куда вписать результат.
+      const placeholder = `⏳ Расшифровка ${uploaded.id} обрабатывается…`;
+      const pdfPlaceholder = `⏳ Распознавание PDF ${uploaded.id} обрабатывается…`;
       if (mode === "wysiwyg" && editor) {
         if (isVideo) {
           editor
@@ -301,28 +319,35 @@ export default function NoteEditor({
             .insertContent({ type: "video", attrs: { src: uploaded.url, filename: uploaded.filename } })
             .insertContent({ type: "paragraph", content: [{ type: "text", text: placeholder }] })
             .run();
-        } else {
-          const chain = editor
+        } else if (uploaded.pdf_ocr_queued) {
+          // Авто-OCR уже поставлен в очередь на бэкенде — плейсхолдер, не
+          // карточка сразу: backend заменит его целиком на готовую
+          // карточку с текстом, когда распознавание закончится.
+          editor
             .chain()
             .focus()
-            .insertContent({ type: "text", text: uploaded.filename, marks: [{ type: "link", attrs: { href: uploaded.url } }] });
-          if (pdfText) {
-            chain
-              .insertContent({ type: "paragraph", content: [{ type: "text", marks: [{ type: "bold" }], text: "Текст из PDF:" }] })
-              .insertContent({ type: "paragraph", content: [{ type: "text", text: pdfText }] });
-          }
-          chain.run();
+            .insertContent({ type: "paragraph", content: [{ type: "text", text: pdfPlaceholder }] })
+            .run();
+        } else {
+          editor
+            .chain()
+            .focus()
+            .insertContent({
+              type: "documentAttachment",
+              attrs: { url: uploaded.url, filename: uploaded.filename, text: uploaded.pdf_text ?? "" },
+            })
+            .run();
         }
       } else if (isVideo) {
         setContent(
           (c) =>
             `${c}\n\n<video src="${uploaded.url}" controls preload="metadata" style="max-width: 100%; max-height: 70vh;"></video>\n\n${placeholder}\n`,
         );
+      } else if (uploaded.pdf_ocr_queued) {
+        setContent((c) => `${c}\n\n${pdfPlaceholder}\n`);
       } else {
         setContent(
-          (c) =>
-            `${c}\n\n[${uploaded.filename}](${uploaded.url})\n` +
-            (pdfText ? `\n**Текст из PDF:**\n\n${pdfText}\n` : ""),
+          (c) => `${c}\n\n${serializeDocumentAttachment(uploaded.url, uploaded.filename, uploaded.pdf_text ?? "")}\n`,
         );
       }
     } finally {
@@ -343,28 +368,6 @@ export default function NoteEditor({
   const showCodeBlockToolbar = mode === "wysiwyg" && !!editor?.isActive("codeBlock");
   const showTableToolbar = mode === "wysiwyg" && !!editor?.isActive("table");
 
-  // PDF — не отдельный узел редактора (обычная markdown-ссылка), поэтому
-  // нет способа выделить его и показать тулбар как у картинки — вместо
-  // этого просто находим все ссылки на PDF-загрузки в тексте заметки.
-  const pdfLinks = Array.from(
-    content.matchAll(/\[([^\]]*\.pdf)\]\(\/api\/uploads\/([0-9a-f-]{36})\)/gi),
-  ).map((m) => ({ filename: m[1], uploadId: m[2] }));
-
-  async function handleReprocessPdf(uploadId: string) {
-    // Плейсхолдер должен совпадать 1:1 с pdf_processing.placeholder_text()
-    // на бэкенде — тот же приём, что и у картинок/видео.
-    const placeholder = `[Распознавание PDF ${uploadId} обрабатывается…]`;
-    if (mode === "wysiwyg" && editor) {
-      editor
-        .chain()
-        .focus()
-        .insertContent({ type: "paragraph", content: [{ type: "text", text: placeholder }] })
-        .run();
-    } else {
-      setContent((c) => `${c}\n\n${placeholder}\n`);
-    }
-    await reprocessUpload.mutateAsync(uploadId);
-  }
   const widthClass =
     contentWidth === "narrow" ? "mx-auto max-w-3xl" : contentWidth === "wide" ? "mx-auto max-w-5xl" : "max-w-none";
 
@@ -639,19 +642,6 @@ export default function NoteEditor({
             {suggestTags.isPending ? <Spinner size={12} /> : <Sparkles size={12} />}
             Предложить теги
           </button>
-
-          {pdfLinks.map((pdf) => (
-            <button
-              key={pdf.uploadId}
-              onClick={() => handleReprocessPdf(pdf.uploadId)}
-              disabled={reprocessUpload.isPending}
-              title={`Распознать текст в ${pdf.filename} (для сканов без текстового слоя)`}
-              className="flex items-center gap-1 rounded-full border border-dashed px-2 py-0.5 text-xs text-slate-500 hover:text-slate-800 disabled:opacity-50"
-            >
-              {reprocessUpload.isPending ? <Spinner size={12} /> : <FileText size={12} />}
-              Распознать {pdf.filename}
-            </button>
-          ))}
         </div>
       </div>
 

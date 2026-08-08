@@ -20,9 +20,18 @@ def _document():
     # ix_items_search построен на этой обёртке. Здесь используем ту же
     # функцию, иначе выражение не совпадёт с индексом и postgres пойдёт
     # последовательным сканом вместо индекса.
+    #
+    # notenotes_extract_attr_text (миграция 0015) — PostgreSQL распознаёт
+    # <div data-doc-attachment ...> (DocumentAttachment.ts) как единый XML-тег
+    # и полностью исключает его из to_tsvector (обнаружено через ts_debug) —
+    # распознанный текст PDF, лежащий в атрибуте data-text, был бы невидим
+    # для поиска без этой отдельной экстракции.
+    content = func.coalesce(Item.content, "")
     return func.to_tsvector(
         "simple",
-        func.notenotes_immutable_unaccent(func.coalesce(Item.title, "") + " " + func.coalesce(Item.content, "")),
+        func.notenotes_immutable_unaccent(
+            func.coalesce(Item.title, "") + " " + content + " " + func.notenotes_extract_attr_text(content)
+        ),
     )
 
 

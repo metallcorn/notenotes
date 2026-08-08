@@ -46,26 +46,45 @@ def _upload_path(upload_id: uuid.UUID) -> Path:
 
 
 def placeholder_text(upload_id: uuid.UUID) -> str:
-    return f"[Описание изображения {upload_id} обрабатывается…]"
+    # Без квадратных скобок — см. transcription.placeholder_text: они
+    # экранируются в \[ \] при автосохранении WYSIWYG-редактора и ломают
+    # поиск-замену плейсхолдера на готовый результат.
+    return f"⏳ Описание изображения {upload_id} обрабатывается…"
 
 
 def enqueue_vision(upload_id: uuid.UUID) -> None:
     _queue.put_nowait(upload_id)
 
 
+# Обработка (эта функция) запускается сразу при загрузке файла — на
+# сервере, синхронно с созданием Upload — а плейсхолдер в content заметки
+# появляется на клиенте позже и сохраняется только после debounce
+# автосохранения (NoteEditor.tsx, 1200мс). Для маленького файла
+# распознавание иногда успевает закончиться раньше, чем текст с
+# плейсхолдером вообще долетит до бэкенда — первая попытка замены тогда
+# видит заметку ещё без плейсхолдера и заменять нечего. Несколько попыток
+# с паузой перекрывают этот зазор с запасом, не перестраивая сам поток.
+_REPLACE_RETRY_ATTEMPTS = 5
+_REPLACE_RETRY_DELAY_SECONDS = 2.0
+
+
 async def _replace_in_referencing_items(upload_id: uuid.UUID, old: str, new: str) -> None:
-    async with async_session() as db:
-        result = await db.execute(select(Item).where(Item.content.like(f"%{upload_id}%")))
-        items = result.scalars().all()
-        touched_spaces = set()
-        for item in items:
-            if old in item.content:
-                item.content = item.content.replace(old, new)
-                touched_spaces.add(item.space_id)
-        if touched_spaces:
-            await db.commit()
-            for space_id in touched_spaces:
-                await realtime.notify_space(space_id, "items")
+    for attempt in range(_REPLACE_RETRY_ATTEMPTS):
+        async with async_session() as db:
+            result = await db.execute(select(Item).where(Item.content.like(f"%{upload_id}%")))
+            items = result.scalars().all()
+            touched_spaces = set()
+            for item in items:
+                if old in item.content:
+                    item.content = item.content.replace(old, new)
+                    touched_spaces.add(item.space_id)
+            if touched_spaces:
+                await db.commit()
+                for space_id in touched_spaces:
+                    await realtime.notify_space(space_id, "items")
+                return
+        if attempt < _REPLACE_RETRY_ATTEMPTS - 1:
+            await asyncio.sleep(_REPLACE_RETRY_DELAY_SECONDS)
 
 
 async def _analyze(image_bytes: bytes, content_type: str, api_key: str) -> str:

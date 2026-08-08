@@ -16,7 +16,11 @@ from app.asr.factory import get_asr_client
 from app.core.config import get_settings
 from app.db import async_session
 from app.models import Item, Space, SpaceMember, TelegramLink, TelegramLinkCode, Upload, User
+from app.pdf_processing import AUTO_OCR_MAX_PDF_BYTES
+from app.pdf_processing import enqueue_ocr as enqueue_pdf_ocr
 from app.pdf_processing import extract_text as extract_pdf_text
+from app.pdf_processing import placeholder_text as pdf_placeholder_text
+from app.pdf_processing import serialize_document_attachment
 from app.routers.dialogs import run_dialog_turn
 from app.routers.items import create_item_row
 from app.transcription import enqueue_transcription
@@ -398,21 +402,40 @@ async def _handle_document(db: AsyncSession, message: dict, space_id: uuid.UUID,
     upload = await _save_upload(db, space_id, author_id, content_bytes, filename, mime_type)
     caption = _entities_to_markdown(message.get("caption", ""), message.get("caption_entities"))
     body = f"{caption}\n\n" if caption else ""
-    content = f"{body}[{filename}](/api/uploads/{upload.id})\n"
+    attachment_url = f"/api/uploads/{upload.id}"
 
     # PDF: текстовый слой вытаскиваем сразу — быстро, локально, бесплатно
-    # (PyMuPDF, без сети), сразу делает заметку находимой поиском. Сканы
-    # без текста — OCR по кнопке в редакторе, не автоматически (может быть
-    # долгим/дорогим для многостраничных документов, см. pdf_processing.py).
-    if mime_type == "application/pdf" or filename.lower().endswith(".pdf"):
+    # (PyMuPDF, без сети), сразу делает заметку находимой поиском и сразу
+    # кладём в карточку. Сканы без текста — авто-OCR для небольших файлов
+    # (см. AUTO_OCR_MAX_PDF_BYTES в pdf_processing.py), иначе карточка с
+    # кнопкой «Распознать» на ней же. Плейсхолдер — отдельной строкой, не
+    # внутри карточки: backend заменяет его целиком на готовую карточку с
+    # текстом (serialize_document_attachment), вложенность тегов в
+    # HTML-атрибуте была бы некорректной.
+    pdf_ocr_queued = False
+    is_pdf = mime_type == "application/pdf" or filename.lower().endswith(".pdf")
+    if is_pdf:
         pdf_text = extract_pdf_text(content_bytes)
         if pdf_text:
-            content += f"\n**Текст из PDF:**\n\n{pdf_text}\n"
+            content = f"{body}{serialize_document_attachment(attachment_url, filename, pdf_text)}\n"
         else:
-            content += "\n📄 PDF без текстового слоя (похоже на скан) — распознать текст можно в редакторе.\n"
+            user = await db.get(User, author_id)
+            if user is not None and user.auto_process_uploads and len(content_bytes) <= AUTO_OCR_MAX_PDF_BYTES:
+                content = f"{body}{pdf_placeholder_text(upload.id)}\n"
+                pdf_ocr_queued = True
+            else:
+                content = f"{body}{serialize_document_attachment(attachment_url, filename, '')}\n"
+    else:
+        content = f"{body}{serialize_document_attachment(attachment_url, filename, '')}\n"
 
     title = _derive_title(caption, fallback=filename)
-    await create_item_row(db, space_id=space_id, author_id=author_id, material_type="note", title=title, content=content)
+    item = await create_item_row(
+        db, space_id=space_id, author_id=author_id, material_type="note", title=title, content=content
+    )
+    if pdf_ocr_queued:
+        upload.transcription_status = "pending"
+        await db.commit()
+        enqueue_pdf_ocr(upload.id)
 
 
 def _buffer_media_group_message(message: dict, group_id: str, chat_id: int) -> None:

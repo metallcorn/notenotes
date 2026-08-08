@@ -86,6 +86,8 @@ async def update_me(
         ]
     if payload.tts_voice is not None:
         user.tts_voice = payload.tts_voice.strip()
+    if payload.auto_process_uploads is not None:
+        user.auto_process_uploads = payload.auto_process_uploads
     await db.commit()
     await db.refresh(user)
     return user
