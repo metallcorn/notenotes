@@ -75,7 +75,13 @@ SYSTEM_PROMPT_BASE = (
     "'закупка' для него — разные слова, хотя по смыслу связаны). Если "
     "search_base ничего не нашёл, а объект правдоподобно должен быть в "
     "базе — прежде чем говорить «не нашёл», вызови list_all_items и "
-    "просмотри заголовки сам: ты понимаешь смысл лучше текстового поиска.\n\n"
+    "просмотри заголовки сам: ты понимаешь смысл лучше текстового поиска. "
+    "Название, которое называет пользователь, может быть не названием "
+    "заметки/списка, а названием ПАПКИ (бытовое именование места, например "
+    "«Холодильник» для папки с продуктовыми списками) — если поиск по "
+    "заметкам/спискам ничего не даёт, обязательно проверь list_folders на "
+    "совпадение по названию папки и, если нашлось, посмотри её содержимое "
+    "через list_items_in_folder, прежде чем сообщать, что ничего нет.\n\n"
     "Никогда не составляй и не достраивай URL сам, если он не пришёл "
     "буквально из результата инструмента (особенно ссылки на Google Maps с "
     "координатами/place-id — их без реального источника не существует, ты "
@@ -312,6 +318,18 @@ def _strip_unverified_links(text: str, allowed_urls: set[str]) -> str:
     return _MARKDOWN_LINK_RE.sub(replace, text)
 
 
+def _looks_like_leaked_tool_call(content: str, tool_names: set[str]) -> bool:
+    """Модель иногда пишет вызов инструмента как текст ответа вместо
+    настоящего tool_call — content начинается с имени реального тула и
+    заканчивается JSON-объектом (между ними бывает мусор — наблюдали живьём
+    случайное лишнее слово). Настоящий текстовый ответ так не выглядит,
+    поэтому ложных срабатываний на обычных ответах практически не бывает."""
+    stripped = content.strip()
+    if not stripped.endswith("}"):
+        return False
+    return any(stripped.startswith(name) for name in tool_names)
+
+
 def _flatten_transcript(records: list[dict]) -> str:
     # str(...) — подстраховка: если content когда-нибудь снова окажется не
     # строкой (см. MistralClient._from_wire), это не должно ронять весь
@@ -440,6 +458,7 @@ async def run_dialog_turn(db: AsyncSession, user: User, item: Item, content: str
     memory_facts = [row[0] for row in memories_result.all()]
     enabled_tool_names = {d.name for d in tool_definitions}
     system_prompt = _build_system_prompt(memory_facts, user.custom_instructions, enabled_tool_names)
+    tool_call_leak_retried = False
 
     for _ in range(MAX_TOOL_ITERATIONS):
         try:
@@ -456,6 +475,29 @@ async def run_dialog_turn(db: AsyncSession, user: User, item: Item, content: str
             )
             break
         assistant_msg = response.message
+
+        # Изредка модель вместо настоящего tool_call пишет его как обычный
+        # текст ("create_calendar_event {...}") — реального вызова не
+        # происходит (событие не создаётся), а пользователь видит в чате
+        # сырой JSON вместо результата. Поймано вживую на реальном разговоре
+        # (репорт пользователя: "ссылка на календарь не создалась"). Раз —
+        # молча повторяем тот же запрос без добавления в историю (обычно
+        # помогает), не удалось второй раз — показываем честную ошибку
+        # вместо мусора.
+        if not assistant_msg.tool_calls and _looks_like_leaked_tool_call(assistant_msg.content, enabled_tool_names):
+            logger.warning("Похоже на утёкший tool_call текстом вместо настоящего вызова: %r", assistant_msg.content[:200])
+            if not tool_call_leak_retried:
+                tool_call_leak_retried = True
+                continue
+            records.append(
+                {
+                    "id": str(uuid.uuid4()),
+                    "role": "assistant",
+                    "content": "Не получилось выполнить действие — попробуй переформулировать запрос.",
+                    "created_at": _now_iso(),
+                }
+            )
+            break
 
         # suggest_replies — не настоящий тул с побочным эффектом, а разметка
         # для UI (чипы вместо свободного текста). Не кладём его в tool_calls
