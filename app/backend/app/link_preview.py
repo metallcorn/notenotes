@@ -107,15 +107,18 @@ def _validate_url(url: str) -> str:
     return url
 
 
-async def fetch_preview(url: str) -> dict:
-    """Возвращает dict с title/description/image_url/favicon_url либо
-    fetch_failed=True, если сайт не ответил или заблокирован SSRF-проверкой.
-    Никогда не бросает наружу — вызывающий роутер всегда получает валидный
-    результат для сохранения в кэш."""
+async def fetch_html(url: str, max_bytes: int = MAX_BODY_BYTES) -> tuple[str, str] | None:
+    """SSRF-safe GET произвольного URL — общая часть для карточек-превью
+    (fetch_preview ниже) и скилла ассистента «прочитать сайт по ссылке»
+    (app/read_website.py). Возвращает (итоговый_url_после_редиректов,
+    decoded_html) либо None при отказе (SSRF-блок, сетевая ошибка,
+    неуспешный статус, не-HTML content-type) — вызывающий код сам решает,
+    как об этом сообщить (fetch_failed в кэше превью, error в результате
+    тула)."""
     try:
         _validate_url(url)
     except _SSRFBlocked:
-        return {"fetch_failed": True}
+        return None
 
     try:
         async with httpx.AsyncClient(
@@ -126,22 +129,35 @@ async def fetch_preview(url: str) -> dict:
         ) as client:
             async with client.stream("GET", url, headers={"User-Agent": "Notenotesbot-link-preview/1.0"}) as resp:
                 if resp.status_code >= 400:
-                    return {"fetch_failed": True}
+                    return None
                 content_type = resp.headers.get("content-type", "")
                 if "html" not in content_type and content_type:
-                    return {"fetch_failed": True}
+                    return None
                 body = b""
                 async for chunk in resp.aiter_bytes():
                     body += chunk
-                    if len(body) > MAX_BODY_BYTES:
+                    if len(body) > max_bytes:
                         break
                 final_url = str(resp.url)
     except (httpx.HTTPError, _SSRFBlocked):
+        return None
+
+    return final_url, body.decode("utf-8", errors="replace")
+
+
+async def fetch_preview(url: str) -> dict:
+    """Возвращает dict с title/description/image_url/favicon_url либо
+    fetch_failed=True, если сайт не ответил или заблокирован SSRF-проверкой.
+    Никогда не бросает наружу — вызывающий роутер всегда получает валидный
+    результат для сохранения в кэш."""
+    fetched = await fetch_html(url)
+    if fetched is None:
         return {"fetch_failed": True}
+    final_url, html = fetched
 
     parser = _HeadParser()
     try:
-        parser.feed(body.decode("utf-8", errors="replace"))
+        parser.feed(html)
     except Exception:
         return {"fetch_failed": True}
 
