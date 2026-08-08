@@ -8,12 +8,19 @@ import FeedbackWidget from "./components/FeedbackWidget";
 import ErrorBoundary from "./components/ErrorBoundary";
 
 function RequireAuth({ children }: { children: ReactElement }) {
-  const { data: user, isLoading, isError } = useMe();
+  // Только !user, не isError: react-query держит последние успешные данные
+  // даже когда фоновый рефетч ("me" не stale, но на возврате фокуса всё
+  // равно перепроверяется) падает — офлайн (ТЗ §18) это норма, не признак
+  // разлогина. Раньше isError гонял в бесконечный редирект-пинг-понг
+  // "/" → /login (там user из кэша есть, обратно на "/") → снова ошибка
+  // сети → /login — сотни запросов /api/auth/me в секунду и пустой экран,
+  // поймано на офлайн-тестах.
+  const { data: user, isLoading } = useMe();
 
   if (isLoading) {
     return <div className="flex min-h-dvh items-center justify-center text-slate-400">Загрузка…</div>;
   }
-  if (isError || !user) {
+  if (!user) {
     return <Navigate to="/login" replace />;
   }
   return children;

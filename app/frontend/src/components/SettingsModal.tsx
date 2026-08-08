@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Send, Trash2, X } from "lucide-react";
 import {
   useDeleteMemory,
@@ -12,6 +12,7 @@ import {
   useUpdateDisabledTools,
   useUpdateTtsVoice,
 } from "../api/hooks";
+import { DEFAULT_MEDIA_CACHE_LIMIT_MB, getMediaCacheLimitBytes, setMediaCacheLimitMb } from "../lib/offlineSettings";
 import Spinner from "./Spinner";
 
 const VOICE_PRESETS = [
@@ -35,6 +36,18 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
   const [saved, setSaved] = useState(false);
   const [customVoiceId, setCustomVoiceId] = useState("");
   const [telegramDeepLink, setTelegramDeepLink] = useState<string | null>(null);
+  const [mediaCacheLimitMb, setMediaCacheLimitMbState] = useState(DEFAULT_MEDIA_CACHE_LIMIT_MB);
+  const [mediaCacheSaved, setMediaCacheSaved] = useState(false);
+
+  useEffect(() => {
+    getMediaCacheLimitBytes().then((bytes) => setMediaCacheLimitMbState(bytes / (1024 * 1024)));
+  }, []);
+
+  async function handleSaveMediaCacheLimit() {
+    await setMediaCacheLimitMb(mediaCacheLimitMb);
+    setMediaCacheSaved(true);
+    setTimeout(() => setMediaCacheSaved(false), 1500);
+  }
 
   const currentVoice = me?.tts_voice ?? "default_low";
   const isPresetVoice = VOICE_PRESETS.some((v) => v.value === currentVoice);
@@ -222,6 +235,31 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
             {telegramLinkCode.isError && (
               <div className="mt-1 text-xs text-red-600">Telegram-бот пока не настроен на сервере.</div>
             )}
+          </div>
+
+          <div className="mb-6">
+            <div className="mb-1 text-sm font-medium text-slate-900">Офлайн</div>
+            <div className="mb-2 text-xs text-slate-400">
+              Заметки, которые уже открывались, доступны без интернета всегда. Картинки и файлы — только если
+              меньше этого размера (действует на новые загрузки, не пересчитывает уже закэшированное).
+            </div>
+            <div className="flex items-center gap-2">
+              <input
+                type="number"
+                min={0}
+                step={1}
+                value={mediaCacheLimitMb}
+                onChange={(e) => setMediaCacheLimitMbState(Number(e.target.value))}
+                className="w-24 rounded border px-3 py-1.5 text-sm"
+              />
+              <span className="text-sm text-slate-500">МБ</span>
+              <button
+                onClick={handleSaveMediaCacheLimit}
+                className="rounded border border-slate-300 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50"
+              >
+                {mediaCacheSaved ? "Сохранено" : "Сохранить"}
+              </button>
+            </div>
           </div>
 
           <div>
