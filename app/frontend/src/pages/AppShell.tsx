@@ -79,7 +79,7 @@ export default function AppShell() {
     const savedViewMode = uiStorage.getViewMode();
     if (savedViewMode === "assistant") {
       setViewModeState("assistant");
-      const lastDialogId = uiStorage.getLastDialogId(spaceId);
+      const lastDialogId = uiStorage.getLastDialogId();
       if (lastDialogId) {
         setSelectedDialogId(lastDialogId);
         setMobileView("editor");
@@ -161,7 +161,7 @@ export default function AppShell() {
       setSelectedDialogId(id);
       setMobileView(id ? "editor" : "list");
     });
-    if (activeSpaceId) uiStorage.setLastDialogId(activeSpaceId, id);
+    uiStorage.setLastDialogId(id);
   }
 
   function toggleSpaceCollapsed(spaceId: string) {
@@ -322,7 +322,7 @@ export default function AppShell() {
                     </button>
                     <span className="text-sm font-medium text-slate-900">Ассистент</span>
                   </div>
-                  <DialogList spaceId={activeSpaceId} selectedId={selectedDialogId} onSelect={selectDialog} />
+                  <DialogList selectedId={selectedDialogId} onSelect={selectDialog} />
                 </>
               )}
             </div>

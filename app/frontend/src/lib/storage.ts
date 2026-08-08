@@ -68,8 +68,12 @@ export const uiStorage = {
   getViewMode: (): ViewMode => read<ViewMode>("viewMode", "notes"),
   setViewMode: (v: ViewMode): void => write("viewMode", v),
 
-  getLastDialogId: (spaceId: string): string | null => read<string | null>(`lastDialog:${spaceId}`, null),
-  setLastDialogId: (spaceId: string, dialogId: string | null): void => write(`lastDialog:${spaceId}`, dialogId),
+  // Один глобальный ключ, не по спейсам — диалоги ассистента больше не
+  // привязаны к спейсу с точки зрения пользователя (список общий на все
+  // спейсы сразу), так что и "последний открытый диалог" тоже один на всё,
+  // а не разный для каждого спейса.
+  getLastDialogId: (): string | null => read<string | null>("lastDialog", null),
+  setLastDialogId: (dialogId: string | null): void => write("lastDialog", dialogId),
 
   // Автоозвучивание новых ответов ассистента (TTS) — глобальный переключатель,
   // отдельный от ручной кнопки "озвучить" на каждой реплике.

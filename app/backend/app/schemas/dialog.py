@@ -6,7 +6,12 @@ from pydantic import BaseModel
 
 
 class DialogCreate(BaseModel):
-    space_id: uuid.UUID
+    # Не обязателен: ассистент не привязан к одному спейсу с точки зрения
+    # пользователя, без явного space_id бэкенд сам выбирает "домашний" спейс
+    # (см. _default_space_id в routers/dialogs.py). Остаётся опцией на
+    # будущее — например, если когда-нибудь понадобится явно "создать
+    # диалог именно в спейсе X".
+    space_id: uuid.UUID | None = None
     title: str = ""
 
 

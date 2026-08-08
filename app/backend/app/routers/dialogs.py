@@ -256,6 +256,26 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+async def _default_space_id(db: AsyncSession, user_id: uuid.UUID) -> uuid.UUID:
+    """"Домашний" спейс для новых диалогов ассистента, когда пользователь
+    явно не выбирает спейс — самый старый спейс пользователя, детерминированно
+    и стабильно между запросами (не "текущий активный спейс сайдбара", как
+    было раньше: тогда новый диалог мог уйти в случайный спейс просто
+    потому, что пользователь до этого листал заметки где-то ещё)."""
+    space_id = (
+        await db.execute(
+            select(Space.id)
+            .join(SpaceMember, SpaceMember.space_id == Space.id)
+            .where(SpaceMember.user_id == user_id)
+            .order_by(Space.created_at)
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if space_id is None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "У пользователя нет ни одного спейса")
+    return space_id
+
+
 async def _get_dialog(db: AsyncSession, user: User, dialog_id: uuid.UUID) -> Item:
     item = await db.get(Item, dialog_id)
     if item is None or item.material_type != "dialog" or item.deleted_at is not None:
@@ -349,31 +369,20 @@ def _flatten_transcript(records: list[dict]) -> str:
 
 
 @router.get("", response_model=list[DialogSummaryOut])
-async def list_dialogs(
-    space_id: uuid.UUID | None = None, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
-) -> list[DialogSummaryOut]:
-    """Без space_id — диалоги сразу по всем спейсам пользователя (по
-    просьбе: чаты с ассистентом раньше были строго разделены по спейсам,
-    как заметки, и с ботом в Telegram (свой спейс) конфликтовало с
-    ожиданием "все мои чаты в одном месте"). С space_id — старое поведение,
-    только этот спейс (пока используется только для истории версий и т.п.,
-    где спейс уже известен из контекста)."""
-    if space_id is not None:
-        await ensure_space_access(db, space_id, user.id)
-        query = (
-            select(Item, Space.name)
-            .join(Space, Space.id == Item.space_id)
-            .where(Item.space_id == space_id, Item.material_type == "dialog", Item.deleted_at.is_(None))
-            .order_by(Item.updated_at.desc())
-        )
-    else:
-        query = (
-            select(Item, Space.name)
-            .join(Space, Space.id == Item.space_id)
-            .join(SpaceMember, SpaceMember.space_id == Item.space_id)
-            .where(SpaceMember.user_id == user.id, Item.material_type == "dialog", Item.deleted_at.is_(None))
-            .order_by(Item.updated_at.desc())
-        )
+async def list_dialogs(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)) -> list[DialogSummaryOut]:
+    """Диалоги сразу по всем спейсам пользователя — ассистент не привязан
+    к одному спейсу с точки зрения пользователя (обсуждено явно: инструменты
+    и так уже читают/меняют объекты в любом спейсе, а раньше список чатов
+    был жёстко разделён по спейсам, как заметки — жалоба "не вижу чат с
+    телефона на компе", потому что разговор через Telegram-бота лежит в
+    своём отдельном спейсе "Telegram")."""
+    query = (
+        select(Item, Space.name)
+        .join(Space, Space.id == Item.space_id)
+        .join(SpaceMember, SpaceMember.space_id == Item.space_id)
+        .where(SpaceMember.user_id == user.id, Item.material_type == "dialog", Item.deleted_at.is_(None))
+        .order_by(Item.updated_at.desc())
+    )
     rows = (await db.execute(query)).all()
     return [
         DialogSummaryOut(
@@ -388,10 +397,14 @@ async def list_dialogs(
 async def create_dialog(
     payload: DialogCreate, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
 ) -> DialogOut:
-    await ensure_space_access(db, payload.space_id, user.id)
+    if payload.space_id is not None:
+        await ensure_space_access(db, payload.space_id, user.id)
+        space_id = payload.space_id
+    else:
+        space_id = await _default_space_id(db, user.id)
     item = await create_item_row(
         db,
-        space_id=payload.space_id,
+        space_id=space_id,
         author_id=user.id,
         material_type="dialog",
         title=payload.title or "Новый диалог",

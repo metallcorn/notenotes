@@ -363,10 +363,13 @@ export function useDialog(dialogId: string | undefined) {
   });
 }
 
-export function useCreateDialog(spaceId: string | undefined) {
+// Без space_id — бэкенд сам выбирает "домашний" спейс пользователя
+// (ассистент не привязан к одному спейсу с точки зрения пользователя, см.
+// _default_space_id в routers/dialogs.py).
+export function useCreateDialog() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: () => api.post<Dialog>("/dialogs", { space_id: spaceId }),
+    mutationFn: () => api.post<Dialog>("/dialogs", {}),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["dialogs"] }),
   });
 }

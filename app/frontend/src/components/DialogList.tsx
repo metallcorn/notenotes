@@ -7,20 +7,15 @@ import ConfirmDialog from "./ConfirmDialog";
 import Spinner from "./Spinner";
 
 export default function DialogList({
-  spaceId,
   selectedId,
   onSelect,
 }: {
-  // Список теперь общий на все спейсы — spaceId нужен только для того,
-  // куда положить НОВЫЙ диалог (текущий активный спейс), не для фильтрации
-  // списка.
-  spaceId: string | undefined;
   selectedId: string | null;
   onSelect: (id: string | null) => void;
 }) {
   const { data: dialogs, isLoading, isError, refetch } = useDialogs();
-  const createDialog = useCreateDialog(spaceId);
-  const deleteItem = useDeleteItem(spaceId);
+  const createDialog = useCreateDialog();
+  const deleteItem = useDeleteItem(undefined);
   const qc = useQueryClient();
   const [deleting, setDeleting] = useState<DialogSummary | null>(null);
 
@@ -34,7 +29,7 @@ export default function DialogList({
       <div className="border-b p-3">
         <button
           onClick={handleCreate}
-          disabled={createDialog.isPending || !spaceId}
+          disabled={createDialog.isPending}
           className="flex w-full items-center justify-center gap-1.5 rounded bg-slate-900 px-3 py-2 text-sm text-white hover:bg-slate-800 disabled:opacity-50"
         >
           {createDialog.isPending ? <Spinner size={14} className="text-white" /> : <Plus size={14} />}
@@ -69,15 +64,11 @@ export default function DialogList({
           >
             <button
               onClick={() => onSelect(d.id)}
-              className={`min-w-0 flex-1 px-3 py-2.5 text-left text-sm ${
+              className={`min-w-0 flex-1 truncate px-3 py-2.5 text-left text-sm ${
                 selectedId === d.id ? "font-medium text-slate-900" : "text-slate-600"
               }`}
             >
-              <div className="truncate">{d.title || "Новый диалог"}</div>
-              {/* Список общий на все спейсы — без подписи было бы неясно,
-                  откуда взялся диалог (особенно для тех, что пришли из
-                  Telegram-бота, у него свой отдельный спейс). */}
-              <div className="truncate text-xs text-slate-400">{d.space_name}</div>
+              {d.title || "Новый диалог"}
             </button>
             <button
               onClick={() => setDeleting(d)}
