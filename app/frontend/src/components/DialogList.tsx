@@ -15,7 +15,7 @@ export default function DialogList({
   selectedId: string | null;
   onSelect: (id: string | null) => void;
 }) {
-  const { data: dialogs, isLoading } = useDialogs(spaceId);
+  const { data: dialogs, isLoading, isError, refetch } = useDialogs(spaceId);
   const createDialog = useCreateDialog(spaceId);
   const deleteItem = useDeleteItem(spaceId);
   const qc = useQueryClient();
@@ -40,7 +40,21 @@ export default function DialogList({
       </div>
       <div className="flex-1 overflow-y-auto">
         {isLoading && <div className="p-3 text-sm text-slate-400">Загрузка…</div>}
-        {!isLoading && (dialogs ?? []).length === 0 && (
+        {/* isError отдельно от "диалогов правда нет" — раньше сбой сети
+            (например, на телефоне при слабом сигнале) выглядел неотличимо
+            от пустого списка: dialogs просто оставался undefined, и текст
+            "пока нет диалогов" показывался как ни в чём не бывало, хотя
+            диалоги реально есть на сервере, просто не подгрузились
+            (реальная жалоба: "не вижу чатов ассистента", хотя они были). */}
+        {isError && (
+          <div className="p-3 text-sm text-slate-500">
+            Не удалось загрузить диалоги.{" "}
+            <button onClick={() => refetch()} className="text-slate-900 underline hover:no-underline">
+              Повторить
+            </button>
+          </div>
+        )}
+        {!isLoading && !isError && (dialogs ?? []).length === 0 && (
           <div className="p-3 text-sm text-slate-400">Пока нет диалогов с ассистентом</div>
         )}
         {(dialogs ?? []).map((d) => (
