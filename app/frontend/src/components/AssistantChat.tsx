@@ -28,6 +28,7 @@ import { uiStorage, type ContentWidth } from "../lib/storage";
 import { downloadFile, sanitizeFilename, wrapHtmlDocument } from "../lib/export";
 import ConfirmDialog from "./ConfirmDialog";
 import ExportMenu from "./ExportMenu";
+import ImageGallery from "./ImageGallery";
 import ImageLightbox from "./ImageLightbox";
 import PromptDialog from "./PromptDialog";
 import Spinner from "./Spinner";
@@ -158,26 +159,24 @@ function CreatedItemLinks({
 
 const _MARKDOWN_IMAGE_RE = /!\[[^\]]*\]\(([^)]+)\)/g;
 
-// get_note/search_base не участвуют в CreatedItemLinks (та ищет только
-// create_note/create_list) — картинка, которую ассистент показал В СВОЁМ
-// ОТВЕТЕ (см. SHOW_NOTE_IMAGES_PROMPT_FRAGMENT в dialogs.py), до сих пор
-// никак не сопоставлялась с заметкой-источником, поэтому не было чипа
-// «Открыть заметку» под ней (реальная жалоба). Сопоставляем по тому же
-// URL: он у ассистента ДОЛЖЕН быть буквально таким же, как в content/
-// excerpt найденной заметки — так требует промпт.
-function ImageSourceLinks({
-  message,
-  results,
-  onOpenItem,
-}: {
-  message: DialogMessage;
-  results: DialogMessage[];
-  onOpenItem: (id: string, materialType: "note" | "list") => void;
-}) {
-  const shownUrls = Array.from(message.content.matchAll(_MARKDOWN_IMAGE_RE)).map((m) => m[1]);
-  if (shownUrls.length === 0) return null;
+interface ImageSourceNote {
+  id: string;
+  title: string;
+  materialType: "note" | "list";
+  text: string;
+}
 
-  const notes = message.tool_calls
+// get_note/search_base не участвуют в CreatedItemLinks (та ищет только
+// create_note/create_list) — картинки, которые ассистент показал В СВОЁМ
+// ОТВЕТЕ (см. SHOW_NOTE_IMAGES_PROMPT_FRAGMENT в dialogs.py), до сих пор
+// никак не сопоставлялись с заметкой-источником, поэтому не было чипа
+// «Открыть заметку» под ними (реальная жалоба). Сопоставляем по тому же
+// URL: он у ассистента ДОЛЖЕН быть буквально таким же, как в content/
+// excerpt найденной заметки — так требует промпт. Общий сбор кандидатов
+// для обоих сценариев ниже: одна картинка (дедуп, без номеров) и галерея
+// (по кнопке на каждую картинку, без дедупа, в порядке появления).
+function collectImageSourceNotes(message: DialogMessage, results: DialogMessage[]): ImageSourceNote[] {
+  return message.tool_calls
     .filter((tc) => tc.name === "get_note" || tc.name === "search_base")
     .flatMap((tc) => {
       const result = results.find((r) => r.tool_call_id === tc.id);
@@ -197,10 +196,25 @@ function ImageSourceLinks({
       } catch {
         return [];
       }
-    })
-    .filter((note) => shownUrls.some((url) => note.text.includes(url)));
+    });
+}
 
-  const uniqueNotes = Array.from(new Map(notes.map((n) => [n.id, n])).values());
+function ImageSourceLinks({
+  message,
+  results,
+  onOpenItem,
+}: {
+  message: DialogMessage;
+  results: DialogMessage[];
+  onOpenItem: (id: string, materialType: "note" | "list") => void;
+}) {
+  const shownUrls = Array.from(message.content.matchAll(_MARKDOWN_IMAGE_RE)).map((m) => m[1]);
+  // Галерея (2+ картинки) рендерится отдельным компонентом ImageGalleryLinks
+  // с позиционными кнопками — эта ветка только для ровно одной картинки.
+  if (shownUrls.length !== 1) return null;
+
+  const candidates = collectImageSourceNotes(message, results).filter((note) => shownUrls.some((url) => note.text.includes(url)));
+  const uniqueNotes = Array.from(new Map(candidates.map((n) => [n.id, n])).values());
   if (uniqueNotes.length === 0) return null;
 
   return (
@@ -215,6 +229,89 @@ function ImageSourceLinks({
         </button>
       ))}
     </div>
+  );
+}
+
+// Кнопка на КАЖДУЮ картинку галереи, в порядке появления, без дедупа —
+// чтобы N-я картинка сетки соответствовала N-й кнопке (пользователь
+// явно попросил именно позиционное соответствие, а не общий список
+// уникальных заметок). Картинка без найденной заметки — не должно
+// происходить по правилам промпта, но на всякий случай просто
+// пропускается, без заглушки на её месте.
+function ImageGalleryLinks({
+  message,
+  results,
+  onOpenItem,
+}: {
+  message: DialogMessage;
+  results: DialogMessage[];
+  onOpenItem: (id: string, materialType: "note" | "list") => void;
+}) {
+  const urls = Array.from(message.content.matchAll(_MARKDOWN_IMAGE_RE)).map((m) => m[1]);
+  // Ровно одна картинка — та ветка у ImageSourceLinks (дедуп, без номеров).
+  if (urls.length < 2) return null;
+
+  const candidates = collectImageSourceNotes(message, results);
+  const entries = urls
+    .map((url, i) => ({ index: i, note: candidates.find((n) => n.text.includes(url)) ?? null }))
+    .filter((e): e is { index: number; note: ImageSourceNote } => e.note !== null);
+
+  if (entries.length === 0) return null;
+
+  return (
+    <div className="mt-1.5 flex flex-wrap gap-1.5">
+      {entries.map(({ index, note }) => (
+        <button
+          key={index}
+          onClick={() => onOpenItem(note.id, note.materialType)}
+          className="flex items-center gap-1 rounded-full border border-slate-300 bg-white px-3 py-1 text-xs text-slate-700 hover:border-slate-400 hover:bg-slate-50"
+        >
+          {index + 1}. Открыть «{note.title}» <ChevronRight size={11} />
+        </button>
+      ))}
+    </div>
+  );
+}
+
+// Ровно одна картинка — рендерится инлайн в потоке текста, как и раньше
+// (markdownComponents.img). Две и больше — картинки убираются из текста и
+// показываются отдельно сеткой миниатюр (ImageGallery), иначе получился бы
+// длинный вертикальный стек прямо в абзацах ответа (жалоба: "как это будет
+// выглядеть с тремя картинками?").
+function AssistantMessageContent({
+  message,
+  markdownComponents,
+  onGalleryOpen,
+}: {
+  message: DialogMessage;
+  markdownComponents: Components;
+  onGalleryOpen: (images: { src: string; alt: string }[], startIndex: number) => void;
+}) {
+  const urls = Array.from(message.content.matchAll(_MARKDOWN_IMAGE_RE)).map((m) => m[1]);
+  if (urls.length < 2) {
+    return (
+      <div className="tiptap">
+        <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+          {message.content}
+        </ReactMarkdown>
+      </div>
+    );
+  }
+
+  const textOnly = message.content.replace(_MARKDOWN_IMAGE_RE, "").replace(/\n{3,}/g, "\n\n").trim();
+  const images = urls.map((src) => ({ src, alt: "" }));
+
+  return (
+    <>
+      {textOnly && (
+        <div className="tiptap">
+          <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+            {textOnly}
+          </ReactMarkdown>
+        </div>
+      )}
+      <ImageGallery images={images} onOpen={(i) => onGalleryOpen(images, i)} />
+    </>
   );
 }
 
@@ -463,9 +560,11 @@ export default function AssistantChat({
   const [voiceError, setVoiceError] = useState<string | null>(null);
   const [silenceProgress, setSilenceProgress] = useState(0);
   const [chatWidth, setChatWidth] = useState<ContentWidth>(() => uiStorage.getChatContentWidth());
-  const [lightboxImage, setLightboxImage] = useState<{ src: string; alt: string } | null>(null);
+  const [lightbox, setLightbox] = useState<{ images: { src: string; alt: string }[]; startIndex: number } | null>(
+    null,
+  );
   const markdownComponents = useMemo(
-    () => buildMarkdownComponents((src, alt) => setLightboxImage({ src, alt })),
+    () => buildMarkdownComponents((src, alt) => setLightbox({ images: [{ src, alt }], startIndex: 0 })),
     [],
   );
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -919,9 +1018,11 @@ export default function AssistantChat({
               >
                 {message.content &&
                   (message.role === "assistant" ? (
-                    <div className="tiptap">
-                      <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>{message.content}</ReactMarkdown>
-                    </div>
+                    <AssistantMessageContent
+                      message={message}
+                      markdownComponents={markdownComponents}
+                      onGalleryOpen={(images, startIndex) => setLightbox({ images, startIndex })}
+                    />
                   ) : (
                     <div className="whitespace-pre-wrap">{message.content}</div>
                   ))}
@@ -931,6 +1032,9 @@ export default function AssistantChat({
                 )}
                 {message.tool_calls.length > 0 && (
                   <ImageSourceLinks message={message} results={toolResults} onOpenItem={onOpenItem} />
+                )}
+                {message.tool_calls.length > 0 && (
+                  <ImageGalleryLinks message={message} results={toolResults} onOpenItem={onOpenItem} />
                 )}
                 {message.tool_calls.length > 0 && <CalendarEventLinks message={message} results={toolResults} />}
                 {message.tool_calls.length > 0 && <MapsLinkButtons message={message} results={toolResults} />}
@@ -1088,8 +1192,8 @@ export default function AssistantChat({
         />
       )}
 
-      {lightboxImage && (
-        <ImageLightbox src={lightboxImage.src} alt={lightboxImage.alt} onClose={() => setLightboxImage(null)} />
+      {lightbox && (
+        <ImageLightbox images={lightbox.images} startIndex={lightbox.startIndex} onClose={() => setLightbox(null)} />
       )}
     </div>
   );

@@ -100,7 +100,10 @@ export default function ImageToolbar({ editor }: { editor: Editor }) {
         </div>
       </div>
       {lightbox && attrs.src && (
-        <ImageLightbox src={attrs.src} alt={attrs.alt ?? undefined} onClose={() => setLightbox(false)} />
+        <ImageLightbox
+          images={[{ src: attrs.src, alt: attrs.alt ?? undefined }]}
+          onClose={() => setLightbox(false)}
+        />
       )}
     </>
   );
