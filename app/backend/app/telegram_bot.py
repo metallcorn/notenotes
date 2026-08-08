@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
+import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -14,6 +16,7 @@ from app.asr.factory import get_asr_client
 from app.core.config import get_settings
 from app.db import async_session
 from app.models import Item, Space, SpaceMember, TelegramLink, TelegramLinkCode, Upload, User
+from app.pdf_processing import extract_text as extract_pdf_text
 from app.routers.dialogs import run_dialog_turn
 from app.routers.items import create_item_row
 from app.transcription import enqueue_transcription
@@ -37,6 +40,16 @@ TELEGRAM_API_BASE = "https://api.telegram.org"
 # больше этого размера бот технически не может скачать никаким способом.
 _MAX_DOWNLOAD_BYTES = 20 * 1024 * 1024
 
+# Альбом (несколько фото/видео одним постом) Telegram присылает как
+# ОТДЕЛЬНЫЙ апдейт на каждый файл — общее у них только media_group_id, и
+# явного сигнала "это последний" нет. Буферизуем в памяти и по debounce'у
+# (ничего нового для этой группы N секунд) считаем группу завершённой и
+# собираем ОДНУ заметку. Живёт в памяти воркер-процесса — как и остальные
+# очереди в этом модуле, не переживает рестарт, что приемлемо для окна
+# в пару секунд.
+_media_groups: dict[str, dict] = {}
+_MEDIA_GROUP_DEBOUNCE_SECONDS = 1.5
+
 
 def _api_url(method: str) -> str:
     return f"{TELEGRAM_API_BASE}/bot{get_settings().telegram_bot_token}/{method}"
@@ -48,6 +61,69 @@ def _upload_path(upload_id: uuid.UUID) -> Path:
 
 def enqueue_update(update: dict) -> None:
     _queue.put_nowait(update)
+
+
+_MARKDOWN_MARKS_RE = re.compile(r"[*_`~]")
+
+
+def _derive_title(text: str, fallback: str = "") -> str:
+    """Заметки из Telegram создавались без названия ("Без названия" в UI) —
+    берём первую непустую строку контента, как заголовок пользователь чаще
+    всего и держит там сам. lstrip("#") — заголовок markdown ("# Рецепт
+    борща") решётке в названии заметки не нужен; сама строка уже могла
+    получить **bold**/_italic_/`code` от _entities_to_markdown — эти
+    маркеры тоже убираем, в названии заметки они не нужны, только мусор."""
+    for line in text.splitlines():
+        stripped = _MARKDOWN_MARKS_RE.sub("", line.strip().lstrip("#")).strip()
+        if stripped:
+            return stripped[:80]
+    return fallback
+
+
+# Форматирование Telegram (жирный, курсив, ссылки и т.д.) приходит не
+# инлайновым markdown в самом тексте, а отдельным списком entities
+# (offset/length в UTF-16 code units — ЛЕГКО ошибиться на эмодзи и подобных
+# символах вне BMP, если считать по Python-индексам строки, поэтому режем
+# по закодированным в UTF-16 code unit'ам, как считает сам Telegram).
+_ENTITY_MARKDOWN_WRAP = {"bold": "**", "italic": "_", "code": "`", "strikethrough": "~~", "underline": "__"}
+
+
+def _entities_to_markdown(text: str, entities: list[dict] | None) -> str:
+    if not entities or not text:
+        return text
+
+    units = text.encode("utf-16-le")
+    total_units = len(units) // 2
+
+    def unit_slice(start: int, end: int) -> str:
+        return units[start * 2 : end * 2].decode("utf-16-le")
+
+    # Пересекающиеся сущности (например, одновременно bold+italic на одном
+    # спане) — редкий случай для обычной переписки; берём первую по offset
+    # и не пытаемся вкладывать разметку друг в друга.
+    entities_sorted = sorted(entities, key=lambda e: e["offset"])
+
+    parts: list[str] = []
+    cursor = 0
+    for e in entities_sorted:
+        offset, length = e["offset"], e["length"]
+        if offset < cursor:
+            continue
+        parts.append(unit_slice(cursor, offset))
+        segment = unit_slice(offset, offset + length)
+        etype = e.get("type")
+        if etype in _ENTITY_MARKDOWN_WRAP:
+            wrap = _ENTITY_MARKDOWN_WRAP[etype]
+            parts.append(f"{wrap}{segment}{wrap}")
+        elif etype == "text_link" and e.get("url"):
+            parts.append(f"[{segment}]({e['url']})")
+        elif etype == "pre":
+            parts.append(f"\n```{e.get('language', '')}\n{segment}\n```\n")
+        else:
+            parts.append(segment)
+        cursor = offset + length
+    parts.append(unit_slice(cursor, total_units))
+    return "".join(parts)
 
 
 async def register_webhook() -> None:
@@ -203,10 +279,11 @@ async def _handle_photo(db: AsyncSession, message: dict, space_id: uuid.UUID, au
     filename = file_path.rsplit("/", 1)[-1]
     upload = await _save_upload(db, space_id, author_id, content_bytes, filename, "image/jpeg")
     placeholder = image_placeholder_text(upload.id)
-    caption = message.get("caption", "")
+    caption = _entities_to_markdown(message.get("caption", ""), message.get("caption_entities"))
     body = f"{caption}\n\n" if caption else ""
     content = f"{body}![](/api/uploads/{upload.id})\n\n{placeholder}\n"
-    await create_item_row(db, space_id=space_id, author_id=author_id, material_type="note", content=content)
+    title = _derive_title(caption, fallback="Фото")
+    await create_item_row(db, space_id=space_id, author_id=author_id, material_type="note", title=title, content=content)
     enqueue_vision(upload.id)
 
 
@@ -234,9 +311,10 @@ async def _handle_voice(db: AsyncSession, message: dict, space_id: uuid.UUID, au
         except Exception:
             logger.exception("Ошибка распознавания голосового сообщения из Telegram")
 
-    link = f"[voice.ogg](/api/uploads/{upload.id})"
-    content = f"{link}\n\n{transcript}" if transcript.strip() else link
-    await create_item_row(db, space_id=space_id, author_id=author_id, material_type="note", content=content)
+    file_link = f"[voice.ogg](/api/uploads/{upload.id})"
+    content = f"{file_link}\n\n{transcript}" if transcript.strip() else file_link
+    title = _derive_title(transcript, fallback="Голосовое сообщение")
+    await create_item_row(db, space_id=space_id, author_id=author_id, material_type="note", title=title, content=content)
 
 
 async def _handle_video(db: AsyncSession, message: dict, space_id: uuid.UUID, author_id: uuid.UUID) -> None:
@@ -270,13 +348,14 @@ async def _handle_video(db: AsyncSession, message: dict, space_id: uuid.UUID, au
     mime_type = video.get("mime_type", "video/mp4")
     upload = await _save_upload(db, space_id, author_id, content_bytes, filename, mime_type)
     placeholder = video_placeholder_text(upload.id)
-    caption = message.get("caption", "")
+    caption = _entities_to_markdown(message.get("caption", ""), message.get("caption_entities"))
     body = f"{caption}\n\n" if caption else ""
     content = (
         f'{body}<video src="/api/uploads/{upload.id}" controls preload="metadata" '
         f'style="max-width: 100%; max-height: 70vh;"></video>\n\n{placeholder}\n'
     )
-    await create_item_row(db, space_id=space_id, author_id=author_id, material_type="note", content=content)
+    title = _derive_title(caption, fallback="Видео")
+    await create_item_row(db, space_id=space_id, author_id=author_id, material_type="note", title=title, content=content)
     enqueue_transcription(upload.id)
 
 
@@ -307,10 +386,114 @@ async def _handle_document(db: AsyncSession, message: dict, space_id: uuid.UUID,
     content_bytes, _file_path = result
     mime_type = document.get("mime_type", "application/octet-stream")
     upload = await _save_upload(db, space_id, author_id, content_bytes, filename, mime_type)
-    caption = message.get("caption", "")
+    caption = _entities_to_markdown(message.get("caption", ""), message.get("caption_entities"))
     body = f"{caption}\n\n" if caption else ""
     content = f"{body}[{filename}](/api/uploads/{upload.id})\n"
-    await create_item_row(db, space_id=space_id, author_id=author_id, material_type="note", content=content)
+
+    # PDF: текстовый слой вытаскиваем сразу — быстро, локально, бесплатно
+    # (PyMuPDF, без сети), сразу делает заметку находимой поиском. Сканы
+    # без текста — OCR по кнопке в редакторе, не автоматически (может быть
+    # долгим/дорогим для многостраничных документов, см. pdf_processing.py).
+    if mime_type == "application/pdf" or filename.lower().endswith(".pdf"):
+        pdf_text = extract_pdf_text(content_bytes)
+        if pdf_text:
+            content += f"\n**Текст из PDF:**\n\n{pdf_text}\n"
+        else:
+            content += "\n📄 PDF без текстового слоя (похоже на скан) — распознать текст можно в редакторе.\n"
+
+    title = _derive_title(caption, fallback=filename)
+    await create_item_row(db, space_id=space_id, author_id=author_id, material_type="note", title=title, content=content)
+
+
+def _buffer_media_group_message(message: dict, group_id: str, chat_id: int) -> None:
+    group = _media_groups.setdefault(group_id, {"messages": [], "chat_id": chat_id})
+    group["messages"].append(message)
+    group["last_seen"] = time.monotonic()
+    if len(group["messages"]) == 1:
+        _schedule_media_group_flush(group_id)
+
+
+def _schedule_media_group_flush(group_id: str) -> None:
+    async def _later() -> None:
+        await asyncio.sleep(_MEDIA_GROUP_DEBOUNCE_SECONDS)
+        enqueue_update({"_media_group_flush": group_id})
+
+    asyncio.create_task(_later())
+
+
+async def _flush_media_group(group_id: str) -> None:
+    group = _media_groups.get(group_id)
+    if group is None:
+        return
+    # Что-то прилетело в группу уже после того, как этот таймер был
+    # запущен — ждём ещё, а не режем альбом на середине.
+    if time.monotonic() - group["last_seen"] < _MEDIA_GROUP_DEBOUNCE_SECONDS - 0.05:
+        _schedule_media_group_flush(group_id)
+        return
+
+    del _media_groups[group_id]
+    messages = group["messages"]
+    chat_id = group["chat_id"]
+
+    async with async_session() as db:
+        link = (await db.execute(select(TelegramLink).where(TelegramLink.chat_id == chat_id))).scalar_one_or_none()
+        if link is None:
+            return
+        await _handle_media_group(db, messages, link.space_id, link.user_id)
+
+    await send_message(chat_id, "Сохранено ✅")
+
+
+async def _handle_media_group(db: AsyncSession, messages: list[dict], space_id: uuid.UUID, author_id: uuid.UUID) -> None:
+    """Альбом (несколько фото/видео одним постом) — одна заметка со всеми
+    файлами по порядку, а не по заметке на файл. Подпись Telegram кладёт
+    только на одно сообщение группы (обычно первое) — ищем её по всем."""
+    caption_raw, caption_entities = "", None
+    for m in messages:
+        if m.get("caption"):
+            caption_raw, caption_entities = m["caption"], m.get("caption_entities")
+            break
+    caption = _entities_to_markdown(caption_raw, caption_entities)
+
+    parts: list[str] = [caption] if caption else []
+    has_photo = False
+    for m in messages:
+        if "photo" in m:
+            has_photo = True
+            photos = m["photo"]
+            largest = max(photos, key=lambda p: p.get("file_size", 0))
+            result = await _download_file(largest["file_id"])
+            if result is None:
+                parts.append("🖼 Фото больше 20 МБ — сохранить не удалось.")
+                continue
+            content_bytes, file_path = result
+            filename = file_path.rsplit("/", 1)[-1]
+            upload = await _save_upload(db, space_id, author_id, content_bytes, filename, "image/jpeg")
+            parts.append(f"![](/api/uploads/{upload.id})\n\n{image_placeholder_text(upload.id)}")
+            enqueue_vision(upload.id)
+        elif "video" in m:
+            video = m["video"]
+            file_size = video.get("file_size", 0)
+            if file_size and file_size > _MAX_DOWNLOAD_BYTES:
+                parts.append(f"🎥 Видео ({file_size / (1024 * 1024):.0f} МБ) — больше 20 МБ, сохранить не удалось.")
+                continue
+            result = await _download_file(video["file_id"])
+            if result is None:
+                parts.append("🎥 Видео больше 20 МБ — сохранить не удалось.")
+                continue
+            content_bytes, file_path = result
+            filename = file_path.rsplit("/", 1)[-1]
+            mime_type = video.get("mime_type", "video/mp4")
+            upload = await _save_upload(db, space_id, author_id, content_bytes, filename, mime_type)
+            parts.append(
+                f'<video src="/api/uploads/{upload.id}" controls preload="metadata" '
+                f'style="max-width: 100%; max-height: 70vh;"></video>\n\n{video_placeholder_text(upload.id)}'
+            )
+            enqueue_transcription(upload.id)
+
+    content = "\n\n".join(parts)
+    title = _derive_title(caption, fallback="Фото" if has_photo else "Видео")
+    await create_item_row(db, space_id=space_id, author_id=author_id, material_type="note", title=title, content=content)
 
 
 async def _transcribe_voice_only(message: dict) -> str:
@@ -401,6 +584,10 @@ async def _handle_callback_query(callback: dict) -> None:
 
 
 async def _process(update: dict) -> None:
+    if "_media_group_flush" in update:
+        await _flush_media_group(update["_media_group_flush"])
+        return
+
     if "callback_query" in update:
         await _handle_callback_query(update["callback_query"])
         return
@@ -441,6 +628,14 @@ async def _process(update: dict) -> None:
         # чтобы не зависеть от версии клиента/API.
         is_forwarded = "forward_origin" in message or "forward_date" in message
 
+        # Альбом (несколько фото/видео одним постом) — каждый файл приходит
+        # отдельным апдейтом, буферизуем и собираем одну заметку по debounce'у
+        # (см. _buffer_media_group_message), а не заметку на файл.
+        media_group_id = message.get("media_group_id")
+        if media_group_id and ("photo" in message or "video" in message):
+            _buffer_media_group_message(message, media_group_id, chat_id)
+            return
+
         if "photo" in message:
             await _handle_photo(db, message, link.space_id, link.user_id)
         elif "voice" in message or "audio" in message:
@@ -461,7 +656,11 @@ async def _process(update: dict) -> None:
             await _handle_assistant_message(db, link, text)
             return
         elif text:
-            await create_item_row(db, space_id=link.space_id, author_id=link.user_id, material_type="note", content=text)
+            formatted = _entities_to_markdown(text, message.get("entities"))
+            title = _derive_title(formatted)
+            await create_item_row(
+                db, space_id=link.space_id, author_id=link.user_id, material_type="note", title=title, content=formatted
+            )
         else:
             return
 

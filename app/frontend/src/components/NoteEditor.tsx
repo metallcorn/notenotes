@@ -10,7 +10,7 @@ import { createLowlight, common } from "lowlight";
 import { Markdown } from "tiptap-markdown";
 import { Suspense, lazy, useEffect, useRef, useState } from "react";
 import type { ChangeEvent } from "react";
-import { ChevronLeft, Code2, Eye, History, Palette, Pin, PinOff, Sparkles, Trash2 } from "lucide-react";
+import { ChevronLeft, Code2, Eye, FileText, History, Palette, Pin, PinOff, Sparkles, Trash2 } from "lucide-react";
 import { uiStorage, type ContentWidth } from "../lib/storage";
 import { downloadFile, inlineImages, sanitizeFilename, wrapHtmlDocument } from "../lib/export";
 import {
@@ -21,6 +21,7 @@ import {
   useFolders,
   useItem,
   useRemoveItemTag,
+  useReprocessUpload,
   useSuggestTags,
   useTags,
   useUpdateItem,
@@ -63,6 +64,7 @@ export default function NoteEditor({
   const addTag = useAddItemTag(itemId);
   const removeTag = useRemoveItemTag(itemId);
   const suggestTags = useSuggestTags(itemId);
+  const reprocessUpload = useReprocessUpload();
   const createTag = useCreateTag();
   const { data: folders } = useFolders(item?.space_id);
   const aiTransform = useAiTransform();
@@ -290,6 +292,29 @@ export default function NoteEditor({
   const showImageToolbar = mode === "wysiwyg" && !!editor?.isActive("image");
   const showCodeBlockToolbar = mode === "wysiwyg" && !!editor?.isActive("codeBlock");
   const showTableToolbar = mode === "wysiwyg" && !!editor?.isActive("table");
+
+  // PDF — не отдельный узел редактора (обычная markdown-ссылка), поэтому
+  // нет способа выделить его и показать тулбар как у картинки — вместо
+  // этого просто находим все ссылки на PDF-загрузки в тексте заметки.
+  const pdfLinks = Array.from(
+    content.matchAll(/\[([^\]]*\.pdf)\]\(\/api\/uploads\/([0-9a-f-]{36})\)/gi),
+  ).map((m) => ({ filename: m[1], uploadId: m[2] }));
+
+  async function handleReprocessPdf(uploadId: string) {
+    // Плейсхолдер должен совпадать 1:1 с pdf_processing.placeholder_text()
+    // на бэкенде — тот же приём, что и у картинок/видео.
+    const placeholder = `[Распознавание PDF ${uploadId} обрабатывается…]`;
+    if (mode === "wysiwyg" && editor) {
+      editor
+        .chain()
+        .focus()
+        .insertContent({ type: "paragraph", content: [{ type: "text", text: placeholder }] })
+        .run();
+    } else {
+      setContent((c) => `${c}\n\n${placeholder}\n`);
+    }
+    await reprocessUpload.mutateAsync(uploadId);
+  }
   const widthClass =
     contentWidth === "narrow" ? "mx-auto max-w-3xl" : contentWidth === "wide" ? "mx-auto max-w-5xl" : "max-w-none";
 
@@ -449,6 +474,19 @@ export default function NoteEditor({
           {suggestTags.isPending ? <Spinner size={12} /> : <Sparkles size={12} />}
           Предложить теги
         </button>
+
+        {pdfLinks.map((pdf) => (
+          <button
+            key={pdf.uploadId}
+            onClick={() => handleReprocessPdf(pdf.uploadId)}
+            disabled={reprocessUpload.isPending}
+            title={`Распознать текст в ${pdf.filename} (для сканов без текстового слоя)`}
+            className="flex items-center gap-1 rounded-full border border-dashed px-2 py-0.5 text-xs text-slate-500 hover:text-slate-800 disabled:opacity-50"
+          >
+            {reprocessUpload.isPending ? <Spinner size={12} /> : <FileText size={12} />}
+            Распознать {pdf.filename}
+          </button>
+        ))}
 
         <div className="ml-auto flex shrink-0 items-center gap-1">
           <span className="mr-1 flex w-20 items-center gap-1 text-xs text-slate-400">

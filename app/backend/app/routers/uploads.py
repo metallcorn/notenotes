@@ -10,6 +10,7 @@ from app.db import get_db
 from app.deps import ensure_space_access, get_current_user
 from app.models import Upload, User
 from app.schemas.upload import UploadOut
+from app.pdf_processing import enqueue_ocr as enqueue_pdf_ocr
 from app.transcription import enqueue_transcription
 from app.vision import enqueue_vision
 
@@ -88,20 +89,26 @@ async def reprocess_upload(
 ) -> dict:
     """Повторный запуск OCR/расшифровки — нужен файлам, загруженным до того,
     как появились vision.py/transcription.py (для них воркер никогда не
-    запускался), а также если распознавание в первый раз не задалось."""
+    запускался), а также если распознавание в первый раз не задалось. Для
+    PDF — это единственный способ его вообще запустить: сканы без
+    текстового слоя автоматически не распознаются (могут быть долгими),
+    только по этому явному запросу."""
     upload = await db.get(Upload, upload_id)
     if upload is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Файл не найден")
     await ensure_space_access(db, upload.space_id, user.id)
 
-    if not (upload.content_type.startswith("video/") or upload.content_type.startswith("image/")):
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Распознавание доступно только для видео и картинок")
+    is_pdf = upload.content_type == "application/pdf"
+    if not (upload.content_type.startswith("video/") or upload.content_type.startswith("image/") or is_pdf):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Распознавание доступно только для видео, картинок и PDF")
 
     upload.transcription_status = "pending"
     await db.commit()
 
     if upload.content_type.startswith("video/"):
         enqueue_transcription(upload.id)
+    elif is_pdf:
+        enqueue_pdf_ocr(upload.id)
     else:
         enqueue_vision(upload.id)
 

@@ -10,3 +10,4 @@ pyjwt>=2.9,<3
 python-multipart>=0.0.12,<0.1
 httpx>=0.27,<0.28
 websockets>=13,<14
+pymupdf>=1.24,<2
