@@ -26,6 +26,10 @@ class ItemUpdate(BaseModel):
     pinned: bool | None = None
 
 
+class ItemMoveSpace(BaseModel):
+    space_id: uuid.UUID
+
+
 class ItemOut(BaseModel):
     model_config = {"from_attributes": True}
 

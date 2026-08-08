@@ -253,6 +253,21 @@ export function useUpdateItem() {
   });
 }
 
+export function useMoveItemSpace() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, space_id }: { id: string; space_id: string }) =>
+      api.post<Item>(`/items/${id}/move`, { space_id }),
+    onSuccess: (item) => {
+      qc.setQueryData(["item", item.id], item);
+      // Широко, а не по конкретному spaceId: перенос задевает СРАЗУ два
+      // спейса (старый теряет заметку, новый приобретает) — префиксное
+      // совпадение ["items"] инвалидирует списки обоих разом.
+      qc.invalidateQueries({ queryKey: ["items"] });
+    },
+  });
+}
+
 export function useDeleteItem(spaceId: string | undefined) {
   const qc = useQueryClient();
   return useMutation({

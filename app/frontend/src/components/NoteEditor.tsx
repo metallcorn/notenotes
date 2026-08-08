@@ -20,8 +20,10 @@ import {
   useDeleteItem,
   useFolders,
   useItem,
+  useMoveItemSpace,
   useRemoveItemTag,
   useReprocessUpload,
+  useSpaces,
   useSuggestTags,
   useTags,
   useUpdateItem,
@@ -75,6 +77,8 @@ export default function NoteEditor({
   const reprocessUpload = useReprocessUpload();
   const createTag = useCreateTag();
   const { data: folders } = useFolders(item?.space_id);
+  const { data: spaces } = useSpaces();
+  const moveItemSpace = useMoveItemSpace();
   const aiTransform = useAiTransform();
 
   const [mode, setMode] = useState<Mode>("wysiwyg");
@@ -85,6 +89,7 @@ export default function NoteEditor({
   const [showTagPicker, setShowTagPicker] = useState(false);
   const [tagQuery, setTagQuery] = useState("");
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [pendingSpaceId, setPendingSpaceId] = useState<string | null>(null);
   const [showColorPicker, setShowColorPicker] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [contentWidth, setContentWidth] = useState<ContentWidth>(() => uiStorage.getContentWidth());
@@ -519,6 +524,23 @@ export default function NoteEditor({
             ))}
           </select>
 
+          {(spaces ?? []).length > 1 && (
+            <select
+              value={item.space_id}
+              onChange={(e) => {
+                if (e.target.value !== item.space_id) setPendingSpaceId(e.target.value);
+              }}
+              title="Перенести в другой спейс"
+              className="rounded border px-1.5 py-1 text-xs text-slate-600"
+            >
+              {(spaces ?? []).map((space) => (
+                <option key={space.id} value={space.id}>
+                  {space.name}
+                </option>
+              ))}
+            </select>
+          )}
+
           <div className="relative">
             <button
               onClick={() => {
@@ -684,6 +706,19 @@ export default function NoteEditor({
             onDeleted();
           }}
           onCancel={() => setConfirmingDelete(false)}
+        />
+      )}
+
+      {pendingSpaceId && (
+        <ConfirmDialog
+          title={`Перенести заметку в спейс «${(spaces ?? []).find((s) => s.id === pendingSpaceId)?.name ?? ""}»? Папка сбросится, файлы внутри заметки останутся доступны.`}
+          confirmLabel="Перенести"
+          onConfirm={async () => {
+            const spaceId = pendingSpaceId;
+            setPendingSpaceId(null);
+            await moveItemSpace.mutateAsync({ id: item.id, space_id: spaceId });
+          }}
+          onCancel={() => setPendingSpaceId(null)}
         />
       )}
     </div>

@@ -1,16 +1,17 @@
+import re
 import uuid
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import realtime
 from app.autotag import enqueue_autotag, suggest_tags_now
 from app.db import get_db
 from app.deps import ensure_space_access, get_current_user
-from app.models import Folder, Item, ItemTag, ItemVersion, Tag, User
-from app.schemas.item import ItemCreate, ItemOut, ItemUpdate, ItemVersionOut
+from app.models import Folder, Item, ItemTag, ItemVersion, Tag, Upload, User
+from app.schemas.item import ItemCreate, ItemMoveSpace, ItemOut, ItemUpdate, ItemVersionOut
 from app.schemas.tag import ItemTagOut
 
 router = APIRouter(prefix="/api/items", tags=["items"])
@@ -18,6 +19,12 @@ router = APIRouter(prefix="/api/items", tags=["items"])
 # Ниже этой длины контент слишком скудный для осмысленных тегов — не тратим
 # вызов LLM впустую (та же экономность, что и у остального автообработки).
 _MIN_CONTENT_FOR_AUTOTAG = 20
+
+# Тот же substring-приём, что в cleanup.py (комментарий там: "простой
+# substring-скан по content дешевле и надёжнее, чем городить отдельный
+# индекс связей файл-заметка") — только точечно для одной заметки, чтобы
+# найти реально используемые в ней файлы при переносе в другой спейс.
+_UPLOAD_URL_RE = re.compile(r"/api/uploads/([0-9a-fA-F-]{36})")
 
 
 async def _tags_for_item(db: AsyncSession, item_id: uuid.UUID, user_id: uuid.UUID) -> list[ItemTagOut]:
@@ -214,6 +221,51 @@ async def update_item(
         if has_tags is None:
             enqueue_autotag(item.id)
 
+    return await _serialize(db, item, user.id)
+
+
+@router.post("/{item_id}/move", response_model=ItemOut)
+async def move_item_space(
+    item_id: uuid.UUID,
+    payload: ItemMoveSpace,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> ItemOut:
+    """Перенос заметки/списка в другой спейс пользователя. Отдельный
+    endpoint, а не поле в ItemUpdate: у переноса есть побочные эффекты
+    (папка теряет смысл, вложенные файлы могут стать недоступны новым
+    участникам целевого спейса, нужно уведомить оба спейса по WS), которые
+    было бы менее явно размазывать по общему PATCH."""
+    item = await _get_accessible_item(db, user, item_id)
+    if item.material_type not in ("note", "list"):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Перенос доступен только для заметок и списков")
+
+    if payload.space_id == item.space_id:
+        return await _serialize(db, item, user.id)
+
+    # Доступ к ЦЕЛЕВОМУ спейсу — без этого можно было бы закинуть заметку
+    # в чужой спейс, куда пользователь не приглашён.
+    await ensure_space_access(db, payload.space_id, user.id)
+
+    old_space_id = item.space_id
+    item.space_id = payload.space_id
+    # Папки принадлежат спейсу (Folder.space_id) — в целевом старой папки
+    # не существует. Сбрасываем в корень, как и при создании новой заметки;
+    # пользователь разложит заново вручную, если нужно.
+    item.folder_id = None
+
+    upload_ids = {uuid.UUID(m) for m in _UPLOAD_URL_RE.findall(item.content)}
+    if upload_ids:
+        await db.execute(
+            update(Upload)
+            .where(Upload.id.in_(upload_ids), Upload.space_id == old_space_id)
+            .values(space_id=payload.space_id)
+        )
+
+    await db.commit()
+    await db.refresh(item)
+    await realtime.notify_space(old_space_id, "items")
+    await realtime.notify_space(payload.space_id, "items")
     return await _serialize(db, item, user.id)
 
 
