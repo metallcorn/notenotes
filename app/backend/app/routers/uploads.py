@@ -11,6 +11,7 @@ from app.deps import ensure_space_access, get_current_user
 from app.models import Upload, User
 from app.schemas.upload import UploadOut
 from app.pdf_processing import enqueue_ocr as enqueue_pdf_ocr
+from app.pdf_processing import extract_text as extract_pdf_text
 from app.transcription import enqueue_transcription
 from app.vision import enqueue_vision
 
@@ -80,7 +81,21 @@ async def create_upload(
     elif content_type.startswith("image/"):
         enqueue_vision(upload.id)
 
-    return UploadOut(id=upload.id, url=f"/api/uploads/{upload.id}", filename=upload.filename, content_type=content_type)
+    # Текстовый слой PDF — сразу, синхронно, локально (PyMuPDF, без сети):
+    # раньше это делалось только для загрузок через Telegram-бота
+    # (telegram_bot.py), веб-загрузка вставляла голую ссылку без текста
+    # вообще — заметка с PDF была ненаходима поиском, пока пользователь
+    # вручную не нажимал «Распознать» (а та кнопка — OCR через vision,
+    # избыточно дорогой путь для PDF, у которого текстовый слой и так есть).
+    pdf_text = extract_pdf_text(dest.read_bytes()) if content_type == "application/pdf" else None
+
+    return UploadOut(
+        id=upload.id,
+        url=f"/api/uploads/{upload.id}",
+        filename=upload.filename,
+        content_type=content_type,
+        pdf_text=pdf_text,
+    )
 
 
 @router.post("/{upload_id}/reprocess", status_code=status.HTTP_202_ACCEPTED)

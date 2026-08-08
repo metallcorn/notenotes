@@ -283,6 +283,11 @@ export default function NoteEditor({
     try {
       const uploaded = await uploadFile.mutateAsync({ file, onProgress: setUploadProgress });
       const isVideo = uploaded.content_type.startsWith("video/");
+      // Текстовый слой PDF вытаскивается сразу на бэкенде (см. routers/
+      // uploads.py) — если есть, вставляем его следом за ссылкой на файл,
+      // тем же форматом, что и у Telegram-загрузок, чтобы заметка сразу
+      // находилась поиском, без ручного нажатия «Распознать».
+      const pdfText = uploaded.pdf_text;
       // Плейсхолдер — точная строка, которую backend ищет и заменяет на
       // готовую расшифровку (app/transcription.py, placeholder_text()) —
       // держать в одном месте на фронте не получится, но текст должен
@@ -297,11 +302,16 @@ export default function NoteEditor({
             .insertContent({ type: "paragraph", content: [{ type: "text", text: placeholder }] })
             .run();
         } else {
-          editor
+          const chain = editor
             .chain()
             .focus()
-            .insertContent({ type: "text", text: uploaded.filename, marks: [{ type: "link", attrs: { href: uploaded.url } }] })
-            .run();
+            .insertContent({ type: "text", text: uploaded.filename, marks: [{ type: "link", attrs: { href: uploaded.url } }] });
+          if (pdfText) {
+            chain
+              .insertContent({ type: "paragraph", content: [{ type: "text", marks: [{ type: "bold" }], text: "Текст из PDF:" }] })
+              .insertContent({ type: "paragraph", content: [{ type: "text", text: pdfText }] });
+          }
+          chain.run();
         }
       } else if (isVideo) {
         setContent(
@@ -309,7 +319,11 @@ export default function NoteEditor({
             `${c}\n\n<video src="${uploaded.url}" controls preload="metadata" style="max-width: 100%; max-height: 70vh;"></video>\n\n${placeholder}\n`,
         );
       } else {
-        setContent((c) => `${c}\n\n[${uploaded.filename}](${uploaded.url})\n`);
+        setContent(
+          (c) =>
+            `${c}\n\n[${uploaded.filename}](${uploaded.url})\n` +
+            (pdfText ? `\n**Текст из PDF:**\n\n${pdfText}\n` : ""),
+        );
       }
     } finally {
       setUploadProgress(null);

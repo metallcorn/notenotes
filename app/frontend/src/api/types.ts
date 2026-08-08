@@ -116,6 +116,7 @@ export interface UploadResult {
   url: string;
   filename: string;
   content_type: string;
+  pdf_text: string | null;
 }
 
 export interface ItemVersion {
