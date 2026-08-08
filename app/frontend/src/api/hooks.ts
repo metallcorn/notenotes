@@ -344,11 +344,14 @@ export function usePermanentDeleteItem(spaceId: string | undefined) {
 
 // --- ассистент (диалоги) ---------------------------------------------------
 
-export function useDialogs(spaceId: string | undefined) {
+// Без space_id — сразу по всем спейсам пользователя (раньше чаты с
+// ассистентом были строго разделены по спейсам, как заметки — жалоба:
+// разговор с ботом в Telegram (свой спейс "Telegram") не находился, пока
+// не переключишься именно на него; теперь один список на всё).
+export function useDialogs() {
   return useQuery<DialogSummary[]>({
-    queryKey: ["dialogs", spaceId],
-    queryFn: () => api.get<DialogSummary[]>(`/dialogs?space_id=${spaceId}`),
-    enabled: !!spaceId,
+    queryKey: ["dialogs", "all"],
+    queryFn: () => api.get<DialogSummary[]>(`/dialogs`),
   });
 }
 
@@ -364,7 +367,7 @@ export function useCreateDialog(spaceId: string | undefined) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: () => api.post<Dialog>("/dialogs", { space_id: spaceId }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["dialogs", spaceId] }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["dialogs"] }),
   });
 }
 

@@ -78,6 +78,7 @@ export interface DialogMessage {
 export interface DialogSummary {
   id: string;
   space_id: string;
+  space_name: string;
   title: string;
   created_at: string;
   updated_at: string;

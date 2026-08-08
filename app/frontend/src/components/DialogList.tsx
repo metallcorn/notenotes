@@ -11,11 +11,14 @@ export default function DialogList({
   selectedId,
   onSelect,
 }: {
+  // Список теперь общий на все спейсы — spaceId нужен только для того,
+  // куда положить НОВЫЙ диалог (текущий активный спейс), не для фильтрации
+  // списка.
   spaceId: string | undefined;
   selectedId: string | null;
   onSelect: (id: string | null) => void;
 }) {
-  const { data: dialogs, isLoading, isError, refetch } = useDialogs(spaceId);
+  const { data: dialogs, isLoading, isError, refetch } = useDialogs();
   const createDialog = useCreateDialog(spaceId);
   const deleteItem = useDeleteItem(spaceId);
   const qc = useQueryClient();
@@ -66,11 +69,15 @@ export default function DialogList({
           >
             <button
               onClick={() => onSelect(d.id)}
-              className={`min-w-0 flex-1 truncate px-3 py-2.5 text-left text-sm ${
+              className={`min-w-0 flex-1 px-3 py-2.5 text-left text-sm ${
                 selectedId === d.id ? "font-medium text-slate-900" : "text-slate-600"
               }`}
             >
-              {d.title || "Новый диалог"}
+              <div className="truncate">{d.title || "Новый диалог"}</div>
+              {/* Список общий на все спейсы — без подписи было бы неясно,
+                  откуда взялся диалог (особенно для тех, что пришли из
+                  Telegram-бота, у него свой отдельный спейс). */}
+              <div className="truncate text-xs text-slate-400">{d.space_name}</div>
             </button>
             <button
               onClick={() => setDeleting(d)}
@@ -89,7 +96,7 @@ export default function DialogList({
           danger
           onConfirm={async () => {
             await deleteItem.mutateAsync(deleting.id);
-            qc.invalidateQueries({ queryKey: ["dialogs", spaceId] });
+            qc.invalidateQueries({ queryKey: ["dialogs"] });
             if (selectedId === deleting.id) onSelect(null);
             setDeleting(null);
           }}

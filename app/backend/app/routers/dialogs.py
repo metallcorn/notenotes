@@ -15,7 +15,7 @@ from app.db import get_db
 from app.deps import ensure_space_access, get_current_user
 from app.llm.base import Message, ToolCall
 from app.llm.factory import get_llm_client
-from app.models import AssistantMemory, Item, User
+from app.models import AssistantMemory, Item, Space, SpaceMember, User
 from app.routers.items import create_item_row
 from app.schemas.dialog import DialogCreate, DialogOut, DialogSummaryOut, MessageCreate
 from app.tools.registry import ToolContext, dispatch, get_tool_definitions
@@ -350,15 +350,38 @@ def _flatten_transcript(records: list[dict]) -> str:
 
 @router.get("", response_model=list[DialogSummaryOut])
 async def list_dialogs(
-    space_id: uuid.UUID, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
-) -> list[Item]:
-    await ensure_space_access(db, space_id, user.id)
-    query = (
-        select(Item)
-        .where(Item.space_id == space_id, Item.material_type == "dialog", Item.deleted_at.is_(None))
-        .order_by(Item.updated_at.desc())
-    )
-    return list((await db.execute(query)).scalars().all())
+    space_id: uuid.UUID | None = None, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+) -> list[DialogSummaryOut]:
+    """Без space_id — диалоги сразу по всем спейсам пользователя (по
+    просьбе: чаты с ассистентом раньше были строго разделены по спейсам,
+    как заметки, и с ботом в Telegram (свой спейс) конфликтовало с
+    ожиданием "все мои чаты в одном месте"). С space_id — старое поведение,
+    только этот спейс (пока используется только для истории версий и т.п.,
+    где спейс уже известен из контекста)."""
+    if space_id is not None:
+        await ensure_space_access(db, space_id, user.id)
+        query = (
+            select(Item, Space.name)
+            .join(Space, Space.id == Item.space_id)
+            .where(Item.space_id == space_id, Item.material_type == "dialog", Item.deleted_at.is_(None))
+            .order_by(Item.updated_at.desc())
+        )
+    else:
+        query = (
+            select(Item, Space.name)
+            .join(Space, Space.id == Item.space_id)
+            .join(SpaceMember, SpaceMember.space_id == Item.space_id)
+            .where(SpaceMember.user_id == user.id, Item.material_type == "dialog", Item.deleted_at.is_(None))
+            .order_by(Item.updated_at.desc())
+        )
+    rows = (await db.execute(query)).all()
+    return [
+        DialogSummaryOut(
+            id=item.id, space_id=item.space_id, space_name=space_name, title=item.title,
+            created_at=item.created_at, updated_at=item.updated_at,
+        )
+        for item, space_name in rows
+    ]
 
 
 @router.post("", response_model=DialogOut, status_code=status.HTTP_201_CREATED)
