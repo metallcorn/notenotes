@@ -126,6 +126,15 @@ export interface ItemVersion {
   created_at: string;
 }
 
+export interface LinkPreviewData {
+  url: string;
+  title: string | null;
+  description: string | null;
+  image_url: string | null;
+  favicon_url: string | null;
+  fetch_failed: boolean;
+}
+
 export interface Notification {
   id: string;
   type: string;

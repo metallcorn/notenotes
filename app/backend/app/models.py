@@ -218,6 +218,25 @@ class TelegramLinkCode(Base):
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
+class LinkPreview(Base):
+    """Кэш метаданных сайта для карточек ссылок в редакторе (Slack-style
+    unfurl). Не items: это не пользовательский контент, а служебные данные
+    о внешней странице — та же логика, что у Feedback/AssistantMemory.
+    Кэш бессрочный: url уникален, повторная вставка ссылки на тот же сайт
+    не должна снова дёргать его по сети."""
+
+    __tablename__ = "link_previews"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    url: Mapped[str] = mapped_column(Text, unique=True, index=True)
+    title: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    image_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    favicon_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    fetch_failed: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class AssistantMemory(Base):
     """Факты, которые AI-ассистент запомнил о пользователе между диалогами
     (ТЗ §10a, расширение). Не items: это не контент базы, а служебные

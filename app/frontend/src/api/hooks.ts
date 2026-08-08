@@ -7,6 +7,7 @@ import type {
   Folder,
   Item,
   ItemVersion,
+  LinkPreviewData,
   ListDetail,
   Notification,
   Skill,
@@ -570,5 +571,19 @@ export function useMarkAllNotificationsRead() {
   return useMutation({
     mutationFn: () => api.post<void>("/notifications/read-all"),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["notifications"] }),
+  });
+}
+
+// --- link preview --------------------------------------------------------
+
+// Кэш на бэкенде бессрочный (см. routers/link_preview.py), поэтому и здесь
+// не нужно перезапрашивать при каждом фокусе — карточка сайта не меняется.
+export function useLinkPreview(url: string | undefined) {
+  return useQuery<LinkPreviewData>({
+    queryKey: ["link-preview", url],
+    queryFn: () => api.get<LinkPreviewData>(`/link-preview?url=${encodeURIComponent(url!)}`),
+    enabled: !!url,
+    staleTime: Infinity,
+    retry: false,
   });
 }

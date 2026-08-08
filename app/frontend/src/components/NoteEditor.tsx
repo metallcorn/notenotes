@@ -38,7 +38,15 @@ import ConfirmDialog from "./ConfirmDialog";
 import ExportMenu from "./ExportMenu";
 import { ResizableImage } from "../extensions/ResizableImage";
 import { Video } from "../extensions/Video";
+import { LinkPreview } from "../extensions/LinkPreview";
 import { SlashCommand } from "../extensions/SlashCommand";
+
+// Только когда вставленный текст ЦЕЛИКОМ — голая ссылка (случай "вставил
+// ссылку на сайт, чтобы сохранить на потом" — реальный сценарий из
+// отзыва). Ссылки внутри обычного текста остаются обычными подчёркнутыми
+// ссылками — превращать их в карточки было бы избыточно и ломало бы поток
+// чтения.
+const BARE_URL_RE = /^https?:\/\/\S+$/;
 
 const EmojiPickerPopover = lazy(() => import("./EmojiPickerPopover"));
 const lowlight = createLowlight(common);
@@ -95,6 +103,7 @@ export default function NoteEditor({
       CodeBlockLowlight.configure({ lowlight }),
       ResizableImage,
       Video,
+      LinkPreview,
       LinkExtension.configure({ HTMLAttributes: { target: "_blank", rel: "noopener noreferrer" } }),
       Table.configure({ resizable: false }),
       TableRow,
@@ -106,6 +115,24 @@ export default function NoteEditor({
       }),
     ],
     content: "",
+    // Прямой editorProps.handlePaste, а не addPasteRules() у самого узла:
+    // у tiptap-markdown включён transformPastedText, который перехватывает
+    // вставку текста своим собственным handlePaste ДО обычного механизма
+    // paste rules — если положиться на paste rules, превращение ссылки в
+    // карточку могло бы вообще не сработать в зависимости от порядка
+    // плагинов. editorProps на самом EditorView вызывается раньше любых
+    // плагинных handlePaste, так что порядок гарантирован.
+    editorProps: {
+      handlePaste: (view, event) => {
+        if (event.clipboardData?.files?.length) return false;
+        const text = event.clipboardData?.getData("text/plain")?.trim();
+        if (!text || !BARE_URL_RE.test(text)) return false;
+        const { state } = view;
+        const node = state.schema.nodes.linkPreview.create({ url: text });
+        view.dispatch(state.tr.replaceSelectionWith(node));
+        return true;
+      },
+    },
     onUpdate: ({ editor }) => setContent(editor.storage.markdown.getMarkdown()),
   });
 

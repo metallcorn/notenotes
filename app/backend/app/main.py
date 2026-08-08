@@ -21,6 +21,7 @@ from app.routers import (
     feedback,
     folders,
     items,
+    link_preview,
     lists,
     memories,
     notifications,
@@ -73,6 +74,7 @@ app.include_router(lists.router)
 app.include_router(memories.router)
 app.include_router(skills.router)
 app.include_router(telegram.router)
+app.include_router(link_preview.router)
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 
