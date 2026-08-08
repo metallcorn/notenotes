@@ -268,7 +268,18 @@ def _to_llm_messages(records: list[dict], system_prompt: str) -> list[Message]:
                 ToolCall(id=tc["id"], name=tc["name"], arguments=tc["arguments"])
                 for tc in r.get("tool_calls", [])
             ]
-            messages.append(Message(role="assistant", content=r.get("content", ""), tool_calls=tool_calls))
+            content = r.get("content", "")
+            # Ход, где модель вызвала только suggest_replies (чипы UI, не
+            # настоящий tool_call — см. комментарий в run_dialog_turn) без
+            # сопроводительного текста, хранится с пустым content и без
+            # tool_calls. При проигрывании истории обратно в LLM такое
+            # assistant-сообщение (пусто и там, и там) Mistral отклоняет
+            # 400-й — реальный баг, пойманный через Telegram-кнопки, но
+            # актуальный и для веба. Такой ход не несёт информации для
+            # модели, просто не включаем его в историю запроса.
+            if not content.strip() and not tool_calls:
+                continue
+            messages.append(Message(role="assistant", content=content, tool_calls=tool_calls))
         elif role == "tool":
             messages.append(
                 Message(role="tool", content=r.get("content", ""), tool_call_id=r.get("tool_call_id"), name=r.get("name"))
@@ -384,18 +395,12 @@ async def delete_message(
     return _serialize(item)
 
 
-@router.post("/{dialog_id}/messages", response_model=DialogOut)
-async def send_message(
-    dialog_id: uuid.UUID,
-    payload: MessageCreate,
-    user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-) -> DialogOut:
-    item = await _get_dialog(db, user, dialog_id)
-    content = payload.content.strip()
-    if not content:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Пустое сообщение")
-
+async def run_dialog_turn(db: AsyncSession, user: User, item: Item, content: str) -> list[dict]:
+    """Один ход агентного цикла над диалогом `item`: добавляет реплику
+    пользователя, гоняет LLM+тулы до финального ответа или потолка
+    итераций, коммитит и уведомляет по WS. Общее ядро для HTTP-эндпоинта
+    ниже (send_message) и Telegram-моста (app/telegram_bot.py) — та же
+    логика должна вести себя одинаково в обоих местах, а не дублироваться."""
     records: list[dict] = list(item.properties.get("messages", []))
     records.append({"id": str(uuid.uuid4()), "role": "user", "content": content, "created_at": _now_iso()})
 
@@ -425,7 +430,7 @@ async def send_message(
         item.content = _flatten_transcript(records)
         await db.commit()
         await db.refresh(item)
-        return _serialize(item)
+        return records
 
     llm_client = get_llm_client()
 
@@ -534,4 +539,19 @@ async def send_message(
     await db.commit()
     await db.refresh(item)
     await realtime.notify_space(item.space_id, "dialogs")
+    return records
+
+
+@router.post("/{dialog_id}/messages", response_model=DialogOut)
+async def send_message(
+    dialog_id: uuid.UUID,
+    payload: MessageCreate,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> DialogOut:
+    item = await _get_dialog(db, user, dialog_id)
+    content = payload.content.strip()
+    if not content:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Пустое сообщение")
+    await run_dialog_turn(db, user, item, content)
     return _serialize(item)

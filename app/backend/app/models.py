@@ -199,6 +199,11 @@ class TelegramLink(Base):
     chat_id: Mapped[int] = mapped_column(BigInteger, unique=True, index=True)
     space_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("spaces.id", ondelete="CASCADE"))
     linked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    # Текущий диалог с ассистентом для этого чата — NULL значит следующее
+    # сообщение начнёт новый диалог лениво. /new сбрасывает обратно в NULL.
+    active_dialog_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("items.id", ondelete="SET NULL"), nullable=True
+    )
 
 
 class TelegramLinkCode(Base):

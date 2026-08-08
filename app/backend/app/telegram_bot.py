@@ -13,7 +13,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.asr.factory import get_asr_client
 from app.core.config import get_settings
 from app.db import async_session
-from app.models import Space, SpaceMember, TelegramLink, TelegramLinkCode, Upload
+from app.models import Item, Space, SpaceMember, TelegramLink, TelegramLinkCode, Upload, User
+from app.routers.dialogs import run_dialog_turn
 from app.routers.items import create_item_row
 from app.transcription import enqueue_transcription
 from app.transcription import placeholder_text as video_placeholder_text
@@ -58,24 +59,52 @@ async def register_webhook() -> None:
         try:
             resp = await client.post(
                 _api_url("setWebhook"),
-                json={"url": url, "secret_token": settings.telegram_webhook_secret, "allowed_updates": ["message"]},
+                json={
+                    "url": url,
+                    "secret_token": settings.telegram_webhook_secret,
+                    "allowed_updates": ["message", "callback_query"],
+                },
             )
             data = resp.json()
             if not data.get("ok"):
                 logger.error("Не удалось зарегистрировать Telegram webhook: %s", data)
+
+            # /new в меню бота (иконка "/" в клиенте) — чтобы не приходилось
+            # помнить команду наизусть.
+            resp = await client.post(
+                _api_url("setMyCommands"),
+                json={"commands": [{"command": "new", "description": "Начать новый диалог с ассистентом"}]},
+            )
+            data = resp.json()
+            if not data.get("ok"):
+                logger.error("Не удалось зарегистрировать команды Telegram-бота: %s", data)
         except Exception:
             logger.exception("Ошибка при регистрации Telegram webhook")
 
 
-async def send_message(chat_id: int, text: str) -> None:
+async def send_message(chat_id: int, text: str, reply_markup: dict | None = None) -> None:
+    settings = get_settings()
+    if not settings.telegram_bot_token:
+        return
+    payload: dict = {"chat_id": chat_id, "text": text}
+    if reply_markup:
+        payload["reply_markup"] = reply_markup
+    async with httpx.AsyncClient(timeout=30) as client:
+        try:
+            await client.post(_api_url("sendMessage"), json=payload)
+        except Exception:
+            logger.exception("Не удалось отправить сообщение в Telegram chat_id=%s", chat_id)
+
+
+async def answer_callback_query(callback_query_id: str) -> None:
     settings = get_settings()
     if not settings.telegram_bot_token:
         return
     async with httpx.AsyncClient(timeout=30) as client:
         try:
-            await client.post(_api_url("sendMessage"), json={"chat_id": chat_id, "text": text})
+            await client.post(_api_url("answerCallbackQuery"), json={"callback_query_id": callback_query_id})
         except Exception:
-            logger.exception("Не удалось отправить сообщение в Telegram chat_id=%s", chat_id)
+            logger.exception("Не удалось подтвердить callback_query %s", callback_query_id)
 
 
 async def _download_file(file_id: str) -> tuple[bytes, str] | None:
@@ -284,7 +313,98 @@ async def _handle_document(db: AsyncSession, message: dict, space_id: uuid.UUID,
     await create_item_row(db, space_id=space_id, author_id=author_id, material_type="note", content=content)
 
 
+async def _transcribe_voice_only(message: dict) -> str:
+    """Как в _handle_voice, но без сохранения как Upload — это разговорная
+    реплика ассистенту, не захват контента. Пустая строка — не удалось
+    скачать/распознать, вызывающий код сам решает, что сказать пользователю."""
+    voice = message.get("voice") or message.get("audio")
+    result = await _download_file(voice["file_id"])
+    if result is None:
+        return ""
+    content_bytes, _file_path = result
+    mime_type = voice.get("mime_type", "audio/ogg")
+    settings = get_settings()
+    if not (settings.deepgram_api_key or settings.whisper_api_key):
+        return ""
+    try:
+        return await get_asr_client().transcribe(content_bytes, mime_type)
+    except Exception:
+        logger.exception("Ошибка распознавания голосовой команды из Telegram")
+        return ""
+
+
+async def _handle_assistant_message(db: AsyncSession, link: TelegramLink, text: str) -> None:
+    dialog: Item | None = None
+    if link.active_dialog_id is not None:
+        dialog = await db.get(Item, link.active_dialog_id)
+        if dialog is None or dialog.material_type != "dialog" or dialog.deleted_at is not None:
+            dialog = None
+
+    if dialog is None:
+        dialog = await create_item_row(
+            db,
+            space_id=link.space_id,
+            author_id=link.user_id,
+            material_type="dialog",
+            title="Telegram",
+            properties={"messages": []},
+        )
+        link.active_dialog_id = dialog.id
+        await db.commit()
+
+    user = await db.get(User, link.user_id)
+    records = await run_dialog_turn(db, user, dialog, text)
+
+    last = records[-1] if records and records[-1]["role"] == "assistant" else None
+    reply_text = ((last or {}).get("content") or "").strip() or "…"
+    options = (last or {}).get("suggested_replies") or []
+    reply_markup = None
+    if options:
+        reply_markup = {
+            "inline_keyboard": [[{"text": opt[:64], "callback_data": f"sr:{i}"}] for i, opt in enumerate(options[:8])]
+        }
+    await send_message(link.chat_id, reply_text, reply_markup=reply_markup)
+
+
+async def _handle_callback_query(callback: dict) -> None:
+    await answer_callback_query(callback["id"])
+
+    data = callback.get("data", "")
+    if not data.startswith("sr:"):
+        return
+    try:
+        option_index = int(data.split(":", 1)[1])
+    except ValueError:
+        return
+
+    chat = (callback.get("message") or {}).get("chat") or {}
+    chat_id = chat.get("id")
+    if chat_id is None:
+        return
+
+    async with async_session() as db:
+        link = (await db.execute(select(TelegramLink).where(TelegramLink.chat_id == chat_id))).scalar_one_or_none()
+        if link is None or link.active_dialog_id is None:
+            return
+        dialog = await db.get(Item, link.active_dialog_id)
+        if dialog is None:
+            return
+        records = dialog.properties.get("messages", [])
+        if not records or records[-1]["role"] != "assistant":
+            return
+        options = records[-1].get("suggested_replies") or []
+        if option_index >= len(options):
+            return
+        chosen_text = options[option_index]
+
+        await _handle_assistant_message(db, link, chosen_text)
+
+
 async def _process(update: dict) -> None:
+    if "callback_query" in update:
+        await _handle_callback_query(update["callback_query"])
+        return
+
     message = update.get("message")
     if not message:
         return
@@ -309,14 +429,37 @@ async def _process(update: dict) -> None:
             )
             return
 
+        if text.startswith("/new"):
+            link.active_dialog_id = None
+            await db.commit()
+            await send_message(chat_id, "Начат новый диалог с ассистентом.")
+            return
+
+        # Пересланное — всегда захват контента (заметка), напечатанное/
+        # надиктованное прямо в чат — разговор с ассистентом. forward_origin
+        # (Bot API 7.0+) и forward_date (более старый формат) проверяем оба,
+        # чтобы не зависеть от версии клиента/API.
+        is_forwarded = "forward_origin" in message or "forward_date" in message
+
         if "photo" in message:
             await _handle_photo(db, message, link.space_id, link.user_id)
         elif "voice" in message or "audio" in message:
-            await _handle_voice(db, message, link.space_id, link.user_id)
+            if is_forwarded:
+                await _handle_voice(db, message, link.space_id, link.user_id)
+            else:
+                transcript = await _transcribe_voice_only(message)
+                if transcript.strip():
+                    await _handle_assistant_message(db, link, transcript)
+                else:
+                    await send_message(chat_id, "Не удалось распознать голосовое сообщение.")
+                return
         elif "video" in message:
             await _handle_video(db, message, link.space_id, link.user_id)
         elif "document" in message:
             await _handle_document(db, message, link.space_id, link.user_id)
+        elif text and not is_forwarded:
+            await _handle_assistant_message(db, link, text)
+            return
         elif text:
             await create_item_row(db, space_id=link.space_id, author_id=link.user_id, material_type="note", content=text)
         else:
