@@ -6,6 +6,7 @@ import { uiStorage, type ViewMode } from "../lib/storage";
 import { withViewTransition } from "../lib/viewTransition";
 import { useVersionCheck } from "../lib/useVersionCheck";
 import { useSpaceSync } from "../lib/useSpaceSync";
+import { useNotificationSync } from "../lib/useNotificationSync";
 import { diagnosticLog } from "../lib/diagnostics";
 import CreateSpaceButton from "../components/CreateSpaceButton";
 import SpaceSection from "../components/SpaceSection";
@@ -36,6 +37,7 @@ export default function AppShell() {
 
   const [activeSpaceId, setActiveSpaceId] = useState<string | undefined>(undefined);
   useSpaceSync(activeSpaceId);
+  useNotificationSync();
   useEffect(() => {
     if (activeSpaceId) uiStorage.setLastSpaceId(activeSpaceId);
   }, [activeSpaceId]);

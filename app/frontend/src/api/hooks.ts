@@ -577,10 +577,11 @@ export function useNotifications() {
   return useQuery<Notification[]>({
     queryKey: ["notifications"],
     queryFn: () => api.get<Notification[]>("/notifications"),
-    // Раз в минуту, не в 5 — напоминания ассистента (create_reminder)
-    // "проявляются" ровно фильтром по trigger_at в выборке, без пуша;
-    // 5 минут ощущались бы как заметное опоздание для "напомни в 21:00".
-    refetchInterval: 60 * 1000,
+    // Раньше раз в минуту был единственным способом узнать о наступившем
+    // напоминании — теперь диспетчер (notification_dispatch.py) толкает
+    // сигнал через WS (useNotificationSync) в пределах ~20с сам; опрос —
+    // редкий fallback на случай разрыва соединения, не основной путь.
+    refetchInterval: 5 * 60 * 1000,
   });
 }
 

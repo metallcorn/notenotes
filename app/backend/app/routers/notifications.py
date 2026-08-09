@@ -1,14 +1,17 @@
 import uuid
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect, status
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app import realtime
+from app.core.config import get_settings
 from app.db import get_db
 from app.deps import get_current_user
 from app.models import Notification, User
 from app.schemas.notification import NotificationOut
+from app.security import decode_session_token
 
 router = APIRouter(prefix="/api/notifications", tags=["notifications"])
 
@@ -52,3 +55,28 @@ async def mark_all_read(user: User = Depends(get_current_user), db: AsyncSession
     for notification in result.scalars().all():
         notification.read_at = now
     await db.commit()
+
+
+@router.websocket("/ws")
+async def notifications_ws(websocket: WebSocket) -> None:
+    """Тот же паттерн, что space_ws (routers/spaces.py) — клиент ничего не
+    шлёт, только получает {"kind": "notifications"} при новом/наступившем
+    уведомлении, чтобы перезапросить react-query кэш вместо ожидания
+    очередного опроса (useNotifications, раньше раз в минуту)."""
+    await websocket.accept()
+
+    settings = get_settings()
+    session_token = websocket.cookies.get(settings.session_cookie_name)
+    user_id = decode_session_token(session_token) if session_token else None
+    if user_id is None:
+        await websocket.close(code=4401)
+        return
+
+    realtime.register_user(user_id, websocket)
+    try:
+        while True:
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        pass
+    finally:
+        realtime.unregister_user(user_id, websocket)

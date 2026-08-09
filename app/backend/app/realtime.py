@@ -34,3 +34,29 @@ def register(space_id: uuid.UUID, ws: WebSocket) -> None:
 
 def unregister(space_id: uuid.UUID, ws: WebSocket) -> None:
     _connections[space_id].discard(ws)
+
+
+# Уведомления привязаны к user_id, не к спейсу — параллельный реестр,
+# тот же принцип. Раньше открытая вкладка узнавала о новом/наступившем
+# уведомлении только через опрос раз в минуту (useNotifications); теперь
+# диспетчер (notification_dispatch.py) толкает сигнал сразу же.
+_user_connections: dict[uuid.UUID, set[WebSocket]] = defaultdict(set)
+
+
+async def notify_user(user_id: uuid.UUID) -> None:
+    dead = []
+    for ws in _user_connections.get(user_id, set()):
+        try:
+            await ws.send_json({"kind": "notifications"})
+        except Exception:
+            dead.append(ws)
+    for ws in dead:
+        _user_connections[user_id].discard(ws)
+
+
+def register_user(user_id: uuid.UUID, ws: WebSocket) -> None:
+    _user_connections[user_id].add(ws)
+
+
+def unregister_user(user_id: uuid.UUID, ws: WebSocket) -> None:
+    _user_connections[user_id].discard(ws)

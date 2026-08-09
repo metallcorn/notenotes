@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 
 from sqlalchemy import select
 
-from app import telegram_bot
+from app import realtime, telegram_bot
 from app.db import async_session
 from app.models import Notification, TelegramLink
 
@@ -35,6 +35,8 @@ async def _dispatch_one(notification: Notification, db) -> None:
     ).scalar_one_or_none()
     if link is not None:
         await telegram_bot.send_message(link, text)
+
+    await realtime.notify_user(notification.user_id)
 
     notification.dispatched_at = datetime.now(timezone.utc)
 
