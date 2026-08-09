@@ -27,11 +27,26 @@ def _document():
     # и полностью исключает его из to_tsvector (обнаружено через ts_debug) —
     # распознанный текст PDF, лежащий в атрибуте data-text, был бы невидим
     # для поиска без этой отдельной экстракции.
+    #
+    # notenotes_urlsplit (миграция 0019) — та же проблема с <a href="...">
+    # (карточка ссылки, см. LinkPreview.ts/_linkify_bare_urls) — тег
+    # целиком невидим для to_tsvector, а голая ссылка в title/content
+    # индексируется одним составным токеном ('www.zalando.pl'), не
+    # отдельными словами, поэтому "zalando" её не находил. Выражение здесь
+    # ДОЛЖНО совпадать с индексом ix_items_search байт в байт, иначе
+    # postgres не сможет им воспользоваться.
+    title = func.coalesce(Item.title, "")
     content = func.coalesce(Item.content, "")
     return func.to_tsvector(
         "simple",
         func.notenotes_immutable_unaccent(
-            func.coalesce(Item.title, "") + " " + content + " " + func.notenotes_extract_attr_text(content)
+            title
+            + " "
+            + content
+            + " "
+            + func.notenotes_extract_attr_text(content)
+            + " "
+            + func.notenotes_urlsplit(title + " " + content)
         ),
     )
 
