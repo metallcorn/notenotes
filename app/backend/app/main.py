@@ -17,6 +17,7 @@ from app.routers import (
     ai_text,
     auth,
     calendar,
+    debug_log,
     dialogs,
     feedback,
     folders,
@@ -67,6 +68,7 @@ app.include_router(items.router)
 app.include_router(uploads.router)
 app.include_router(search.router)
 app.include_router(feedback.router)
+app.include_router(debug_log.router)
 app.include_router(notifications.router)
 app.include_router(dialogs.router)
 app.include_router(voice.router)

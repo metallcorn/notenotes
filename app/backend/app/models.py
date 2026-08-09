@@ -168,6 +168,21 @@ class Feedback(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
 
 
+class DebugLog(Base):
+    """Точечная клиентская диагностика для конкретного бага (белый экран
+    в standalone PWA, не воспроизводится в песочнице) — не общий механизм
+    логирования, временная таблица под одно расследование. Не items:
+    не пользовательский контент, только техническое состояние интерфейса."""
+
+    __tablename__ = "debug_log"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    event: Mapped[str] = mapped_column(String(100))
+    data: Mapped[dict] = mapped_column(JSONB, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+
 class Notification(Base):
     """Расширяемый центр уведомлений (ТЗ §13). Сейчас реальных источников
     ещё нет (приглашения в спейсы, изменения в списках — Фаза 1+ дальше),

@@ -6,6 +6,7 @@ import { uiStorage, type ViewMode } from "../lib/storage";
 import { withViewTransition } from "../lib/viewTransition";
 import { useVersionCheck } from "../lib/useVersionCheck";
 import { useSpaceSync } from "../lib/useSpaceSync";
+import { diagnosticLog } from "../lib/diagnostics";
 import CreateSpaceButton from "../components/CreateSpaceButton";
 import SpaceSection from "../components/SpaceSection";
 import TagList from "../components/TagList";
@@ -57,6 +58,10 @@ export default function AppShell() {
   const [listCollapsed, setListCollapsed] = useState(() => uiStorage.getListCollapsed());
 
   const restoredRef = useRef(false);
+  // Точечная диагностика бага "белый экран в standalone PWA при переходе
+  // список → sidebar" (см. diagnostics.ts) — ref на корневой div ниже,
+  // чтобы читать его реальную геометрию в момент перехода и чуть позже.
+  const rootRef = useRef<HTMLDivElement>(null);
 
   // Восстановление состояния — один раз, при первой загрузке списка спейсов
   // (раньше некуда, useSpaces() ещё пуст на первом рендере), и только на
@@ -156,13 +161,27 @@ export default function AppShell() {
     const itemParam = searchParams.get("item");
     const dialogParam = searchParams.get("dialog");
     const listParam = searchParams.get("list");
+    const nextMobileView = itemParam || dialogParam ? "editor" : listParam ? "list" : "sidebar";
+    diagnosticLog("search_params_sync_start", {
+      nextMobileView,
+      rootRect: rootRef.current?.getBoundingClientRect().toJSON() ?? null,
+    });
     withViewTransition(() => {
       setSelectedItemIdState(itemParam);
       setSelectedDialogId(dialogParam);
-      setMobileView(itemParam || dialogParam ? "editor" : listParam ? "list" : "sidebar");
+      setMobileView(nextMobileView);
     });
     if (activeSpaceId) uiStorage.setLastItemId(activeSpaceId, itemParam);
     uiStorage.setLastDialogId(dialogParam);
+    // Геометрия ПОСЛЕ перерисовки — сравнить с rootRect выше: если экран
+    // белый именно из-за схлопнувшейся высоты (гипотеза про dvh в Firefox
+    // Android), тут будет видно нулевую/аномальную высоту.
+    setTimeout(() => {
+      diagnosticLog("search_params_sync_settled", {
+        nextMobileView,
+        rootRect: rootRef.current?.getBoundingClientRect().toJSON() ?? null,
+      });
+    }, 300);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams]);
 
@@ -219,6 +238,10 @@ export default function AppShell() {
   // Кнопка «назад к списку спейсов» — тот же принцип, что closeItemView:
   // прямой replace, не полагается на глубину history.
   function closeListView() {
+    diagnosticLog("close_list_view_clicked", {
+      mobileView,
+      rootRect: rootRef.current?.getBoundingClientRect().toJSON() ?? null,
+    });
     setSearchParams((prev) => {
       const next = new URLSearchParams(prev);
       next.delete("item");
@@ -310,6 +333,7 @@ export default function AppShell() {
 
   return (
     <div
+      ref={rootRef}
       className="flex h-dvh bg-white text-slate-900"
       style={{
         boxSizing: "border-box",

@@ -5,7 +5,19 @@ import { PersistQueryClientProvider } from "@tanstack/react-query-persist-client
 import { BrowserRouter } from "react-router-dom";
 import App from "./App";
 import { idbPersister } from "./lib/queryPersister";
+import { diagnosticLog } from "./lib/diagnostics";
 import "./index.css";
+
+// Точечная диагностика бага "белый экран в standalone PWA" (см.
+// diagnostics.ts) — если причина в необработанном исключении где-то в
+// рендере/эффекте (ErrorBoundary ловит не всё, например ошибки вне React,
+// в промисах), это единственный шанс узнать о нём с реального устройства.
+window.addEventListener("error", (e) => {
+  diagnosticLog("window_error", { message: e.message, filename: e.filename, lineno: e.lineno, stack: e.error?.stack?.slice(0, 2000) });
+});
+window.addEventListener("unhandledrejection", (e) => {
+  diagnosticLog("unhandled_rejection", { reason: String(e.reason).slice(0, 2000) });
+});
 
 const queryClient = new QueryClient({
   // refetchOnWindowFocus включён нарочно (это стандартное поведение

@@ -1,4 +1,5 @@
 import { Component, type ErrorInfo, type ReactNode } from "react";
+import { diagnosticLog } from "../lib/diagnostics";
 
 interface Props {
   children: ReactNode;
@@ -22,6 +23,11 @@ export default class ErrorBoundary extends Component<Props, State> {
 
   componentDidCatch(error: Error, info: ErrorInfo) {
     console.error("Необработанная ошибка рендера:", error, info.componentStack);
+    diagnosticLog("error_boundary_caught", {
+      message: error.message,
+      stack: error.stack?.slice(0, 2000),
+      componentStack: info.componentStack?.slice(0, 2000),
+    });
   }
 
   render() {
