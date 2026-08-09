@@ -29,6 +29,19 @@ export function withViewTransition(fn: () => void): void {
     fn();
     return;
   }
+  // document.hidden — вторая гонка, пойманная той же диагностикой уже
+  // после фикса выше: системный жест «назад» на Android какое-то время
+  // держит страницу скрытой (предпросмотр анимации), и в этот момент
+  // startViewTransition падает с "InvalidStateError: Skipped
+  // ViewTransition due to document being hidden" — по спеку не
+  // гарантировано, что callback вообще будет вызван в этом случае, то
+  // есть само состояние (какая панель показана) могло вообще не
+  // применяться. Тут та же защита: не идти через API-переход, если
+  // документ скрыт, применить состояние напрямую.
+  if (doc.hidden) {
+    fn();
+    return;
+  }
   const transition = doc.startViewTransition(fn);
   currentTransition = transition;
   transition.finished.catch(() => {}).finally(() => {
