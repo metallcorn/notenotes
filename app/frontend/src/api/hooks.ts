@@ -225,6 +225,15 @@ export function useItems(spaceId: string | undefined, folderId?: string | null, 
   });
 }
 
+// Кросс-спейсовая лента "Недавнее" для ActivityView — /items/recent, не
+// /items (тот требует spaceId или tagId, тут явно "все спейсы сразу").
+export function useRecentItems() {
+  return useQuery<Item[]>({
+    queryKey: ["items", "recent"],
+    queryFn: () => api.get<Item[]>("/items/recent"),
+  });
+}
+
 export function useItem(id: string | undefined) {
   return useQuery<Item>({
     queryKey: ["item", id],
@@ -582,6 +591,25 @@ export function useNotifications() {
     // сигнал через WS (useNotificationSync) в пределах ~20с сам; опрос —
     // редкий fallback на случай разрыва соединения, не основной путь.
     refetchInterval: 5 * 60 * 1000,
+  });
+}
+
+// scope=all — для ActivityView (см. ниже): в отличие от useNotifications
+// (колокольчик, только due) включает ещё не наступившие напоминания.
+// Отдельный queryKey — иначе инвалидация одного списка сбрасывала бы кэш
+// другого без реальной необходимости перезапросить именно его.
+export function useAllNotifications() {
+  return useQuery<Notification[]>({
+    queryKey: ["notifications", "all"],
+    queryFn: () => api.get<Notification[]>("/notifications?scope=all"),
+  });
+}
+
+export function useDeleteNotification() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.delete(`/notifications/${id}`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["notifications"] }),
   });
 }
 

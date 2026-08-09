@@ -82,4 +82,4 @@ export const uiStorage = {
 };
 
 export type ContentWidth = "narrow" | "wide" | "full";
-export type ViewMode = "notes" | "assistant" | "trash";
+export type ViewMode = "notes" | "assistant" | "trash" | "activity";

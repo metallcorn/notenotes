@@ -169,6 +169,30 @@ async def create_item(
     return await _serialize(db, item, user.id)
 
 
+@router.get("/recent", response_model=list[ItemOut])
+async def list_recent_items(
+    limit: int = 30, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+) -> list[ItemOut]:
+    """Кросс-спейсовая лента "Недавнее" для ActivityView — тот же join, что
+    у поиска по тегу без space_id (search.py/list_items с tag_id): пользователь
+    видит недавние заметки independent от того, в каком спейсе сейчас
+    находится. Регистрируется ДО /{item_id} — иначе "recent" сам попытался
+    бы распарситься как UUID и словил бы 422 вместо этого хендлера."""
+    query = (
+        select(Item)
+        .join(SpaceMember, SpaceMember.space_id == Item.space_id)
+        .where(
+            SpaceMember.user_id == user.id,
+            Item.material_type.in_(("note", "list", "ticket")),
+            Item.deleted_at.is_(None),
+        )
+        .order_by(Item.updated_at.desc())
+        .limit(limit)
+    )
+    items = (await db.execute(query)).scalars().all()
+    return [await _serialize(db, item, user.id) for item in items]
+
+
 @router.get("/{item_id}", response_model=ItemOut)
 async def get_item(
     item_id: uuid.UUID, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)

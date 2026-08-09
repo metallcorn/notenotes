@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { ChevronLeft, Sparkles, Trash2 } from "lucide-react";
+import { Bell, ChevronLeft, Sparkles, Trash2 } from "lucide-react";
 import { useSpaces } from "../api/hooks";
 import { uiStorage, type ViewMode } from "../lib/storage";
 import { withViewTransition } from "../lib/viewTransition";
@@ -20,6 +20,7 @@ import NotificationBell from "../components/NotificationBell";
 import DialogList from "../components/DialogList";
 import AssistantChat from "../components/AssistantChat";
 import TrashView from "../components/TrashView";
+import ActivityView from "../components/ActivityView";
 
 type MobileView = "sidebar" | "list" | "editor";
 
@@ -141,6 +142,11 @@ export default function AppShell() {
       setSearchParams({ list: "1" });
       return;
     }
+    if (savedViewMode === "activity") {
+      setViewModeState("activity");
+      setSearchParams({ list: "1" });
+      return;
+    }
 
     const lastItemId = uiStorage.getLastItemId(spaceId);
     if (lastItemId) {
@@ -163,12 +169,28 @@ export default function AppShell() {
     const itemParam = searchParams.get("item");
     const dialogParam = searchParams.get("dialog");
     const listParam = searchParams.get("list");
+    const screenParam = searchParams.get("screen");
     const nextMobileView = itemParam || dialogParam ? "editor" : listParam ? "list" : "sidebar";
     diagnosticLog("search_params_sync_start", {
       nextMobileView,
       rootRect: rootRef.current?.getBoundingClientRect().toJSON() ?? null,
     });
     withViewTransition(() => {
+      // viewMode не часть searchParams (это ось "Заметки/Ассистент/
+      // Активность/Корзина", решение пользователя, не история одной
+      // заметки) — сама по себе кнопка «назад»/popstate её не трогает.
+      // Раньше это означало, что переход "Активность → заметка" или
+      // "диалог → заметка" (см. onOpenItem/openRecentItem) и затем «назад»
+      // возвращал item/dialog в URL правильно, но экран оставался
+      // залипшим на viewMode="notes" — с dialogParam в URL, но без
+      // AssistantChat на экране (реальный баг, найден при проверке этой
+      // же фичи). item/dialog в URL однозначно определяют нужный экран —
+      // остальные (Корзина/Активность) своего item/dialog не имеют,
+      // поэтому их трогать не нужно.
+      if (itemParam) setViewModeState("notes");
+      else if (dialogParam) setViewModeState("assistant");
+      else if (screenParam === "activity") setViewModeState("activity");
+      else if (screenParam === "trash") setViewModeState("trash");
       setSelectedItemIdState(itemParam);
       setSelectedDialogId(dialogParam);
       setMobileView(nextMobileView);
@@ -248,7 +270,7 @@ export default function AppShell() {
   // сессии с несколькими переключениями папок должен был пройти через
   // ВСЕ них по одной, прежде чем реально попасть на sidebar, и выглядело
   // это как "назад вообще ничего не делает" (реальная жалоба).
-  function openListView() {
+  function openListView(screen?: "activity" | "trash") {
     const alreadyOnList = mobileView === "list";
     setSearchParams(
       (prev) => {
@@ -256,6 +278,15 @@ export default function AppShell() {
         next.delete("item");
         next.delete("dialog");
         next.set("list", "1");
+        // screen — маркер для Активности/Корзины (полноэкранные разделы без
+        // своего item/dialog): без него popstate/«назад» из заметки,
+        // открытой ИЗ активности, не мог понять, что viewMode нужно вернуть
+        // в "activity", а не оставить как "notes" (реальный баг, найден при
+        // добавлении центра активности — тот же класс, что и в
+        // setSelectedItemId/selectDialog чуть выше, но для screen-уровня,
+        // не item/dialog-уровня).
+        if (screen) next.set("screen", screen);
+        else next.delete("screen");
         return next;
       },
       alreadyOnList ? { replace: true } : undefined,
@@ -274,6 +305,7 @@ export default function AppShell() {
       next.delete("item");
       next.delete("dialog");
       next.delete("list");
+      next.delete("screen");
       return next;
     }, { replace: true });
   }
@@ -309,12 +341,30 @@ export default function AppShell() {
 
   function switchToTrash() {
     setViewMode("trash");
-    openListView();
+    openListView("trash");
   }
 
-  function selectDialog(id: string | null) {
+  function switchToActivity() {
+    setViewMode("activity");
+    openListView("activity");
+  }
+
+  function openRecentItem(spaceId: string, itemId: string) {
+    setViewMode("notes");
+    setActiveSpaceId(spaceId);
+    setActiveFolderId(null);
+    setTagId(null);
+    setSelectedItemId(itemId, { forcePush: true });
+  }
+
+  function openRecentDialog(id: string) {
+    setViewMode("assistant");
+    selectDialog(id, { forcePush: true });
+  }
+
+  function selectDialog(id: string | null, options?: { forcePush?: boolean }) {
     // Тот же принцип, что в setSelectedItemId/openListView.
-    const alreadyOnEditor = mobileView === "editor";
+    const alreadyOnEditor = mobileView === "editor" && !options?.forcePush;
     setSearchParams(
       (prev) => {
         const next = new URLSearchParams(prev);
@@ -412,6 +462,14 @@ export default function AppShell() {
               <Sparkles size={15} /> Ассистент
             </button>
             <button
+              onClick={switchToActivity}
+              className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-sm ${
+                viewMode === "activity" ? "bg-slate-200 font-medium text-slate-900" : "text-slate-600 hover:bg-slate-100"
+              }`}
+            >
+              <Bell size={15} /> Активность
+            </button>
+            <button
               onClick={switchToTrash}
               className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-sm ${
                 viewMode === "trash" ? "bg-slate-200 font-medium text-slate-900" : "text-slate-600 hover:bg-slate-100"
@@ -454,6 +512,13 @@ export default function AppShell() {
       <main className="flex min-h-0 flex-1 overflow-hidden">
         {viewMode === "trash" ? (
           <TrashView spaceId={activeSpaceId} onBack={closeListView} />
+        ) : viewMode === "activity" ? (
+          <ActivityView
+            onBack={closeListView}
+            onOpenReminder={openReminder}
+            onOpenItem={openRecentItem}
+            onOpenDialog={openRecentDialog}
+          />
         ) : (
           <>
             <div

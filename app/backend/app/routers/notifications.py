@@ -18,17 +18,19 @@ router = APIRouter(prefix="/api/notifications", tags=["notifications"])
 
 @router.get("", response_model=list[NotificationOut])
 async def list_notifications(
-    user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+    scope: str = "due", user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
 ) -> list[Notification]:
-    result = await db.execute(
-        select(Notification)
-        .where(
-            Notification.user_id == user.id,
-            or_(Notification.trigger_at.is_(None), Notification.trigger_at <= datetime.now(timezone.utc)),
+    """scope="due" (по умолчанию) — как раньше, для колокольчика: только уже
+    наступившие/немедленные, не спойлерит будущие напоминания в бейдж.
+    scope="all" — для полноэкранного центра активности (ActivityView):
+    включая ещё не наступившие, чтобы показать раздел "Предстоящие"."""
+    query = select(Notification).where(Notification.user_id == user.id)
+    if scope != "all":
+        query = query.where(
+            or_(Notification.trigger_at.is_(None), Notification.trigger_at <= datetime.now(timezone.utc))
         )
-        .order_by(Notification.created_at.desc())
-        .limit(100)
-    )
+    query = query.order_by(Notification.created_at.desc()).limit(300 if scope == "all" else 100)
+    result = await db.execute(query)
     return list(result.scalars().all())
 
 
@@ -51,6 +53,22 @@ async def create_notification(
     await db.commit()
     await db.refresh(notification)
     return notification
+
+
+@router.delete("/{notification_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_notification(
+    notification_id: uuid.UUID, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+) -> None:
+    """Отмена/скрытие — и для ещё не наступившего напоминания (жалоба в
+    отзыве: "как его отменить"), и для старого прочитанного, которое просто
+    больше не нужно в истории. Диспетчер (notification_dispatch.py) ищет по
+    id из выборки — раз строки не будет, отправка сама собой не случится,
+    отдельно "отменять" в диспетчере нечего."""
+    notification = await db.get(Notification, notification_id)
+    if notification is None or notification.user_id != user.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Уведомление не найдено")
+    await db.delete(notification)
+    await db.commit()
 
 
 @router.post("/{notification_id}/read", response_model=NotificationOut)
