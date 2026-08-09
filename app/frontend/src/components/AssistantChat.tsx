@@ -11,6 +11,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Copy,
+  Globe,
   Maximize2,
   Mic,
   MapPin,
@@ -31,7 +32,7 @@ import QRCode from "qrcode";
 import ReactMarkdown, { type Components } from "react-markdown";
 import ReactDOMServer from "react-dom/server";
 import remarkGfm from "remark-gfm";
-import { useDeleteDialogMessage, useDialog, useSendDialogMessage, useSpeak, useUpdateItem } from "../api/hooks";
+import { useDeleteDialogMessage, useDialog, useLinkPreview, useSendDialogMessage, useSpeak, useUpdateItem } from "../api/hooks";
 import type { DialogMessage } from "../api/types";
 import { uiStorage, type ContentWidth } from "../lib/storage";
 import { downloadFile, sanitizeFilename, wrapHtmlDocument } from "../lib/export";
@@ -341,6 +342,92 @@ function NoteResultLinks({
         >
           Открыть «{note.title}» <ChevronRight size={11} />
         </button>
+      ))}
+    </div>
+  );
+}
+
+// Заметка может содержать сами сайты-ссылки как карточки (LinkPreview.ts —
+// <a href="..." data-linkpreview></a>, вставляется при пасте голой ссылки в
+// веб-редакторе или ботом при пересылке из Telegram, см. _linkify_bare_urls
+// в telegram_bot.py). В заметке они рендерятся как Slack/Telegram-стайл
+// карточки (favicon+заголовок) — в чате ассистента раньше не было НИЧЕГО
+// подобного: модель просто пересказывала названия текстом, ни одной живой
+// ссылки (реальная жалоба — "прислал текст вместо ожидаемых красивых ссылок
+// с превью как в Telegram"). Тот же бэкенд-эндпоинт (/api/link-preview),
+// что и у LinkPreviewCard.tsx в редакторе, просто без TipTap NodeView
+// обвязки (тут обычный React, не узел ProseMirror).
+const _HREF_LINKPREVIEW_RE = /<a\s+href="([^"]+)"[^>]*data-linkpreview[^>]*>/g;
+
+function collectLinkPreviewUrls(message: DialogMessage, results: DialogMessage[]): string[] {
+  const urls = new Set<string>();
+  for (const tc of message.tool_calls) {
+    if (tc.name !== "search_base" && tc.name !== "get_note") continue;
+    const result = results.find((r) => r.tool_call_id === tc.id);
+    if (!result) continue;
+    try {
+      const parsed = JSON.parse(result.content);
+      const candidates: Array<Record<string, unknown>> =
+        tc.name === "get_note" ? [parsed] : Array.isArray(parsed.results) ? parsed.results : [];
+      for (const item of candidates) {
+        const text = ((item.content as string) ?? (item.excerpt as string) ?? "") as string;
+        for (const m of text.matchAll(_HREF_LINKPREVIEW_RE)) urls.add(m[1]);
+      }
+    } catch {
+      // не JSON/не тот формат — пропускаем
+    }
+  }
+  return Array.from(urls);
+}
+
+function ChatLinkPreviewCard({ url }: { url: string }) {
+  const { data, isLoading } = useLinkPreview(url);
+
+  if (isLoading || !data || data.fetch_failed || !data.title) {
+    return (
+      <a href={url} target="_blank" rel="noopener noreferrer" className="text-sm text-blue-600 underline">
+        {url}
+      </a>
+    );
+  }
+
+  return (
+    <a
+      href={url}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="flex max-w-xs items-center gap-2 rounded border bg-slate-50 px-3 py-2 text-sm text-slate-800 no-underline hover:bg-slate-100"
+    >
+      {data.favicon_url ? (
+        <img
+          src={data.favicon_url}
+          alt=""
+          className="h-4 w-4 shrink-0"
+          onError={(e) => {
+            (e.currentTarget as HTMLImageElement).style.display = "none";
+          }}
+        />
+      ) : (
+        <Globe size={14} className="shrink-0 text-slate-400" />
+      )}
+      <span className="truncate font-medium">{data.title}</span>
+    </a>
+  );
+}
+
+function LinkPreviewResultCards({ message, results }: { message: DialogMessage; results: DialogMessage[] }) {
+  const urls = useMemo(
+    () => collectLinkPreviewUrls(message, results),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [message.tool_calls, results],
+  );
+
+  if (urls.length === 0) return null;
+
+  return (
+    <div className="mt-1.5 flex flex-col gap-1.5">
+      {urls.map((url) => (
+        <ChatLinkPreviewCard key={url} url={url} />
       ))}
     </div>
   );
@@ -1214,6 +1301,15 @@ export default function AssistantChat({
   }
 
   const groups = groupMessages(dialog?.messages ?? []);
+  // Тулы-результаты по ВСЕМУ диалогу, не только текущей группе — модель
+  // иногда отвечает по памяти о более раннем search_base/get_note вместо
+  // повторного вызова в этом ходу (наблюдалось вживую, промпт не
+  // гарантия); бэкенд в этом случае донашивает tool_calls С ЭТИМИ ЖЕ id
+  // на новое сообщение (run_dialog_turn, routers/dialogs.py), а результат
+  // самого вызова остаётся лежать в истории там, где реально произошёл —
+  // без общего по всему диалогу поиска карточка не находила бы результат
+  // по id и не отрисовалась бы.
+  const allToolResults = (dialog?.messages ?? []).filter((m) => m.role === "tool");
 
   async function handleExport(format: "md" | "html") {
     const title = dialog?.title || "Диалог";
@@ -1338,10 +1434,13 @@ export default function AssistantChat({
                 {message.tool_calls.length > 0 && <CalendarEventLinks message={message} results={toolResults} />}
                 {message.tool_calls.length > 0 && <MapsLinkButtons message={message} results={toolResults} />}
                 {message.tool_calls.length > 0 && (
-                  <TicketResultCards message={message} results={toolResults} onOpenItem={onOpenItem} />
+                  <TicketResultCards message={message} results={allToolResults} onOpenItem={onOpenItem} />
                 )}
                 {message.tool_calls.length > 0 && (
-                  <NoteResultLinks message={message} results={toolResults} onOpenItem={onOpenItem} />
+                  <NoteResultLinks message={message} results={allToolResults} onOpenItem={onOpenItem} />
+                )}
+                {message.tool_calls.length > 0 && (
+                  <LinkPreviewResultCards message={message} results={allToolResults} />
                 )}
                 {message.role === "assistant" && message.content && (
                   <div className="flex items-center gap-0.5">
