@@ -10,7 +10,7 @@ from app.core.config import get_settings
 from app.db import get_db
 from app.deps import get_current_user
 from app.models import Notification, User
-from app.schemas.notification import NotificationOut
+from app.schemas.notification import NotificationCreateIn, NotificationOut
 from app.security import decode_session_token
 
 router = APIRouter(prefix="/api/notifications", tags=["notifications"])
@@ -30,6 +30,27 @@ async def list_notifications(
         .limit(100)
     )
     return list(result.scalars().all())
+
+
+@router.post("", response_model=NotificationOut, status_code=status.HTTP_201_CREATED)
+async def create_notification(
+    payload: NotificationCreateIn, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+) -> Notification:
+    """Прямое REST-создание напоминания — то же самое, что делает
+    tools/reminders.py's create_reminder для ассистента, но без прохождения
+    через диалог/tool-calling: нужно кнопке "Напомнить" на карточке билета
+    (TicketAttachmentCard.tsx), где спрашивать пользователя уже не нужно —
+    сама кнопка это подтверждение выбранного времени."""
+    trigger_at = payload.trigger_at
+    if trigger_at.tzinfo is None:
+        trigger_at = trigger_at.replace(tzinfo=timezone.utc)
+    notification = Notification(
+        user_id=user.id, type="reminder", title=payload.title, body=payload.body, trigger_at=trigger_at
+    )
+    db.add(notification)
+    await db.commit()
+    await db.refresh(notification)
+    return notification
 
 
 @router.post("/{notification_id}/read", response_model=NotificationOut)

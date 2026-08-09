@@ -601,6 +601,15 @@ export function useMarkAllNotificationsRead() {
   });
 }
 
+export function useCreateReminder() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: { title: string; body?: string; trigger_at: string }) =>
+      api.post<Notification>("/notifications", payload),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["notifications"] }),
+  });
+}
+
 // --- link preview --------------------------------------------------------
 
 // Кэш на бэкенде бессрочный (см. routers/link_preview.py), поэтому и здесь

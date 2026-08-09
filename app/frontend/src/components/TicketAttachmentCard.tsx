@@ -3,9 +3,12 @@ import { NodeViewWrapper } from "@tiptap/react";
 import type { NodeViewProps } from "@tiptap/react";
 import QRCode from "qrcode";
 import {
+  AlarmClock,
   Armchair,
   Bus,
   Calendar,
+  CalendarPlus,
+  Check,
   ChevronDown,
   ChevronUp,
   Download,
@@ -17,6 +20,17 @@ import {
   X,
 } from "lucide-react";
 import type { TicketAttachmentData } from "../extensions/TicketAttachment";
+import { useCreateReminder } from "../api/hooks";
+
+// Предустановленные смещения — не произвольный ввод времени: билет уже
+// даёт единственную осмысленную точку отсчёта (время отправления), выбор
+// сводится к "за сколько до", а не к вводу даты руками.
+const REMINDER_PRESETS = [
+  { label: "За 30 мин", hours: 0.5 },
+  { label: "За 1 час", hours: 1 },
+  { label: "За 2 часа", hours: 2 },
+  { label: "За 1 день", hours: 24 },
+];
 
 const TICKET_ICONS: Record<string, typeof Ticket> = {
   train: Train,
@@ -152,6 +166,7 @@ export default function TicketAttachmentCard({ node }: NodeViewProps) {
     filename,
     ticketType,
     datetimeStart,
+    datetimeEnd,
     locationFrom,
     locationTo,
     seat,
@@ -162,10 +177,59 @@ export default function TicketAttachmentCard({ node }: NodeViewProps) {
   const [expanded, setExpanded] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [qrOpen, setQrOpen] = useState(false);
+  const [reminderMenuOpen, setReminderMenuOpen] = useState(false);
+  const [reminderConfirm, setReminderConfirm] = useState<{ hours: number; triggerAt: Date } | null>(null);
+  const [reminderDone, setReminderDone] = useState(false);
+  const createReminder = useCreateReminder();
 
   const isPdf = filename.toLowerCase().endsWith(".pdf");
   const Icon = TICKET_ICONS[ticketType] ?? Ticket;
   const label = TICKET_LABELS[ticketType] ?? TICKET_LABELS.other;
+
+  const googleCalendarUrl = (() => {
+    if (!datetimeStart) return null;
+    const fmt = (iso: string) => iso.replace(/[-:]/g, "").replace(/\.\d+$/, "");
+    const end = datetimeEnd || datetimeStart;
+    const params = new URLSearchParams({ action: "TEMPLATE", text: title || label, dates: `${fmt(datetimeStart)}/${fmt(end)}` });
+    if (locationFrom) params.set("location", locationFrom);
+    return `https://calendar.google.com/calendar/render?${params.toString()}`;
+  })();
+
+  const icsUrl = (() => {
+    if (!datetimeStart) return null;
+    const params = new URLSearchParams({
+      title: title || label,
+      start: datetimeStart,
+      end: datetimeEnd || datetimeStart,
+      all_day: "false",
+      location: locationFrom || "",
+    });
+    return `/api/calendar/event.ics?${params.toString()}`;
+  })();
+
+  // Само нажатие пресета — не создание: сначала показываем, на какое
+  // ИМЕННО абсолютное время встанет напоминание, и ждём отдельного "Да"
+  // (то же правило, что у create_reminder в диалоге с ассистентом — не
+  // ставить напоминание молча по одному клику без явного подтверждения).
+  function pickPreset(hours: number) {
+    if (!datetimeStart) return;
+    const triggerAt = new Date(new Date(datetimeStart).getTime() - hours * 3600_000);
+    setReminderConfirm({ hours, triggerAt });
+    setReminderMenuOpen(false);
+  }
+
+  function confirmReminder() {
+    if (!reminderConfirm) return;
+    createReminder.mutate(
+      {
+        title: `${label}: ${title || filename}`,
+        body: locationFrom || locationTo ? `${locationFrom}${locationFrom && locationTo ? " → " : ""}${locationTo}` : "",
+        trigger_at: reminderConfirm.triggerAt.toISOString(),
+      },
+      { onSuccess: () => setReminderDone(true) },
+    );
+    setReminderConfirm(null);
+  }
 
   return (
     <NodeViewWrapper as="div" className="my-1" data-drag-handle draggable>
@@ -205,6 +269,77 @@ export default function TicketAttachmentCard({ node }: NodeViewProps) {
             </div>
           )}
         </div>
+
+        {datetimeStart && (
+          <div className="relative border-t border-violet-200 px-3 py-1.5">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <a
+                href={googleCalendarUrl ?? undefined}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-1 rounded-full border border-slate-300 bg-white px-2.5 py-1 text-xs text-slate-700 hover:border-slate-400 hover:bg-slate-50"
+              >
+                <CalendarPlus size={12} /> Google Календарь
+              </a>
+              <a
+                href={icsUrl ?? undefined}
+                className="flex items-center gap-1 rounded-full border border-slate-300 bg-white px-2.5 py-1 text-xs text-slate-700 hover:border-slate-400 hover:bg-slate-50"
+              >
+                <CalendarPlus size={12} /> .ics
+              </a>
+              {reminderDone ? (
+                <span className="flex items-center gap-1 rounded-full bg-green-50 px-2.5 py-1 text-xs text-green-700">
+                  <Check size={12} /> Напоминание создано
+                </span>
+              ) : (
+                <button
+                  onClick={() => setReminderMenuOpen((v) => !v)}
+                  className="flex items-center gap-1 rounded-full border border-slate-300 bg-white px-2.5 py-1 text-xs text-slate-700 hover:border-slate-400 hover:bg-slate-50"
+                >
+                  <AlarmClock size={12} /> Напомнить
+                </button>
+              )}
+            </div>
+
+            {reminderMenuOpen && (
+              <div className="absolute left-3 top-full z-10 mt-1 flex flex-col gap-0.5 rounded border bg-white p-1 shadow-lg">
+                {REMINDER_PRESETS.map((preset) => (
+                  <button
+                    key={preset.hours}
+                    onClick={() => pickPreset(preset.hours)}
+                    className="whitespace-nowrap rounded px-2 py-1 text-left text-xs text-slate-700 hover:bg-slate-100"
+                  >
+                    {preset.label}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {reminderConfirm && (
+              // Явное подтверждение абсолютного времени, не молчаливое
+              // создание по одному клику пресета — тот же принцип, что у
+              // create_reminder в диалоге с ассистентом (CLAUDE.md).
+              <div className="mt-1.5 flex items-center justify-between gap-2 rounded border border-violet-300 bg-violet-50 px-2 py-1.5 text-xs">
+                <span className="text-slate-700">Напомнить {formatDateTime(reminderConfirm.triggerAt.toISOString())}?</span>
+                <div className="flex shrink-0 gap-1">
+                  <button
+                    onClick={confirmReminder}
+                    disabled={createReminder.isPending}
+                    className="rounded bg-slate-900 px-2 py-0.5 text-white hover:bg-slate-800 disabled:opacity-50"
+                  >
+                    Да
+                  </button>
+                  <button
+                    onClick={() => setReminderConfirm(null)}
+                    className="rounded border border-slate-300 px-2 py-0.5 text-slate-600 hover:bg-slate-100"
+                  >
+                    Отмена
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         {code && (
           <button

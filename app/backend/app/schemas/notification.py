@@ -15,3 +15,9 @@ class NotificationOut(BaseModel):
     read_at: datetime | None
     created_at: datetime
     trigger_at: datetime | None = None
+
+
+class NotificationCreateIn(BaseModel):
+    title: str
+    body: str = ""
+    trigger_at: datetime
