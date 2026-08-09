@@ -9,6 +9,7 @@ from starlette.requests import Request
 
 from app.autotag import run_worker as run_autotag_worker
 from app.cleanup import run_periodic_sweep
+from app.notification_dispatch import run_dispatch_worker as run_notification_dispatch_worker
 from app.pdf_processing import run_worker as run_pdf_worker
 from app.telegram_bot import register_webhook as register_telegram_webhook, run_worker as run_telegram_worker
 from app.tickets import run_worker as run_ticket_worker
@@ -45,6 +46,7 @@ async def lifespan(app: FastAPI):
     telegram_task = asyncio.create_task(run_telegram_worker())
     pdf_task = asyncio.create_task(run_pdf_worker())
     ticket_task = asyncio.create_task(run_ticket_worker())
+    notification_dispatch_task = asyncio.create_task(run_notification_dispatch_worker())
     await resume_transcription()
     await resume_vision()
     await register_telegram_webhook()
@@ -58,6 +60,7 @@ async def lifespan(app: FastAPI):
         telegram_task.cancel()
         pdf_task.cancel()
         ticket_task.cancel()
+        notification_dispatch_task.cancel()
 
 
 app = FastAPI(title="Notenotes", lifespan=lifespan)

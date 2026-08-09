@@ -203,6 +203,10 @@ class Notification(Base):
     # NULL — обычное немедленное уведомление. С датой в будущем — не
     # отдаётся списком, пока не наступит (напоминания ассистента).
     trigger_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    # NULL — ещё не отправлено во внешние каналы (Telegram/Web Push);
+    # диспетчер (app/notification_dispatch.py) проставляет после отправки,
+    # чтобы не слать одно и то же уведомление повторно на каждом тике.
+    dispatched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class TelegramLink(Base):
