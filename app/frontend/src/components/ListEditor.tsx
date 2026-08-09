@@ -38,12 +38,23 @@ function renderEntryText(text: string): ReactNode[] {
     lastIndex = m.index! + m[0].length;
   }
   const rest = text.slice(lastIndex);
-  // Голые http(s)-ссылки (без markdown-обёртки) в оставшемся тексте — тем
-  // же приёмом, отдельным проходом, чтобы не пересекаться с уже найденными
-  // markdown-ссылками выше.
+  // Голые http(s)-ссылки (без markdown-обёртки, например когда ассистент
+  // просто дописал URL текстом после названия, а не оформил [текст](url))
+  // — тем же приёмом, отдельным проходом, чтобы не пересекаться с уже
+  // найденными markdown-ссылками выше. Текстом ссылки — ТОЛЬКО домен, не
+  // весь URL: реальная жалоба — голый длинный URL как текст ссылки не
+  // помещался в строку пункта (особенно на телефоне) и обрезался до
+  // нечитаемого/некликабельного огрызка вроде "https:/…".
   let restLast = 0;
   for (const m of rest.matchAll(_BARE_URL_RE)) {
     if (m.index! > restLast) nodes.push(rest.slice(restLast, m.index));
+    let label = m[0];
+    try {
+      label = new URL(m[0]).hostname.replace(/^www\./, "");
+    } catch {
+      // Некорректный URL — оставляем как есть, не должно происходить, но
+      // не пытаемся падать на этом.
+    }
     nodes.push(
       <a
         key={key++}
@@ -53,7 +64,7 @@ function renderEntryText(text: string): ReactNode[] {
         onClick={(e) => e.stopPropagation()}
         className="text-blue-600 underline hover:text-blue-800"
       >
-        {m[0]}
+        {label}
       </a>,
     );
     restLast = m.index! + m[0].length;
