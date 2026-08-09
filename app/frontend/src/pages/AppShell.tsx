@@ -191,20 +191,29 @@ export default function AppShell() {
   }
 
   function setSelectedItemId(id: string | null) {
-    setSearchParams((prev) => {
-      const next = new URLSearchParams(prev);
-      if (id) {
-        // list=1 остаётся вместе с item: closeItemView ниже трогает
-        // только item/dialog, чтобы «назад» из заметки приземлялся на
-        // список, а не сразу перепрыгивал через него на sidebar.
-        next.set("item", id);
-        next.set("list", "1");
-        next.delete("dialog");
-      } else {
-        next.delete("item");
-      }
-      return next;
-    });
+    // Тот же принцип, что в openListView: уже открыта заметка (десктоп,
+    // клик по другой заметке в списке прямо из открытого редактора,
+    // обычный рабочий процесс) — replace, а не push, иначе каждый такой
+    // клик копит в history отдельную запись и «назад» приходится жать
+    // отдельно на каждую просмотренную заметку, а не один раз к списку.
+    const alreadyOnEditor = mobileView === "editor";
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        if (id) {
+          // list=1 остаётся вместе с item: closeItemView ниже трогает
+          // только item/dialog, чтобы «назад» из заметки приземлялся на
+          // список, а не сразу перепрыгивал через него на sidebar.
+          next.set("item", id);
+          next.set("list", "1");
+          next.delete("dialog");
+        } else {
+          next.delete("item");
+        }
+        return next;
+      },
+      alreadyOnEditor ? { replace: true } : undefined,
+    );
   }
 
   // Кнопка «назад» в интерфейсе — прямой сброс (replace, не push): не
@@ -223,16 +232,27 @@ export default function AppShell() {
     }, { replace: true });
   }
 
-  // Переход sidebar -> list (папка/тег/список диалогов/корзина) — всегда
-  // push, это «спуск» на уровень глубже, симметрично открытию заметки.
+  // Переход на экран списка — push, только если реально спускаемся на
+  // уровень глубже (с sidebar или из редактора); если уже на списке и
+  // просто переключаем папку/тег/раздел — replace. Раньше пушило всегда,
+  // и клики по папкам ВНУТРИ списка (папка/тег сами по себе не часть
+  // URL — activeFolderId/tagId это React state) копили в history кучу
+  // неотличимых на вид записей "?list=1" подряд — жест «назад» после
+  // сессии с несколькими переключениями папок должен был пройти через
+  // ВСЕ них по одной, прежде чем реально попасть на sidebar, и выглядело
+  // это как "назад вообще ничего не делает" (реальная жалоба).
   function openListView() {
-    setSearchParams((prev) => {
-      const next = new URLSearchParams(prev);
-      next.delete("item");
-      next.delete("dialog");
-      next.set("list", "1");
-      return next;
-    });
+    const alreadyOnList = mobileView === "list";
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete("item");
+        next.delete("dialog");
+        next.set("list", "1");
+        return next;
+      },
+      alreadyOnList ? { replace: true } : undefined,
+    );
   }
 
   // Кнопка «назад к списку спейсов» — тот же принцип, что closeItemView:
@@ -286,17 +306,22 @@ export default function AppShell() {
   }
 
   function selectDialog(id: string | null) {
-    setSearchParams((prev) => {
-      const next = new URLSearchParams(prev);
-      if (id) {
-        next.set("dialog", id);
-        next.set("list", "1");
-        next.delete("item");
-      } else {
-        next.delete("dialog");
-      }
-      return next;
-    });
+    // Тот же принцип, что в setSelectedItemId/openListView.
+    const alreadyOnEditor = mobileView === "editor";
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        if (id) {
+          next.set("dialog", id);
+          next.set("list", "1");
+          next.delete("item");
+        } else {
+          next.delete("dialog");
+        }
+        return next;
+      },
+      alreadyOnEditor ? { replace: true } : undefined,
+    );
   }
 
   function toggleSpaceCollapsed(spaceId: string) {
