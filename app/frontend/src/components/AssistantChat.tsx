@@ -282,6 +282,70 @@ function ImageGalleryLinks({
   );
 }
 
+// Обычные заметки/списки, найденные через get_note/search_base — раньше
+// под ними не было НИЧЕГО кликабельного (ImageSourceLinks/ImageGalleryLinks
+// срабатывают только когда ассистент показывает картинку ИЗ заметки, а не
+// вообще любую найденную заметку): модель, ссылаясь на заметку, честно не
+// могла её открыть — прямая ссылка на внутренний объект стрипается
+// _strip_unverified_links (dialogs.py), ей неоткуда взяться в verified_urls
+// (тот заполняется только из web_search). Реальный случай: пользователь
+// восемь реплик подряд просил ссылку на заметку, ассистент восемь раз
+// объяснял, что не может её сгенерировать — хотя фронт мог бы просто
+// нарисовать кнопку, как уже делает для билетов (TicketResultCards) и
+// картинок-источников выше. Билеты сюда не попадают — у них своя, более
+// подробная карточка. Дедуп с ImageSourceLinks/ImageGalleryLinks
+// сознательно не делается (та же логика, что у остальных *Links-компонентов
+// в этом файле — независимые, иногда задваивающиеся чипы предпочтительнее
+// более хрупкой межкомпонентной координации).
+function NoteResultLinks({
+  message,
+  results,
+  onOpenItem,
+}: {
+  message: DialogMessage;
+  results: DialogMessage[];
+  onOpenItem: (id: string, materialType: "note" | "list") => void;
+}) {
+  const notes = useMemo(() => {
+    const byId = new Map<string, { id: string; title: string; materialType: "note" | "list" }>();
+    for (const tc of message.tool_calls) {
+      if (tc.name !== "search_base" && tc.name !== "get_note") continue;
+      const result = results.find((r) => r.tool_call_id === tc.id);
+      if (!result) continue;
+      try {
+        const parsed = JSON.parse(result.content);
+        const candidates: Array<Record<string, unknown>> =
+          tc.name === "get_note" ? [parsed] : Array.isArray(parsed.results) ? parsed.results : [];
+        for (const item of candidates) {
+          if (typeof item.id !== "string" || item.error || item.material_type === "ticket") continue;
+          const materialType = item.material_type === "list" ? "list" : "note";
+          byId.set(item.id, { id: item.id, title: (item.title as string) || "Без названия", materialType });
+        }
+      } catch {
+        // не JSON/не тот формат — пропускаем
+      }
+    }
+    return Array.from(byId.values());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [message.tool_calls, results]);
+
+  if (notes.length === 0) return null;
+
+  return (
+    <div className="mt-1.5 flex flex-wrap gap-1.5">
+      {notes.map((note) => (
+        <button
+          key={note.id}
+          onClick={() => onOpenItem(note.id, note.materialType)}
+          className="flex items-center gap-1 rounded-full border border-slate-300 bg-white px-3 py-1 text-xs text-slate-700 hover:border-slate-400 hover:bg-slate-50"
+        >
+          Открыть «{note.title}» <ChevronRight size={11} />
+        </button>
+      ))}
+    </div>
+  );
+}
+
 // Ровно одна картинка — рендерится инлайн в потоке текста, как и раньше
 // (markdownComponents.img). Две и больше — картинки убираются из текста и
 // показываются отдельно сеткой миниатюр (ImageGallery), иначе получился бы
@@ -1275,6 +1339,9 @@ export default function AssistantChat({
                 {message.tool_calls.length > 0 && <MapsLinkButtons message={message} results={toolResults} />}
                 {message.tool_calls.length > 0 && (
                   <TicketResultCards message={message} results={toolResults} onOpenItem={onOpenItem} />
+                )}
+                {message.tool_calls.length > 0 && (
+                  <NoteResultLinks message={message} results={toolResults} onOpenItem={onOpenItem} />
                 )}
                 {message.role === "assistant" && message.content && (
                   <div className="flex items-center gap-0.5">
