@@ -309,8 +309,19 @@ function NoteResultLinks({
 }) {
   const notes = useMemo(() => {
     const byId = new Map<string, { id: string; title: string; materialType: "note" | "list" }>();
+    // Только get_note, не search_base: реальный случай — поиск "Поищи
+    // записки про больницы" разошёлся тремя параллельными search_base на
+    // разные формулировки, один запрос широким OR-фоллбэком зацепил
+    // авиабилет (его OCR-описание случайно упоминает "Польша"), и карточка
+    // билета вылезла в чате, хотя сама модель эту заметку в ответе даже не
+    // упомянула — она сама корректно её отфильтровала как нерелевантную,
+    // просто карточка рисовалась по сырым tool-результатам, а не по тому,
+    // что реально решила показать модель. get_note — всегда осознанный
+    // выбор "показать вот эту конкретную заметку", search_base — просто
+    // список кандидатов для текста модели, не должен рисовать карточки
+    // сам по себе.
     for (const tc of [...message.tool_calls, ...message.display_tool_calls]) {
-      if (tc.name !== "search_base" && tc.name !== "get_note") continue;
+      if (tc.name !== "get_note") continue;
       const result = results.find((r) => r.tool_call_id === tc.id);
       if (!result) continue;
       try {
@@ -361,8 +372,11 @@ const _HREF_LINKPREVIEW_RE = /<a\s+href="([^"]+)"[^>]*data-linkpreview[^>]*>/g;
 
 function collectLinkPreviewUrls(message: DialogMessage, results: DialogMessage[]): string[] {
   const urls = new Set<string>();
+  // Только get_note — см. комментарий в NoteResultLinks про то же самое
+  // для карточек заметок: search_base отдаёт кандидатов, не то, что
+  // модель реально решила показать.
   for (const tc of [...message.tool_calls, ...message.display_tool_calls]) {
-    if (tc.name !== "search_base" && tc.name !== "get_note") continue;
+    if (tc.name !== "get_note") continue;
     const result = results.find((r) => r.tool_call_id === tc.id);
     if (!result) continue;
     try {
@@ -666,8 +680,13 @@ function TicketResultCards({
 
   const tickets = useMemo(() => {
     const byId = new Map<string, TicketResult>();
+    // Только get_note — см. комментарий в NoteResultLinks: реальный случай,
+    // билет вылез карточкой в чате как побочный эффект широкого OR-поиска
+    // search_base по совершенно другой теме (искали больницы, зацепило
+    // авиабилет по случайному слову в OCR-описании), хотя сама модель его
+    // в ответе не упоминала.
     for (const tc of [...message.tool_calls, ...message.display_tool_calls]) {
-      if (tc.name !== "search_base" && tc.name !== "get_note") continue;
+      if (tc.name !== "get_note") continue;
       const result = results.find((r) => r.tool_call_id === tc.id);
       if (!result) continue;
       try {

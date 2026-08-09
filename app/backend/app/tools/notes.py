@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from app import realtime
 from app.deps import ensure_space_access
@@ -334,6 +334,58 @@ async def list_tags(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
     result = await ctx.db.execute(select(Tag).where(Tag.user_id == ctx.user_id).order_by(Tag.name))
     tags = result.scalars().all()
     return {"tags": [t.name for t in tags]}
+
+
+LIST_ITEMS_BY_TAG = ToolDefinition(
+    name="list_items_by_tag",
+    description=(
+        "Показать заметки/списки/билеты, помеченные конкретным тегом пользователя (тег — из "
+        "list_tags). Используй это, а не только полнотекстовый поиск, когда ищешь что-то по общей "
+        "теме, а не по точному слову — пользователь мог заранее разложить заметки по тегам "
+        "(например 'здоровье', 'работа'), и это точнее и надёжнее, чем гадать формулировки для "
+        "search_base. Реальный случай: искали 'больницы' одним словом мимо тега 'здоровье', под "
+        "которым уже была нужная заметка — если по теме есть похожий тег, проверь его в первую "
+        "очередь, до серии вариаций полнотекстового запроса."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {"tag_name": {"type": "string", "description": "Название тега, как в list_tags"}},
+        "required": ["tag_name"],
+    },
+)
+
+
+async def list_items_by_tag(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
+    tag_name = str(args.get("tag_name", "")).strip()
+    if not tag_name:
+        raise ToolError("tag_name обязателен")
+
+    tag = (
+        await ctx.db.execute(
+            select(Tag).where(Tag.user_id == ctx.user_id, func.lower(Tag.name) == tag_name.lower())
+        )
+    ).scalar_one_or_none()
+    if tag is None:
+        return {"items": [], "error": f"Тег «{tag_name}» не найден — проверь точное название через list_tags"}
+
+    result = await ctx.db.execute(
+        select(Item, Space.name)
+        .join(ItemTag, ItemTag.item_id == Item.id)
+        .join(Space, Space.id == Item.space_id)
+        .where(
+            ItemTag.tag_id == tag.id,
+            ItemTag.user_id == ctx.user_id,
+            Item.material_type.in_(("note", "list", "ticket")),
+            Item.deleted_at.is_(None),
+        )
+        .order_by(Item.updated_at.desc())
+    )
+    return {
+        "items": [
+            {"id": str(i.id), "title": i.title, "material_type": i.material_type, "space_name": space_name}
+            for i, space_name in result.all()
+        ]
+    }
 
 
 LIST_ALL_ITEMS = ToolDefinition(
