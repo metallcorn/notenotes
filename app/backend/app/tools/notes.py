@@ -91,7 +91,8 @@ async def create_note(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
         content=content,
         folder_id=folder_id,
     )
-    return {"id": str(item.id), "title": item.title, "space_id": str(item.space_id)}
+    space = await ctx.db.get(Space, item.space_id)
+    return {"id": str(item.id), "title": item.title, "space_id": str(item.space_id), "space_name": space.name if space else ""}
 
 
 GET_NOTE = ToolDefinition(

@@ -8,7 +8,7 @@ from fastapi import HTTPException
 
 from app.deps import ensure_space_access
 from app.llm.base import ToolDefinition
-from app.models import Folder, Item
+from app.models import Folder, Item, Space
 from app.routers.items import create_item_row
 from app.routers.lists import _broadcast, _serialize
 from app.tools.registry import ToolContext, ToolError
@@ -63,7 +63,10 @@ CREATE_LIST = ToolDefinition(
     description=(
         "Создать список (чек-лист) — для покупок, задач и т.п., где нужны отмечаемые пункты, "
         "а не просто текст заметки. Можно сразу передать пункты. Без folder_id создаётся в "
-        "текущем спейсе диалога; с folder_id — в спейсе, которому принадлежит папка."
+        "текущем спейсе диалога — ПЕРЕД вызовом без folder_id проверь list_folders на "
+        "тематически подходящую папку (например, список покупок логично класть туда же, где "
+        "уже лежат похожие списки покупок, а не в спейс, где просто идёт разговор); с "
+        "folder_id — в спейсе, которому принадлежит папка."
     ),
     parameters={
         "type": "object",
@@ -107,7 +110,14 @@ async def create_list(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
         item.content = _flatten_entries(entries)
         await ctx.db.commit()
 
-    return {"id": str(item.id), "title": item.title, "entries": [e["text"] for e in entries]}
+    space = await ctx.db.get(Space, item.space_id)
+    return {
+        "id": str(item.id),
+        "title": item.title,
+        "entries": [e["text"] for e in entries],
+        "space_id": str(item.space_id),
+        "space_name": space.name if space else "",
+    }
 
 
 GET_LIST = ToolDefinition(
