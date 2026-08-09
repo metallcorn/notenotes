@@ -6,6 +6,9 @@ import { BrowserRouter } from "react-router-dom";
 import App from "./App";
 import { idbPersister } from "./lib/queryPersister";
 import { diagnosticLog } from "./lib/diagnostics";
+import { installForceRepaintOnVisible } from "./lib/forceRepaint";
+
+installForceRepaintOnVisible();
 import "./index.css";
 
 // Точечная диагностика бага "белый экран в standalone PWA" (см.
