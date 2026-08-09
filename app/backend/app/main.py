@@ -28,6 +28,7 @@ from app.routers import (
     lists,
     memories,
     notifications,
+    push,
     search,
     skills,
     spaces,
@@ -76,6 +77,7 @@ app.include_router(search.router)
 app.include_router(feedback.router)
 app.include_router(debug_log.router)
 app.include_router(notifications.router)
+app.include_router(push.router)
 app.include_router(dialogs.router)
 app.include_router(voice.router)
 app.include_router(lists.router)

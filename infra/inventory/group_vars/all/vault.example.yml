@@ -43,3 +43,20 @@ vault_palabra_api_key: "ЗАМЕНИ"   # platform.palabra.ai
 vault_telegram_bot_token: "ЗАМЕНИ"     # токен от @BotFather
 vault_telegram_bot_username: "ЗАМЕНИ"  # username бота без @, например notenotes_bot
 vault_telegram_webhook_secret: "ЗАМЕНИ"
+
+# Web Push (уведомления вне открытой вкладки/закрытого приложения) —
+# self-hosted VAPID-пара, не платформенный ключ вендора. Сгенерировать:
+#   python3 -c "
+#   from cryptography.hazmat.primitives.asymmetric import ec
+#   from cryptography.hazmat.primitives import serialization
+#   import base64
+#   k = ec.generate_private_key(ec.SECP256R1())
+#   b64 = lambda d: base64.urlsafe_b64encode(d).rstrip(b'=').decode()
+#   print('private:', b64(k.private_numbers().private_value.to_bytes(32, 'big')))
+#   print('public:', b64(k.public_key().public_bytes(serialization.Encoding.X962, serialization.PublicFormat.UncompressedPoint)))
+#   "
+# Смена ключей — все существующие подписки браузеров умирают, пользователям
+# нужно будет заново включить тумблер в настройках.
+vault_vapid_private_key: "ЗАМЕНИ"
+vault_vapid_public_key: "ЗАМЕНИ"
+vault_vapid_subject: "mailto:ЗАМЕНИ@example.com"

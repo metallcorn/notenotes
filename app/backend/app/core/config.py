@@ -44,6 +44,15 @@ class Settings(BaseSettings):
     telegram_bot_username: str = ""
     telegram_webhook_secret: str = ""
 
+    # Web Push (уведомления вне открытой вкладки/закрытого приложения) —
+    # VAPID-пара, сгенерированная один раз (не платформенный ключ вендора,
+    # self-hosted). Приватный ключ и публичный — оба "raw" urlsafe-base64
+    # (не PEM): pywebpush.Vapid.from_string и браузерный
+    # applicationServerKey принимают этот формат напрямую, без конвертации.
+    vapid_private_key: str = ""
+    vapid_public_key: str = ""
+    vapid_subject: str = "mailto:admin@example.com"
+
 
 @lru_cache
 def get_settings() -> Settings:

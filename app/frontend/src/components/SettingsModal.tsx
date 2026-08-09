@@ -14,6 +14,7 @@ import {
   useUpdateTtsVoice,
 } from "../api/hooks";
 import { DEFAULT_MEDIA_CACHE_LIMIT_MB, getMediaCacheLimitBytes, setMediaCacheLimitMb } from "../lib/offlineSettings";
+import { isPushSupported, usePushSubscription } from "../lib/usePushSubscription";
 import Spinner from "./Spinner";
 
 const VOICE_PRESETS = [
@@ -30,6 +31,7 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
   const updateDisabledTools = useUpdateDisabledTools();
   const updateTtsVoice = useUpdateTtsVoice();
   const updateAutoProcessUploads = useUpdateAutoProcessUploads();
+  const pushSubscription = usePushSubscription();
   const { data: telegramStatus } = useTelegramStatus();
   const telegramLinkCode = useTelegramLinkCode();
   const telegramUnlink = useTelegramUnlink();
@@ -214,6 +216,31 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
               </button>
             </div>
           </div>
+
+          {isPushSupported() && (
+            <div className="mb-6">
+              <div className="flex items-center justify-between gap-2 rounded border px-2 py-1.5">
+                <div className="min-w-0">
+                  <div className="text-sm text-slate-900">Уведомления в браузере</div>
+                  <div className="text-xs text-slate-400">
+                    Напоминания придут даже если приложение закрыто. На iPhone работает только если приложение
+                    установлено на экран (не просто открыто в Safari).
+                  </div>
+                </div>
+                <button
+                  role="switch"
+                  aria-checked={pushSubscription.subscribed ?? false}
+                  onClick={() => (pushSubscription.subscribed ? pushSubscription.unsubscribe() : pushSubscription.subscribe())}
+                  disabled={pushSubscription.busy || pushSubscription.subscribed === null}
+                  className={`flex h-5 w-9 shrink-0 items-center rounded-full px-0.5 transition-colors disabled:opacity-50 ${
+                    pushSubscription.subscribed ? "justify-end bg-slate-900" : "justify-start bg-slate-200"
+                  }`}
+                >
+                  <span className="h-4 w-4 rounded-full bg-white shadow" />
+                </button>
+              </div>
+            </div>
+          )}
 
           <div className="mb-6">
             <div className="mb-1 text-sm font-medium text-slate-900">Telegram</div>

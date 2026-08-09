@@ -209,6 +209,21 @@ class Notification(Base):
     dispatched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
+class PushSubscription(Base):
+    """Web Push подписка браузера (не Telegram) — endpoint/ключи, что
+    возвращает PushManager.subscribe() на фронте. Один пользователь может
+    иметь несколько (разные устройства/браузеры)."""
+
+    __tablename__ = "push_subscriptions"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    endpoint: Mapped[str] = mapped_column(Text, unique=True)
+    p256dh: Mapped[str] = mapped_column(Text)
+    auth: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class TelegramLink(Base):
     """Привязка Telegram-аккаунта к notenotes-пользователю (простой Bot
     API, не MTProto — ТЗ, Фаза 2 «Каналы»). chat_id уникален: один

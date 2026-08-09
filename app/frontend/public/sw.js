@@ -147,3 +147,36 @@ self.addEventListener("fetch", (event) => {
     event.respondWith(handleUpload(request));
   }
 });
+
+// Web Push — уведомление, когда вкладка/приложение закрыты. payload —
+// JSON {title, body} (app/backend/app/push.py), держим маленьким (лимит
+// провайдеров push ~4КБ) — весь контент уже есть в title/body, дополнительный
+// запрос за деталями не нужен.
+self.addEventListener("push", (event) => {
+  let data = { title: "Notenotes", body: "" };
+  try {
+    if (event.data) data = { ...data, ...event.data.json() };
+  } catch {
+    // не JSON — покажем как есть с дефолтным заголовком
+  }
+  event.waitUntil(self.registration.showNotification(data.title, { body: data.body, icon: "/icon-192.png" }));
+});
+
+// Клик по системному уведомлению — сфокусировать уже открытую вкладку,
+// если есть, иначе открыть новую на главном экране (сама заметка/пункт
+// назначения определяется уже открытым приложением через обычный список
+// уведомлений, не через данные push — тут только сфокусировать/открыть).
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  event.waitUntil(
+    (async () => {
+      const clientsList = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+      const existing = clientsList.find((c) => "focus" in c);
+      if (existing) {
+        await existing.focus();
+        return;
+      }
+      await self.clients.openWindow("/");
+    })(),
+  );
+});

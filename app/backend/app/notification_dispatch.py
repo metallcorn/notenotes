@@ -4,11 +4,12 @@ import asyncio
 import logging
 from datetime import datetime, timezone
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 
 from app import realtime, telegram_bot
 from app.db import async_session
-from app.models import Notification, TelegramLink
+from app.models import Notification, PushSubscription, TelegramLink
+from app.push import send_push
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +36,16 @@ async def _dispatch_one(notification: Notification, db) -> None:
     ).scalar_one_or_none()
     if link is not None:
         await telegram_bot.send_message(link, text)
+
+    subscriptions = (
+        await db.execute(select(PushSubscription).where(PushSubscription.user_id == notification.user_id))
+    ).scalars().all()
+    for subscription in subscriptions:
+        alive = await send_push(subscription, notification.title, notification.body)
+        if not alive:
+            # 404/410 от push-сервиса — браузер отозвал подписку (снял
+            # разрешение, деинсталлировал), больше слать сюда нельзя.
+            await db.execute(delete(PushSubscription).where(PushSubscription.id == subscription.id))
 
     await realtime.notify_user(notification.user_id)
 
