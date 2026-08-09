@@ -20,11 +20,11 @@ RUN useradd --no-create-home --uid 10001 --shell /usr/sbin/nologin sandbox
 # ffmpeg — извлечь звук из видео перед распознаванием речи (app/transcription.py).
 # Только бинарь, без демона — память ест лишь пока реально идёт транскод,
 # а очередь обрабатывает видео по одному, так что пиковая память предсказуема.
-# libzbar0 — общая библиотека для pyzbar (app/tickets.py, декодирование
-# QR/штрихкода на билетах): сам pyzbar — чистый Python-биндинг, без
-# .so-библиотеки ничего не декодирует. Как ffmpeg — не демон, память ест
-# только на время вызова decode(), не постоянно.
-RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg libzbar0 && rm -rf /var/lib/apt/lists/*
+# QR/штрихкод-декодирование (app/tickets.py) — zxing-cpp, у него
+# самодостаточное wheel-колесо (без внешней .so, в отличие от pyzbar/zbar,
+# который был здесь раньше и не умел Aztec — формат, в который почти все
+# авиабилеты кодируют посадочный талон), системный пакет не нужен вовсе.
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg && rm -rf /var/lib/apt/lists/*
 COPY app/backend/requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 COPY app/backend/app ./app

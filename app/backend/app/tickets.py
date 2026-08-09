@@ -6,8 +6,8 @@ import logging
 import uuid
 from pathlib import Path
 
+import zxingcpp
 from PIL import Image
-from pyzbar.pyzbar import decode as zbar_decode
 from sqlalchemy import select
 
 from app import realtime
@@ -65,24 +65,28 @@ def _upload_path(upload_id: uuid.UUID) -> Path:
 
 
 def _decode_code(upload_id: uuid.UUID) -> str | None:
-    """QR/штрихкод с исходного файла — pyzbar работает с растровым
-    изображением (декодирует libzbar0, сам pyzbar — только Python-биндинг),
-    поэтому применимо только к билетам-картинкам; PDF-билеты этот шаг не
-    проходят (вне рамок текущей фазы). Первый найденный код — билет обычно
-    несёт один; если их несколько, остальные теряются, не то что здесь
-    нужно усложнять."""
+    """QR/штрихкод с исходного файла — только для билетов-картинок; PDF
+    этот шаг не проходят (вне рамок текущей фазы). Первый найденный код —
+    билет обычно несёт один; если их несколько, остальные теряются, не то
+    что здесь нужно усложнять.
+
+    zxing-cpp, не pyzbar/zbar: авиабилеты (IATA BCBP) почти всегда кодируют
+    посадочный талон в Aztec, не QR — реальный случай поймал на живом
+    посадочном Lufthansa, zbar вернул пустой результат на чёткой, хорошо
+    читаемой картинке. zxing-cpp декодирует Aztec корректно (и QR тоже,
+    без регресса) — подтверждено на обоих форматах."""
     path = _upload_path(upload_id)
     if not path.is_file():
         return None
     try:
         with Image.open(path) as img:
-            results = zbar_decode(img)
+            results = zxingcpp.read_barcodes(img)
     except Exception:
         logger.exception("Ошибка декодирования QR/штрихкода для %s", upload_id)
         return None
     if not results:
         return None
-    return results[0].data.decode("utf-8", errors="replace")
+    return results[0].text
 
 
 def _parse_json_response(raw: str) -> dict | None:
