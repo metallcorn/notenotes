@@ -16,6 +16,11 @@ const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: false, refetchOnWindowFocus: true } },
 });
 
+// Гасим фолбэк "не удалось загрузить" из index.html — до этой строки
+// дошли, значит модульный граф загрузился и React готов рендерить
+// (см. комментарий в index.html про таймаут).
+clearTimeout((window as unknown as { __notenotesBootTimeout: number }).__notenotesBootTimeout);
+
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <PersistQueryClientProvider

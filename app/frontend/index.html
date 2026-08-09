@@ -13,7 +13,36 @@
     <meta name="apple-mobile-web-app-title" content="Notenotes" />
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <!-- Видно, пока React не смонтировался — до этого #root пустой, и
+           на медленной мобильной сети/при сбое загрузки JS-бандла
+           (1.3 МБ+, см. предупреждение vite build о размере чанка)
+           пользователь видел просто пустой/чёрный экран без объяснения
+           (реальная жалоба — "открываю PWA, чёрный экран, долго грузит").
+           Тёмный фон — тот же цвет, что background_color в манифесте,
+           чтобы не было вспышки светлого экрана поверх PWA-заставки. -->
+      <div style="display: flex; height: 100dvh; align-items: center; justify-content: center; background: #1e293b; color: #94a3b8; font: 14px system-ui, sans-serif;">
+        Загрузка…
+      </div>
+    </div>
+    <script>
+      // Если React не смонтировался за разумное время (медленная сеть,
+      // зависший/неудачный запрос JS-бандла — service worker кэширует
+      // ассеты, но не подстраховывает первый, ещё не закэшированный
+      // фетч) — чёрный/пустой экран навсегда, единственный выход был
+      // силой закрывать приложение. Явный таймаут превращает это в
+      // понятное сообщение с кнопкой «Обновить», а не молчание.
+      window.__notenotesBootTimeout = setTimeout(function () {
+        var root = document.getElementById("root");
+        if (root) {
+          root.innerHTML =
+            '<div style="display:flex;height:100dvh;flex-direction:column;gap:12px;align-items:center;justify-content:center;background:#1e293b;color:#e2e8f0;font:14px system-ui,sans-serif;padding:24px;text-align:center;">' +
+            "<div>Загрузка занимает необычно много времени — похоже, медленное соединение.</div>" +
+            '<button onclick="location.reload()" style="padding:8px 16px;border-radius:6px;background:#f8fafc;color:#0f172a;border:none;font:14px system-ui,sans-serif;">Обновить</button>' +
+            "</div>";
+        }
+      }, 10000);
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

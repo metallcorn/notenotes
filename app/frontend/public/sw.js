@@ -17,9 +17,21 @@
 // Данные (заметки/списки/теги) сюда не входят — это зона react-query
 // персиста в IndexedDB (main.tsx), не service worker'а.
 
-const SHELL_CACHE = "notenotes-shell-v1";
-const ASSET_CACHE = "notenotes-assets-v1";
-const MEDIA_CACHE = "notenotes-media-v1";
+// v2: за время разработки бэкенд передеплоивался десятки раз, а имя кэша
+// ни разу не менялось — activate ниже чистит кэши, которых нет в
+// CURRENT_CACHES, но раз имя всегда было тем же самым, чистить было
+// нечего, и в notenotes-assets-v1 годами накапливались уже удалённые с
+// сервера хэшированные JS/CSS-файлы. Хуже того: если handleNavigate ниже
+// на медленной сети падает в кэш-фолбэк (см. NAVIGATE_TIMEOUT_MS), он мог
+// отдать ДАВНО устаревший index.html, который ссылается на старые
+// хэши — и раз эти старые файлы всё ещё лежали в ASSET_CACHE, приложение
+// молча грузило целиком устаревшую версию кода, из-за чего уже
+// исправленные баги (навигация назад и т.п.) выглядели "всё ещё не
+// работают". Смена версии здесь принудительно чистит всё сразу; при
+// следующем реальном изменении логики кэширования — бампать снова.
+const SHELL_CACHE = "notenotes-shell-v2";
+const ASSET_CACHE = "notenotes-assets-v2";
+const MEDIA_CACHE = "notenotes-media-v2";
 const CURRENT_CACHES = [SHELL_CACHE, ASSET_CACHE, MEDIA_CACHE];
 const SHELL_KEY = "/";
 
