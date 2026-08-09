@@ -70,8 +70,7 @@ export default function AppShell() {
   // ставим на «Все заметки», чтобы заметка гарантированно была видна в
   // списке, а не показывала пустую панель рядом с открытой заметкой.
   useEffect(() => {
-    if (restoredRef.current || !spaces || spaces.length === 0) return;
-    restoredRef.current = true;
+    if (!spaces || spaces.length === 0) return;
     const saved = uiStorage.getActiveSelection();
     const valid = saved && spaces.some((s) => s.id === saved.spaceId) ? saved : null;
     // lastSpaceId — приоритетнее activeSelection: тот пишется только из
@@ -80,7 +79,25 @@ export default function AppShell() {
     const lastSpaceId = uiStorage.getLastSpaceId();
     const validLastSpaceId = lastSpaceId && spaces.some((s) => s.id === lastSpaceId) ? lastSpaceId : null;
     const spaceId = validLastSpaceId ?? valid?.spaceId ?? spaces[0].id;
+    // activeSpaceId нужен на каждом входе в этот эффект (в т.ч. на каждом
+    // обновлении страницы) — иначе сайдбар и useSpaceSync остались бы без
+    // спейса после первого же reload, если восстановление URL ниже
+    // пропущено sessionStorage-гардом.
     setActiveSpaceId(spaceId);
+
+    if (restoredRef.current) return;
+    restoredRef.current = true;
+    // sessionStorage, не только restoredRef — тот сбрасывается на каждом
+    // обновлении страницы (React перемонтируется заново), а sessionStorage
+    // переживает reload той же вкладки. Без этого уход на sidebar кнопкой
+    // «назад» (bare "/", без ?list=1) и последующее обновление страницы
+    // заново подставляли бы «последнее место» из localStorage поверх
+    // явного текущего состояния URL — тот же баг, что уже чинили для
+    // заметок, теперь на уровне sidebar (реальная жалоба). Восстановление
+    // URL (ниже) должно случиться только один раз за сессию вкладки —
+    // activeSpaceId выше от этого не зависит и выставляется всегда.
+    if (sessionStorage.getItem("notenotes-restored")) return;
+    sessionStorage.setItem("notenotes-restored", "1");
 
     // В URL уже указана заметка/диалог (прямая ссылка, PWA-ярлык) —
     // приоритет у неё, восстановление из localStorage ниже не нужно:
@@ -94,6 +111,14 @@ export default function AppShell() {
       return;
     }
 
+    // Всегда сначала replace на чистый корень — это база стека (экран
+    // "sidebar"), а следующий шаг push кладёт список поверх неё. Без
+    // этого при обычном холодном открытии приложения (сразу список
+    // заметок, без явного клика по папке) в history не было НИ ОДНОЙ
+    // записи — системный жест «назад» первым же нажатием закрывал всё
+    // приложение целиком, а не показывал sidebar (реальная жалоба).
+    setSearchParams(new URLSearchParams(), { replace: true });
+
     // Экран (заметки/ассистент/корзина) — отдельная ось от папки/заметки:
     // без этого обновление страницы всегда откатывало на «Заметки», даже
     // если сидели в Ассистенте или Корзине.
@@ -101,25 +126,22 @@ export default function AppShell() {
     if (savedViewMode === "assistant") {
       setViewModeState("assistant");
       const lastDialogId = uiStorage.getLastDialogId();
-      if (lastDialogId) {
-        setSearchParams({ dialog: lastDialogId }, { replace: true });
-      } else {
-        setMobileView("list");
-      }
+      setSearchParams(lastDialogId ? { dialog: lastDialogId, list: "1" } : { list: "1" });
       return;
     }
     if (savedViewMode === "trash") {
       setViewModeState("trash");
-      setMobileView("list");
+      setSearchParams({ list: "1" });
       return;
     }
 
     const lastItemId = uiStorage.getLastItemId(spaceId);
     if (lastItemId) {
       setActiveFolderId(null);
-      setSearchParams({ item: lastItemId }, { replace: true });
+      setSearchParams({ item: lastItemId, list: "1" });
     } else {
       setActiveFolderId(valid?.folderId ?? null);
+      setSearchParams({ list: "1" });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [spaces]);
@@ -133,10 +155,11 @@ export default function AppShell() {
   useEffect(() => {
     const itemParam = searchParams.get("item");
     const dialogParam = searchParams.get("dialog");
+    const listParam = searchParams.get("list");
     withViewTransition(() => {
       setSelectedItemIdState(itemParam);
       setSelectedDialogId(dialogParam);
-      setMobileView(itemParam || dialogParam ? "editor" : "list");
+      setMobileView(itemParam || dialogParam ? "editor" : listParam ? "list" : "sidebar");
     });
     if (activeSpaceId) uiStorage.setLastItemId(activeSpaceId, itemParam);
     uiStorage.setLastDialogId(dialogParam);
@@ -152,7 +175,11 @@ export default function AppShell() {
     setSearchParams((prev) => {
       const next = new URLSearchParams(prev);
       if (id) {
+        // list=1 остаётся вместе с item: closeItemView ниже трогает
+        // только item/dialog, чтобы «назад» из заметки приземлялся на
+        // список, а не сразу перепрыгивал через него на sidebar.
         next.set("item", id);
+        next.set("list", "1");
         next.delete("dialog");
       } else {
         next.delete("item");
@@ -177,12 +204,36 @@ export default function AppShell() {
     }, { replace: true });
   }
 
+  // Переход sidebar -> list (папка/тег/список диалогов/корзина) — всегда
+  // push, это «спуск» на уровень глубже, симметрично открытию заметки.
+  function openListView() {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      next.delete("item");
+      next.delete("dialog");
+      next.set("list", "1");
+      return next;
+    });
+  }
+
+  // Кнопка «назад к списку спейсов» — тот же принцип, что closeItemView:
+  // прямой replace, не полагается на глубину history.
+  function closeListView() {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      next.delete("item");
+      next.delete("dialog");
+      next.delete("list");
+      return next;
+    }, { replace: true });
+  }
+
   function selectFolder(spaceId: string, folderId: string | null) {
     setViewMode("notes");
     setActiveSpaceId(spaceId);
     setActiveFolderId(folderId);
     setTagId(null);
-    setSelectedItemId(null);
+    openListView();
     uiStorage.setActiveSelection({ spaceId, folderId });
   }
 
@@ -198,22 +249,17 @@ export default function AppShell() {
   function selectTag(id: string | null) {
     setViewMode("notes");
     setTagId(id);
-    setSelectedItemId(null);
-    withViewTransition(() => setMobileView("list"));
+    openListView();
   }
 
   function switchToAssistant() {
-    withViewTransition(() => {
-      setViewMode("assistant");
-      setMobileView("list");
-    });
+    setViewMode("assistant");
+    openListView();
   }
 
   function switchToTrash() {
-    withViewTransition(() => {
-      setViewMode("trash");
-      setMobileView("list");
-    });
+    setViewMode("trash");
+    openListView();
   }
 
   function selectDialog(id: string | null) {
@@ -221,6 +267,7 @@ export default function AppShell() {
       const next = new URLSearchParams(prev);
       if (id) {
         next.set("dialog", id);
+        next.set("list", "1");
         next.delete("item");
       } else {
         next.delete("dialog");
@@ -279,7 +326,7 @@ export default function AppShell() {
               setQuery(v);
               if (v.trim()) {
                 setViewMode("notes");
-                withViewTransition(() => setMobileView("list"));
+                openListView();
               }
             }}
           />
@@ -341,7 +388,7 @@ export default function AppShell() {
 
       <main className="flex min-h-0 flex-1 overflow-hidden">
         {viewMode === "trash" ? (
-          <TrashView spaceId={activeSpaceId} onBack={() => withViewTransition(() => setMobileView("sidebar"))} />
+          <TrashView spaceId={activeSpaceId} onBack={closeListView} />
         ) : (
           <>
             <div
@@ -353,7 +400,7 @@ export default function AppShell() {
                 <>
                   <div className="flex items-center gap-1 border-b p-3">
                     <button
-                      onClick={() => withViewTransition(() => setMobileView("sidebar"))}
+                      onClick={closeListView}
                       className="-ml-1 flex h-8 w-8 shrink-0 items-center justify-center text-slate-500 lg:hidden"
                     >
                       <ChevronLeft size={18} />
@@ -380,7 +427,7 @@ export default function AppShell() {
                 <>
                   <div className="flex items-center gap-1 border-b p-3 lg:hidden">
                     <button
-                      onClick={() => withViewTransition(() => setMobileView("sidebar"))}
+                      onClick={closeListView}
                       className="-ml-1 flex h-8 w-8 shrink-0 items-center justify-center text-slate-500"
                     >
                       <ChevronLeft size={18} />
