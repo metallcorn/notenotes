@@ -15,7 +15,16 @@ import Spinner from "./components/Spinner";
 // (казался сломанным, а не загружающимся).
 function LoadingScreen() {
   return (
-    <div className="flex min-h-dvh items-center justify-center gap-2 bg-slate-800 text-slate-400">
+    <div
+      className="flex min-h-dvh items-center justify-center gap-2 bg-slate-800 text-slate-400"
+      style={{
+        boxSizing: "border-box",
+        paddingTop: "var(--safe-top)",
+        paddingRight: "var(--safe-right)",
+        paddingBottom: "var(--safe-bottom)",
+        paddingLeft: "var(--safe-left)",
+      }}
+    >
       <Spinner size={16} />
       Загрузка…
     </div>

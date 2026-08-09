@@ -21,7 +21,7 @@
            (реальная жалоба — "открываю PWA, чёрный экран, долго грузит").
            Тёмный фон — тот же цвет, что background_color в манифесте,
            чтобы не было вспышки светлого экрана поверх PWA-заставки. -->
-      <div style="display: flex; height: 100dvh; align-items: center; justify-content: center; background: #1e293b; color: #94a3b8; font: 14px system-ui, sans-serif;">
+      <div style="box-sizing: border-box; display: flex; height: 100dvh; padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px); align-items: center; justify-content: center; background: #1e293b; color: #94a3b8; font: 14px system-ui, sans-serif;">
         Загрузка…
       </div>
     </div>
@@ -36,7 +36,7 @@
         var root = document.getElementById("root");
         if (root) {
           root.innerHTML =
-            '<div style="display:flex;height:100dvh;flex-direction:column;gap:12px;align-items:center;justify-content:center;background:#1e293b;color:#e2e8f0;font:14px system-ui,sans-serif;padding:24px;text-align:center;">' +
+            '<div style="box-sizing:border-box;display:flex;height:100dvh;flex-direction:column;gap:12px;align-items:center;justify-content:center;background:#1e293b;color:#e2e8f0;font:14px system-ui,sans-serif;padding:24px;padding-top:max(24px,env(safe-area-inset-top,0px));padding-bottom:max(24px,env(safe-area-inset-bottom,0px));text-align:center;">' +
             "<div>Загрузка занимает необычно много времени — похоже, медленное соединение.</div>" +
             '<button onclick="location.reload()" style="padding:8px 16px;border-radius:6px;background:#f8fafc;color:#0f172a;border:none;font:14px system-ui,sans-serif;">Обновить</button>' +
             "</div>";

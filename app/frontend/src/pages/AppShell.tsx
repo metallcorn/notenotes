@@ -309,7 +309,16 @@ export default function AppShell() {
   }
 
   return (
-    <div className="flex h-dvh bg-white text-slate-900">
+    <div
+      className="flex h-dvh bg-white text-slate-900"
+      style={{
+        boxSizing: "border-box",
+        paddingTop: "var(--safe-top)",
+        paddingRight: "var(--safe-right)",
+        paddingBottom: "var(--safe-bottom)",
+        paddingLeft: "var(--safe-left)",
+      }}
+    >
       <aside
         className={`${mobileView === "sidebar" ? "flex" : "hidden"} ${
           sidebarCollapsed ? "lg:hidden" : "lg:flex"
