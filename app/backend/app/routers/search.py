@@ -10,6 +10,7 @@ from app.deps import get_current_user
 from app.models import Item, SpaceMember, User
 from app.routers.items import _serialize
 from app.schemas.item import ItemOut
+from app.transliterate import transliteration_variant
 
 router = APIRouter(prefix="/api/search", tags=["search"])
 
@@ -66,7 +67,16 @@ async def search_items(
     if not words:
         return []
     joiner = " & " if match == "and" else " | "
-    tsquery_text = joiner.join(f"{w}:*" for w in words)
+    # Кириллица/латиница — тем же словом, но не тем алфавитом, что в
+    # заметке ("Ульяна" не находила бы заметку/папку с "Ulyana"), не
+    # находились вовсе: реальный случай. transliterate.py даёт второй
+    # вариант написания слова — добавляем его через OR внутри терма, сам
+    # AND/OR между словами (joiner) не меняется.
+    terms = []
+    for w in words:
+        variant = transliteration_variant(w)
+        terms.append(f"({w}:* | {variant}:*)" if variant else f"{w}:*")
+    tsquery_text = joiner.join(terms)
     tsquery = func.to_tsquery("simple", func.notenotes_immutable_unaccent(tsquery_text))
     document = _document()
     rank = func.ts_rank(document, tsquery).label("rank")
