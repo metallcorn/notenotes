@@ -33,7 +33,7 @@ import ReactMarkdown, { type Components } from "react-markdown";
 import ReactDOMServer from "react-dom/server";
 import remarkGfm from "remark-gfm";
 import { useDeleteDialogMessage, useDialog, useLinkPreview, useSendDialogMessage, useSpeak, useUpdateItem } from "../api/hooks";
-import type { DialogMessage } from "../api/types";
+import type { DialogMessage, ToolCall } from "../api/types";
 import { uiStorage, type ContentWidth } from "../lib/storage";
 import { downloadFile, sanitizeFilename, wrapHtmlDocument } from "../lib/export";
 import ConfirmDialog from "./ConfirmDialog";
@@ -101,23 +101,38 @@ function floatTo16BitPCM(input: Float32Array): ArrayBuffer {
 // деле в предыдущем пузыре. Склеиваем подряд идущие assistant-записи (без
 // user между ними) в одну — кнопка и текст, который её описывает, тогда
 // оказываются в одном пузыре, как и должны.
+// cardToolCalls — НЕ то же самое, что merged tool_calls (используется
+// ToolCallRow для полной прозрачности "что вообще происходило в этом
+// ходу"). Реальный случай: модель за один ход исследовала 3 разных
+// заметки-кандидата (get_note на каждую по очереди, две отбросила своими
+// же словами в тексте — "нет прямых ссылок... проверю ещё"), прежде чем
+// остановиться на нужной. Все три get_note склеиваются в один пузырь
+// (groupMessages ниже уже так делал), и без разделения карточки
+// рисовались бы для ВСЕХ трёх, включая две отброшенные — ровно то, на что
+// пожаловался пользователь ("5 карточек, из них нужна одна"). cardToolCalls
+// хранит tool_calls только ПОСЛЕДНЕГО раунда (той итерации, что
+// непосредственно предшествует финальному текстовому ответу без новых
+// tool_calls) — именно то, что модель в итоге показывает, а не то, что
+// просто успела проверить по пути.
 function groupMessages(messages: DialogMessage[]) {
-  const groups: { message: DialogMessage; toolResults: DialogMessage[] }[] = [];
+  const groups: { message: DialogMessage & { cardToolCalls: ToolCall[] }; toolResults: DialogMessage[] }[] = [];
   for (const m of messages) {
     if (m.role === "tool") {
       groups[groups.length - 1]?.toolResults.push(m);
       continue;
     }
+    const ownToolCalls = [...m.tool_calls, ...m.display_tool_calls];
     const prev = groups[groups.length - 1];
     if (m.role === "assistant" && prev?.message.role === "assistant") {
       prev.message = {
         ...m,
         content: [prev.message.content, m.content].filter(Boolean).join("\n\n"),
         tool_calls: [...prev.message.tool_calls, ...m.tool_calls],
+        cardToolCalls: ownToolCalls.length > 0 ? ownToolCalls : prev.message.cardToolCalls,
       };
       continue;
     }
-    groups.push({ message: m, toolResults: [] });
+    groups.push({ message: { ...m, cardToolCalls: ownToolCalls }, toolResults: [] });
   }
   return groups;
 }
@@ -303,7 +318,7 @@ function NoteResultLinks({
   results,
   onOpenItem,
 }: {
-  message: DialogMessage;
+  message: DialogMessage & { cardToolCalls: ToolCall[] };
   results: DialogMessage[];
   onOpenItem: (id: string, materialType: "note" | "list") => void;
 }) {
@@ -319,8 +334,11 @@ function NoteResultLinks({
     // что реально решила показать модель. get_note — всегда осознанный
     // выбор "показать вот эту конкретную заметку", search_base — просто
     // список кандидатов для текста модели, не должен рисовать карточки
-    // сам по себе.
-    for (const tc of [...message.tool_calls, ...message.display_tool_calls]) {
+    // сам по себе. cardToolCalls (не merged tool_calls) — только по этой
+    // же причине, но для другого случая: несколько get_note ПОДРЯД в
+    // разных раундах одного хода (модель проверяла кандидатов один за
+    // другим) — см. cardToolCalls в groupMessages.
+    for (const tc of message.cardToolCalls) {
       if (tc.name !== "get_note") continue;
       const result = results.find((r) => r.tool_call_id === tc.id);
       if (!result) continue;
@@ -339,7 +357,7 @@ function NoteResultLinks({
     }
     return Array.from(byId.values());
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [message.tool_calls, message.display_tool_calls, results]);
+  }, [message.cardToolCalls, results]);
 
   if (notes.length === 0) return null;
 
@@ -370,12 +388,11 @@ function NoteResultLinks({
 // обвязки (тут обычный React, не узел ProseMirror).
 const _HREF_LINKPREVIEW_RE = /<a\s+href="([^"]+)"[^>]*data-linkpreview[^>]*>/g;
 
-function collectLinkPreviewUrls(message: DialogMessage, results: DialogMessage[]): string[] {
+function collectLinkPreviewUrls(message: DialogMessage & { cardToolCalls: ToolCall[] }, results: DialogMessage[]): string[] {
   const urls = new Set<string>();
-  // Только get_note — см. комментарий в NoteResultLinks про то же самое
-  // для карточек заметок: search_base отдаёт кандидатов, не то, что
-  // модель реально решила показать.
-  for (const tc of [...message.tool_calls, ...message.display_tool_calls]) {
+  // Только get_note, только последний раунд — см. комментарии в
+  // NoteResultLinks/groupMessages про обе причины.
+  for (const tc of message.cardToolCalls) {
     if (tc.name !== "get_note") continue;
     const result = results.find((r) => r.tool_call_id === tc.id);
     if (!result) continue;
@@ -429,11 +446,17 @@ function ChatLinkPreviewCard({ url }: { url: string }) {
   );
 }
 
-function LinkPreviewResultCards({ message, results }: { message: DialogMessage; results: DialogMessage[] }) {
+function LinkPreviewResultCards({
+  message,
+  results,
+}: {
+  message: DialogMessage & { cardToolCalls: ToolCall[] };
+  results: DialogMessage[];
+}) {
   const urls = useMemo(
     () => collectLinkPreviewUrls(message, results),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [message.tool_calls, message.display_tool_calls, results],
+    [message.cardToolCalls, results],
   );
 
   if (urls.length === 0) return null;
@@ -671,7 +694,7 @@ function TicketResultCards({
   results,
   onOpenItem,
 }: {
-  message: DialogMessage;
+  message: DialogMessage & { cardToolCalls: ToolCall[] };
   results: DialogMessage[];
   onOpenItem: (id: string, materialType: "note" | "list") => void;
 }) {
@@ -680,12 +703,9 @@ function TicketResultCards({
 
   const tickets = useMemo(() => {
     const byId = new Map<string, TicketResult>();
-    // Только get_note — см. комментарий в NoteResultLinks: реальный случай,
-    // билет вылез карточкой в чате как побочный эффект широкого OR-поиска
-    // search_base по совершенно другой теме (искали больницы, зацепило
-    // авиабилет по случайному слову в OCR-описании), хотя сама модель его
-    // в ответе не упоминала.
-    for (const tc of [...message.tool_calls, ...message.display_tool_calls]) {
+    // Только get_note, только последний раунд — см. комментарии в
+    // NoteResultLinks/groupMessages про обе причины.
+    for (const tc of message.cardToolCalls) {
       if (tc.name !== "get_note") continue;
       const result = results.find((r) => r.tool_call_id === tc.id);
       if (!result) continue;
@@ -713,7 +733,7 @@ function TicketResultCards({
       }
     }
     return Array.from(byId.values());
-  }, [message.tool_calls, message.display_tool_calls, results]);
+  }, [message.cardToolCalls, results]);
 
   if (tickets.length === 0) return null;
 
@@ -1452,13 +1472,13 @@ export default function AssistantChat({
                 )}
                 {message.tool_calls.length > 0 && <CalendarEventLinks message={message} results={toolResults} />}
                 {message.tool_calls.length > 0 && <MapsLinkButtons message={message} results={toolResults} />}
-                {(message.tool_calls.length > 0 || message.display_tool_calls.length > 0) && (
+                {message.cardToolCalls.length > 0 && (
                   <TicketResultCards message={message} results={allToolResults} onOpenItem={onOpenItem} />
                 )}
-                {(message.tool_calls.length > 0 || message.display_tool_calls.length > 0) && (
+                {message.cardToolCalls.length > 0 && (
                   <NoteResultLinks message={message} results={allToolResults} onOpenItem={onOpenItem} />
                 )}
-                {(message.tool_calls.length > 0 || message.display_tool_calls.length > 0) && (
+                {message.cardToolCalls.length > 0 && (
                   <LinkPreviewResultCards message={message} results={allToolResults} />
                 )}
                 {message.role === "assistant" && message.content && (
