@@ -66,12 +66,26 @@ function getMediaCacheLimitBytes() {
   });
 }
 
+// На плохой мобильной сети fetch() может не упасть, а просто ЗАВИСНУТЬ —
+// тогда catch с фолбэком на закэшированный каркас ниже никогда не
+// срабатывал, и пользователь смотрел на чёрный экран сколько угодно
+// (реальная жалоба: "приложение либо очень долго грузится, либо вообще
+// перестаёт грузиться"). AbortController с таймаутом превращает зависание
+// в обычную сетевую ошибку, которую catch уже умеет обрабатывать.
+const NAVIGATE_TIMEOUT_MS = 4000;
+
 async function handleNavigate(request) {
   const cache = await caches.open(SHELL_CACHE);
   try {
-    const response = await fetch(request);
-    if (response.ok) cache.put(SHELL_KEY, response.clone());
-    return response;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), NAVIGATE_TIMEOUT_MS);
+    try {
+      const response = await fetch(request, { signal: controller.signal });
+      if (response.ok) cache.put(SHELL_KEY, response.clone());
+      return response;
+    } finally {
+      clearTimeout(timeout);
+    }
   } catch {
     const cached = await cache.match(SHELL_KEY);
     if (cached) return cached;

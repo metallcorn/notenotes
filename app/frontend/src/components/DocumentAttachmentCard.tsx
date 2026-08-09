@@ -1,15 +1,47 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { NodeViewWrapper } from "@tiptap/react";
 import type { NodeViewProps } from "@tiptap/react";
-import { ChevronDown, ChevronUp, File, FileText } from "lucide-react";
+import { ChevronDown, ChevronUp, Download, File, FileText, X } from "lucide-react";
 import { useReprocessUpload } from "../api/hooks";
 import Spinner from "./Spinner";
 
 const UPLOAD_ID_RE = /\/api\/uploads\/([0-9a-f-]{36})/i;
 
+// Нативный <iframe> — все актуальные браузеры (включая мобильные) рендерят
+// PDF во встроенном просмотрщике сами, со своими зумом/листанием/печатью/
+// скачиванием — не нужна ни одна новая зависимость (в отличие от PyMuPDF на
+// бэкенде, тут наоборот: браузер и так всё умеет).
+function PdfPreviewOverlay({ url, onClose }: { url: string; onClose: () => void }) {
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") onClose();
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [onClose]);
+
+  return (
+    <div className="fixed inset-0 z-50 flex flex-col bg-black/80 p-2 sm:p-6">
+      <button
+        onClick={onClose}
+        title="Закрыть (Esc)"
+        className="mb-2 flex h-9 w-9 shrink-0 items-center justify-center self-end rounded-full bg-black/50 text-white hover:bg-black/70"
+      >
+        <X size={18} />
+      </button>
+      {/* Клик внутри — взаимодействие с самим PDF-просмотрщиком браузера
+          (скролл/зум/его кнопки), поэтому закрытие только по ✕/Escape, не
+          по клику на содержимое или фон — иначе случайный клик по PDF
+          закрывал бы весь оверлей. */}
+      <iframe src={url} title={url} className="min-h-0 w-full flex-1 rounded bg-white" />
+    </div>
+  );
+}
+
 export default function DocumentAttachmentCard({ node, editor, getPos }: NodeViewProps) {
   const { url, filename, text } = node.attrs as { url: string; filename: string; text: string };
   const [expanded, setExpanded] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(false);
   const reprocess = useReprocessUpload();
 
   const isPdf = filename.toLowerCase().endsWith(".pdf");
@@ -33,19 +65,37 @@ export default function DocumentAttachmentCard({ node, editor, getPos }: NodeVie
   return (
     <NodeViewWrapper as="div" className="my-1" data-drag-handle draggable>
       <div className="inline-block max-w-full rounded border bg-slate-50">
-        <a
-          href={url}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="flex items-center gap-2 px-3 py-2 text-sm text-slate-800 no-underline hover:bg-slate-100"
-        >
+        <div className="flex items-center">
           {isPdf ? (
-            <FileText size={16} className="shrink-0 text-red-500" />
+            <button
+              onClick={() => setPreviewOpen(true)}
+              className="flex min-w-0 flex-1 items-center gap-2 px-3 py-2 text-left text-sm text-slate-800 hover:bg-slate-100"
+            >
+              <FileText size={16} className="shrink-0 text-red-500" />
+              <span className="max-w-xs truncate font-medium">{filename || url}</span>
+            </button>
           ) : (
-            <File size={16} className="shrink-0 text-slate-400" />
+            <a
+              href={url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex min-w-0 flex-1 items-center gap-2 px-3 py-2 text-sm text-slate-800 no-underline hover:bg-slate-100"
+            >
+              <File size={16} className="shrink-0 text-slate-400" />
+              <span className="max-w-xs truncate font-medium">{filename || url}</span>
+            </a>
           )}
-          <span className="max-w-xs truncate font-medium">{filename || url}</span>
-        </a>
+          {isPdf && (
+            <a
+              href={url}
+              download={filename || undefined}
+              title="Скачать"
+              className="flex h-9 w-9 shrink-0 items-center justify-center text-slate-400 hover:text-slate-700"
+            >
+              <Download size={14} />
+            </a>
+          )}
+        </div>
 
         {text && (
           <button
@@ -73,6 +123,7 @@ export default function DocumentAttachmentCard({ node, editor, getPos }: NodeVie
           </button>
         )}
       </div>
+      {previewOpen && <PdfPreviewOverlay url={url} onClose={() => setPreviewOpen(false)} />}
     </NodeViewWrapper>
   );
 }

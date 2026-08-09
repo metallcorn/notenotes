@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { ChevronLeft, Sparkles, Trash2 } from "lucide-react";
 import { useSpaces } from "../api/hooks";
 import { uiStorage, type ViewMode } from "../lib/storage";
@@ -23,6 +24,14 @@ type MobileView = "sidebar" | "list" | "editor";
 export default function AppShell() {
   const { data: spaces } = useSpaces();
   const updateAvailable = useVersionCheck();
+  // URL — источник истины для того, какая заметка/диалог открыты (не
+  // только React state): без этого системный жест «назад» на телефоне не
+  // находит в history этого приложения ничего своего и закрывает всё
+  // приложение целиком, а обновление страницы после ухода «назад» кнопкой
+  // интерфейса снова открывало ту же заметку — оба симптома одной причины
+  // (реальная жалоба). react-router-dom уже используется в проекте
+  // (App.tsx, login/register), новая зависимость не нужна.
+  const [searchParams, setSearchParams] = useSearchParams();
 
   const [activeSpaceId, setActiveSpaceId] = useState<string | undefined>(undefined);
   useSpaceSync(activeSpaceId);
@@ -73,6 +82,18 @@ export default function AppShell() {
     const spaceId = validLastSpaceId ?? valid?.spaceId ?? spaces[0].id;
     setActiveSpaceId(spaceId);
 
+    // В URL уже указана заметка/диалог (прямая ссылка, PWA-ярлык) —
+    // приоритет у неё, восстановление из localStorage ниже не нужно:
+    // эффект-синхронизация (см. ниже) сам разберёт URL. viewMode всё
+    // равно нужно выставить, чтобы открылся правильный экран.
+    if (searchParams.get("dialog")) {
+      setViewModeState("assistant");
+      return;
+    }
+    if (searchParams.get("item")) {
+      return;
+    }
+
     // Экран (заметки/ассистент/корзина) — отдельная ось от папки/заметки:
     // без этого обновление страницы всегда откатывало на «Заметки», даже
     // если сидели в Ассистенте или Корзине.
@@ -81,8 +102,7 @@ export default function AppShell() {
       setViewModeState("assistant");
       const lastDialogId = uiStorage.getLastDialogId();
       if (lastDialogId) {
-        setSelectedDialogId(lastDialogId);
-        setMobileView("editor");
+        setSearchParams({ dialog: lastDialogId }, { replace: true });
       } else {
         setMobileView("list");
       }
@@ -97,12 +117,31 @@ export default function AppShell() {
     const lastItemId = uiStorage.getLastItemId(spaceId);
     if (lastItemId) {
       setActiveFolderId(null);
-      setSelectedItemIdState(lastItemId);
-      setMobileView("editor");
+      setSearchParams({ item: lastItemId }, { replace: true });
     } else {
       setActiveFolderId(valid?.folderId ?? null);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [spaces]);
+
+  // Единственное место, которое реально пишет в selectedItemId/
+  // selectedDialogId — источник истины URL, не отдельные setState-вызовы.
+  // Срабатывает и на программное открытие (setSelectedItemId/selectDialog
+  // ниже), и на popstate от кнопки браузера/системного жеста «назад» —
+  // это ровно то же самое событие для React, что и обычный переход по
+  // ссылке, отдельно ловить popstate не нужно.
+  useEffect(() => {
+    const itemParam = searchParams.get("item");
+    const dialogParam = searchParams.get("dialog");
+    withViewTransition(() => {
+      setSelectedItemIdState(itemParam);
+      setSelectedDialogId(dialogParam);
+      setMobileView(itemParam || dialogParam ? "editor" : "list");
+    });
+    if (activeSpaceId) uiStorage.setLastItemId(activeSpaceId, itemParam);
+    uiStorage.setLastDialogId(dialogParam);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
 
   function setViewMode(mode: ViewMode) {
     setViewModeState(mode);
@@ -110,11 +149,32 @@ export default function AppShell() {
   }
 
   function setSelectedItemId(id: string | null) {
-    withViewTransition(() => {
-      setSelectedItemIdState(id);
-      setMobileView(id ? "editor" : "list");
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      if (id) {
+        next.set("item", id);
+        next.delete("dialog");
+      } else {
+        next.delete("item");
+      }
+      return next;
     });
-    if (activeSpaceId) uiStorage.setLastItemId(activeSpaceId, id);
+  }
+
+  // Кнопка «назад» в интерфейсе — прямой сброс (replace, не push): не
+  // полагается на то, что в history вообще есть куда возвращаться (если
+  // на заметку зашли по прямой ссылке, а не через переход внутри
+  // приложения, navigate(-1) увёл бы из приложения совсем). Системный
+  // жест «назад» на телефоне работает независимо и уже сам корректно
+  // возвращается на предыдущую запись в history — ту, что появилась в
+  // момент открытия заметки (обычный push в setSelectedItemId выше).
+  function closeItemView() {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      next.delete("item");
+      next.delete("dialog");
+      return next;
+    }, { replace: true });
   }
 
   function selectFolder(spaceId: string, folderId: string | null) {
@@ -157,11 +217,16 @@ export default function AppShell() {
   }
 
   function selectDialog(id: string | null) {
-    withViewTransition(() => {
-      setSelectedDialogId(id);
-      setMobileView(id ? "editor" : "list");
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      if (id) {
+        next.set("dialog", id);
+        next.delete("item");
+      } else {
+        next.delete("dialog");
+      }
+      return next;
     });
-    uiStorage.setLastDialogId(id);
   }
 
   function toggleSpaceCollapsed(spaceId: string) {
@@ -340,8 +405,8 @@ export default function AppShell() {
                 selectedItemId ? (
                   <ItemView
                     itemId={selectedItemId}
-                    onDeleted={() => setSelectedItemId(null)}
-                    onBack={() => withViewTransition(() => setMobileView("list"))}
+                    onDeleted={closeItemView}
+                    onBack={closeItemView}
                     highlightEntryId={highlightEntryId}
                   />
                 ) : (
@@ -352,7 +417,7 @@ export default function AppShell() {
               ) : selectedDialogId ? (
                 <AssistantChat
                   dialogId={selectedDialogId}
-                  onBack={() => withViewTransition(() => setMobileView("list"))}
+                  onBack={closeItemView}
                   onOpenItem={(id) => {
                     setViewMode("notes");
                     setActiveFolderId(null);
