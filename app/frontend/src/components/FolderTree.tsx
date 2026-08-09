@@ -29,28 +29,30 @@ function FolderNode({ folder, all, selectedFolderId, onSelect, onAddChild, onRen
           {folder.name}
         </button>
         {/* Не group-hover: на тачскрине :hover не срабатывает вообще —
-            кнопки были физически недостижимы на телефоне. */}
+            кнопки были физически недостижимы на телефоне. h-8 w-8 (было
+            h-6 w-6) — тот же телефонный отзыв: 24px физически не попасть
+            пальцем, тем более три кнопки подряд. */}
         <span className="flex shrink-0 gap-0.5">
           <button
             title="Подпапка"
             onClick={() => onAddChild(folder.id)}
-            className="flex h-6 w-6 items-center justify-center text-slate-400 hover:text-slate-700"
+            className="flex h-8 w-8 items-center justify-center text-slate-400 hover:text-slate-700"
           >
-            <Plus size={13} />
+            <Plus size={14} />
           </button>
           <button
             title="Переименовать"
             onClick={() => onRename(folder)}
-            className="flex h-6 w-6 items-center justify-center text-slate-400 hover:text-slate-700"
+            className="flex h-8 w-8 items-center justify-center text-slate-400 hover:text-slate-700"
           >
-            <Pencil size={12} />
+            <Pencil size={13} />
           </button>
           <button
             title="Удалить"
             onClick={() => onDelete(folder)}
-            className="flex h-6 w-6 items-center justify-center text-slate-400 hover:text-red-600"
+            className="flex h-8 w-8 items-center justify-center text-slate-400 hover:text-red-600"
           >
-            <X size={14} />
+            <X size={15} />
           </button>
         </span>
       </div>

@@ -423,6 +423,34 @@ interface TicketResult {
   locationTo: string;
   seat: string;
   code: string;
+  uploadId: string;
+}
+
+// Оригинал фото билета — то же, на что в заметке открывается клик по
+// заголовку карточки (TicketAttachmentCard.tsx's TicketPreviewOverlay), но
+// билеты этой карточки приходят только с фото (vision.py), PDF-ветки тут
+// нет — упрощённая версия без iframe-случая.
+function ChatTicketPreviewOverlay({ uploadId, onClose }: { uploadId: string; onClose: () => void }) {
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") onClose();
+    }
+    window.addEventListener("keydown", onKeyDown as unknown as EventListener);
+    return () => window.removeEventListener("keydown", onKeyDown as unknown as EventListener);
+  }, [onClose]);
+
+  return (
+    <div className="fixed inset-0 z-50 flex flex-col bg-black/80 p-2 sm:p-6">
+      <button
+        onClick={onClose}
+        title="Закрыть (Esc)"
+        className="mb-2 flex h-9 w-9 shrink-0 items-center justify-center self-end rounded-full bg-black/50 text-white hover:bg-black/70"
+      >
+        <X size={18} />
+      </button>
+      <img src={`/api/uploads/${uploadId}`} alt="" style={{ margin: "auto", maxHeight: "100%", maxWidth: "100%" }} />
+    </div>
+  );
 }
 
 // Отдельный компактный QR-оверлей — не переиспользует TicketAttachmentCard.tsx
@@ -483,6 +511,7 @@ function TicketResultCards({
   onOpenItem: (id: string, materialType: "note" | "list") => void;
 }) {
   const [qrTicket, setQrTicket] = useState<TicketResult | null>(null);
+  const [previewTicket, setPreviewTicket] = useState<TicketResult | null>(null);
 
   const tickets = useMemo(() => {
     const byId = new Map<string, TicketResult>();
@@ -506,6 +535,7 @@ function TicketResultCards({
             locationTo: (props.location_to as string) || "",
             seat: (props.seat as string) || "",
             code: (props.code as string) || "",
+            uploadId: (props.upload_id as string) || "",
           });
         }
       } catch {
@@ -524,13 +554,26 @@ function TicketResultCards({
         const label = TICKET_LABELS[ticket.ticketType] ?? TICKET_LABELS.other;
         return (
           <div key={ticket.id} className="max-w-xs rounded border border-violet-200 bg-white">
-            <div className="flex items-start gap-2 px-3 py-2">
-              <Icon size={16} className="mt-0.5 shrink-0 text-violet-600" />
-              <div className="min-w-0 flex-1">
-                <div className="text-xs font-medium uppercase tracking-wide text-violet-600">{label}</div>
-                <div className="truncate text-sm font-medium text-slate-800">{ticket.title}</div>
+            {ticket.uploadId ? (
+              <button
+                onClick={() => setPreviewTicket(ticket)}
+                className="flex w-full items-start gap-2 px-3 py-2 text-left hover:bg-violet-50"
+              >
+                <Icon size={16} className="mt-0.5 shrink-0 text-violet-600" />
+                <div className="min-w-0 flex-1">
+                  <div className="text-xs font-medium uppercase tracking-wide text-violet-600">{label}</div>
+                  <div className="truncate text-sm font-medium text-slate-800">{ticket.title}</div>
+                </div>
+              </button>
+            ) : (
+              <div className="flex items-start gap-2 px-3 py-2">
+                <Icon size={16} className="mt-0.5 shrink-0 text-violet-600" />
+                <div className="min-w-0 flex-1">
+                  <div className="text-xs font-medium uppercase tracking-wide text-violet-600">{label}</div>
+                  <div className="truncate text-sm font-medium text-slate-800">{ticket.title}</div>
+                </div>
               </div>
-            </div>
+            )}
             <div className="space-y-1 border-t border-violet-100 px-3 py-2 text-xs text-slate-700">
               {ticket.datetimeStart && (
                 <div className="flex items-center gap-1.5">
@@ -575,6 +618,9 @@ function TicketResultCards({
         );
       })}
       {qrTicket && <ChatTicketQrOverlay code={qrTicket.code} title={qrTicket.title} onClose={() => setQrTicket(null)} />}
+      {previewTicket && (
+        <ChatTicketPreviewOverlay uploadId={previewTicket.uploadId} onClose={() => setPreviewTicket(null)} />
+      )}
     </div>
   );
 }

@@ -192,13 +192,18 @@ export default function AppShell() {
     uiStorage.setViewMode(mode);
   }
 
-  function setSelectedItemId(id: string | null) {
+  function setSelectedItemId(id: string | null, options?: { forcePush?: boolean }) {
     // Тот же принцип, что в openListView: уже открыта заметка (десктоп,
     // клик по другой заметке в списке прямо из открытого редактора,
     // обычный рабочий процесс) — replace, а не push, иначе каждый такой
     // клик копит в history отдельную запись и «назад» приходится жать
     // отдельно на каждую просмотренную заметку, а не один раз к списку.
-    const alreadyOnEditor = mobileView === "editor";
+    // forcePush — исключение из этого правила: переход НЕ между заметками,
+    // а «нырок» из другого контекста (диалог с ассистентом → заметка по
+    // ссылке из ответа, уведомление → заметка) — тут реплейс стирал бы из
+    // истории тот самый диалог/экран, откуда пришли, и «назад» уводил бы
+    // мимо него (жалоба в отзыве: «думал что вернусь туда, где реально был»).
+    const alreadyOnEditor = mobileView === "editor" && !options?.forcePush;
     setSearchParams(
       (prev) => {
         const next = new URLSearchParams(prev);
@@ -288,7 +293,7 @@ export default function AppShell() {
     setActiveFolderId(null);
     setTagId(null);
     setHighlightEntryId(entryId ?? null);
-    setSelectedItemId(itemId);
+    setSelectedItemId(itemId, { forcePush: true });
   }
 
   function selectTag(id: string | null) {
@@ -529,7 +534,7 @@ export default function AppShell() {
                     setViewMode("notes");
                     setActiveFolderId(null);
                     setTagId(null);
-                    setSelectedItemId(id);
+                    setSelectedItemId(id, { forcePush: true });
                   }}
                 />
               ) : (

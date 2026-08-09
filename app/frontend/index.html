@@ -2,7 +2,15 @@
 <html lang="ru">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <!-- interactive-widget=resizes-content: без него Chrome на Android при
+         открытии клавиатуры схлопывает только visualViewport, а layout
+         viewport (и все dvh-размеры, см. index.css) остаётся прежним — низ
+         экрана оказывается физически под клавиатурой (жалоба в отзыве).
+         С этим значением сама раскладка сжимается вместе с клавиатурой. -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content"
+    />
     <title>Notenotes</title>
     <meta name="theme-color" content="#1e293b" />
     <link rel="manifest" href="/manifest.webmanifest" />
