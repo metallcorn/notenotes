@@ -4,7 +4,10 @@ import asyncio
 import json
 import logging
 import uuid
+from pathlib import Path
 
+from PIL import Image
+from pyzbar.pyzbar import decode as zbar_decode
 from sqlalchemy import select
 
 from app import realtime
@@ -57,6 +60,31 @@ def enqueue_ticket_extraction(upload_id: uuid.UUID) -> None:
     _queue.put_nowait(upload_id)
 
 
+def _upload_path(upload_id: uuid.UUID) -> Path:
+    return Path(get_settings().upload_dir) / str(upload_id)
+
+
+def _decode_code(upload_id: uuid.UUID) -> str | None:
+    """QR/штрихкод с исходного файла — pyzbar работает с растровым
+    изображением (декодирует libzbar0, сам pyzbar — только Python-биндинг),
+    поэтому применимо только к билетам-картинкам; PDF-билеты этот шаг не
+    проходят (вне рамок текущей фазы). Первый найденный код — билет обычно
+    несёт один; если их несколько, остальные теряются, не то что здесь
+    нужно усложнять."""
+    path = _upload_path(upload_id)
+    if not path.is_file():
+        return None
+    try:
+        with Image.open(path) as img:
+            results = zbar_decode(img)
+    except Exception:
+        logger.exception("Ошибка декодирования QR/штрихкода для %s", upload_id)
+        return None
+    if not results:
+        return None
+    return results[0].data.decode("utf-8", errors="replace")
+
+
 def _parse_json_response(raw: str) -> dict | None:
     raw = raw.strip()
     # Та же терпимость к ```json-ограждениям, что в autotag.py.
@@ -84,7 +112,7 @@ async def _extract(transcript: str) -> dict | None:
     return _parse_json_response(response.message.content)
 
 
-def _build_properties(upload_id: uuid.UUID, data: dict) -> dict:
+def _build_properties(upload_id: uuid.UUID, data: dict, code: str | None) -> dict:
     ticket_type = data.get("ticket_type")
     if ticket_type not in _TICKET_TYPES:
         ticket_type = "other"
@@ -95,6 +123,7 @@ def _build_properties(upload_id: uuid.UUID, data: dict) -> dict:
         "location_from": data.get("location_from") or None,
         "location_to": data.get("location_to") or None,
         "seat": data.get("seat") or None,
+        "code": code,
         "upload_id": str(upload_id),
     }
 
@@ -106,7 +135,7 @@ def _esc(s: str) -> str:
     return s.replace("&", "&amp;").replace("\n", "&#10;").replace('"', "&quot;")
 
 
-def _serialize_ticket_card(url: str, filename: str, data: dict, raw_text: str) -> str:
+def _serialize_ticket_card(url: str, filename: str, data: dict, raw_text: str, code: str | None) -> str:
     parts = [f'data-url="{_esc(url)}"']
     if filename:
         parts.append(f'data-filename="{_esc(filename)}"')
@@ -125,6 +154,8 @@ def _serialize_ticket_card(url: str, filename: str, data: dict, raw_text: str) -
         value = data.get(key)
         if value:
             parts.append(f'{attr}="{_esc(str(value))}"')
+    if code:
+        parts.append(f'data-code="{_esc(code)}"')
     if raw_text:
         # data-text, не data-raw-text: полнотекстовый поиск (миграция 0015,
         # notenotes_extract_attr_text) вытаскивает для индекса только
@@ -203,8 +234,9 @@ async def _process(upload_id: uuid.UUID) -> None:
         await _replace_in_referencing_items(upload_id, image_placeholder_text(upload_id), formatted)
         return
 
-    properties = _build_properties(upload_id, data)
-    card = _serialize_ticket_card(f"/api/uploads/{upload_id}", filename, data, transcript)
+    code = _decode_code(upload_id)
+    properties = _build_properties(upload_id, data, code)
+    card = _serialize_ticket_card(f"/api/uploads/{upload_id}", filename, data, transcript, code)
     await _finalize_ticket_item(upload_id, image_placeholder_text(upload_id), card, properties)
 
 

@@ -20,6 +20,7 @@ export interface TicketAttachmentData {
   seat: string;
   title: string;
   rawText: string;
+  code: string;
 }
 
 export function serializeTicketAttachment(data: TicketAttachmentData): string {
@@ -33,6 +34,7 @@ export function serializeTicketAttachment(data: TicketAttachmentData): string {
   if (data.locationTo) parts.push(`data-location-to="${esc(data.locationTo)}"`);
   if (data.seat) parts.push(`data-seat="${esc(data.seat)}"`);
   if (data.title) parts.push(`data-title="${esc(data.title)}"`);
+  if (data.code) parts.push(`data-code="${esc(data.code)}"`);
   // data-text, не data-raw-text — полнотекстовый поиск на бэкенде
   // (миграция 0015) индексирует только этот конкретный атрибут, тот же
   // приём, что у DocumentAttachment.
@@ -100,6 +102,11 @@ export const TicketAttachment = Node.create({
         default: "",
         parseHTML: (element: HTMLElement) => element.getAttribute("data-text") ?? "",
         renderHTML: (attrs: { rawText?: string }) => (attrs.rawText ? { "data-text": attrs.rawText } : {}),
+      },
+      code: {
+        default: "",
+        parseHTML: (element: HTMLElement) => element.getAttribute("data-code") ?? "",
+        renderHTML: (attrs: { code?: string }) => (attrs.code ? { "data-code": attrs.code } : {}),
       },
     };
   },

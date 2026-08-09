@@ -1,7 +1,21 @@
 import { useEffect, useState } from "react";
 import { NodeViewWrapper } from "@tiptap/react";
 import type { NodeViewProps } from "@tiptap/react";
-import { Armchair, Bus, Calendar, ChevronDown, ChevronUp, Download, MapPin, Plane, Ticket, Train, X } from "lucide-react";
+import QRCode from "qrcode";
+import {
+  Armchair,
+  Bus,
+  Calendar,
+  ChevronDown,
+  ChevronUp,
+  Download,
+  MapPin,
+  Plane,
+  QrCode,
+  Ticket,
+  Train,
+  X,
+} from "lucide-react";
 import type { TicketAttachmentData } from "../extensions/TicketAttachment";
 
 const TICKET_ICONS: Record<string, typeof Ticket> = {
@@ -56,6 +70,82 @@ function TicketPreviewOverlay({ url, isPdf, onClose }: { url: string; isPdf: boo
   );
 }
 
+// «Предъявить билет» — крупный QR на весь экран, чтобы сканер спокойно
+// считал его с телефона. Код здесь ПЕРЕГЕНЕРИРУЕТСЯ на фронте из строки,
+// декодированной бэкендом (app/tickets.py, pyzbar) — не картинка с
+// бэкенда: ТЗ §7 запрещает хранить картинки как base64 в контенте
+// заметки, а тут и не нужно — исходных данных QR достаточно, чтобы
+// нарисовать его заново любого размера.
+function TicketQrOverlay({
+  code,
+  title,
+  datetimeStart,
+  seat,
+  onClose,
+}: {
+  code: string;
+  title: string;
+  datetimeStart: string;
+  seat: string;
+  onClose: () => void;
+}) {
+  const [dataUrl, setDataUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") onClose();
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [onClose]);
+
+  useEffect(() => {
+    let cancelled = false;
+    QRCode.toDataURL(code, { width: 800, margin: 1 })
+      .then((url) => {
+        if (!cancelled) setDataUrl(url);
+      })
+      .catch(() => {
+        if (!cancelled) setDataUrl(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [code]);
+
+  return (
+    <div className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-4 bg-white p-6">
+      <button
+        onClick={onClose}
+        title="Закрыть (Esc)"
+        className="absolute right-4 top-4 flex h-9 w-9 items-center justify-center rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200"
+      >
+        <X size={18} />
+      </button>
+      {title && <div className="text-center text-lg font-medium text-slate-800">{title}</div>}
+      {dataUrl ? (
+        // Инлайн-стиль, не className: этот <img> — DOM-потомок .tiptap
+        // (NodeView лежит внутри ProseMirror-дерева даже при
+        // position:fixed — position меняет визуальное позиционирование,
+        // не DOM-предков), а .tiptap img{max-width:100%} в index.css
+        // специфичнее класса .max-w-sm (доп. элементный селектор) и
+        // перебивал бы его через containing block фиксированного элемента
+        // (весь viewport) — картинка раздувалась на весь экран.
+        <img src={dataUrl} alt="QR-код билета" style={{ width: "100%", maxWidth: "24rem" }} />
+      ) : (
+        <div className="flex h-64 w-64 items-center justify-center text-sm text-slate-400">Генерация QR…</div>
+      )}
+      {(datetimeStart || seat) && (
+        <div className="text-center text-sm text-slate-500">
+          {datetimeStart && formatDateTime(datetimeStart)}
+          {datetimeStart && seat && " · "}
+          {seat}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function TicketAttachmentCard({ node }: NodeViewProps) {
   const {
     url,
@@ -67,9 +157,11 @@ export default function TicketAttachmentCard({ node }: NodeViewProps) {
     seat,
     title,
     rawText,
+    code,
   } = node.attrs as TicketAttachmentData;
   const [expanded, setExpanded] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
+  const [qrOpen, setQrOpen] = useState(false);
 
   const isPdf = filename.toLowerCase().endsWith(".pdf");
   const Icon = TICKET_ICONS[ticketType] ?? Ticket;
@@ -114,6 +206,16 @@ export default function TicketAttachmentCard({ node }: NodeViewProps) {
           )}
         </div>
 
+        {code && (
+          <button
+            onClick={() => setQrOpen(true)}
+            className="flex w-full items-center justify-center gap-1.5 border-t border-violet-200 bg-violet-600 py-2 text-sm font-medium text-white hover:bg-violet-700"
+          >
+            <QrCode size={14} />
+            Предъявить билет
+          </button>
+        )}
+
         <div className="flex items-center border-t border-violet-200">
           <a
             href={url}
@@ -155,6 +257,15 @@ export default function TicketAttachmentCard({ node }: NodeViewProps) {
         )}
       </div>
       {previewOpen && <TicketPreviewOverlay url={url} isPdf={isPdf} onClose={() => setPreviewOpen(false)} />}
+      {qrOpen && code && (
+        <TicketQrOverlay
+          code={code}
+          title={title}
+          datetimeStart={datetimeStart}
+          seat={seat}
+          onClose={() => setQrOpen(false)}
+        />
+      )}
     </NodeViewWrapper>
   );
 }
