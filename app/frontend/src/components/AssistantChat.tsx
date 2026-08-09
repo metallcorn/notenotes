@@ -2,6 +2,9 @@ import { FormEvent, KeyboardEvent, useEffect, useMemo, useRef, useState } from "
 import { useQueryClient } from "@tanstack/react-query";
 import {
   AlignCenter,
+  Armchair,
+  Bus,
+  Calendar,
   CalendarPlus,
   Check,
   ChevronDown,
@@ -12,13 +15,19 @@ import {
   Mic,
   MapPin,
   Pencil,
+  Plane,
+  QrCode,
   Square,
   StretchHorizontal,
+  Ticket,
+  Train,
   Trash2,
   Volume2,
   VolumeX,
   Wrench,
+  X,
 } from "lucide-react";
+import QRCode from "qrcode";
 import ReactMarkdown, { type Components } from "react-markdown";
 import ReactDOMServer from "react-dom/server";
 import remarkGfm from "remark-gfm";
@@ -386,6 +395,186 @@ function CalendarEventLinks({ message, results }: { message: DialogMessage; resu
           </div>
         );
       })}
+    </div>
+  );
+}
+
+const TICKET_ICONS: Record<string, typeof Ticket> = { train: Train, flight: Plane, bus: Bus, event: Ticket, other: Ticket };
+const TICKET_LABELS: Record<string, string> = {
+  train: "ЖД-билет",
+  flight: "Авиабилет",
+  bus: "Автобусный билет",
+  event: "Билет на мероприятие",
+  other: "Билет",
+};
+
+function formatTicketDateTime(value: string): string {
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return value;
+  return d.toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
+}
+
+interface TicketResult {
+  id: string;
+  title: string;
+  ticketType: string;
+  datetimeStart: string;
+  locationFrom: string;
+  locationTo: string;
+  seat: string;
+  code: string;
+}
+
+// Отдельный компактный QR-оверлей — не переиспользует TicketAttachmentCard.tsx
+// напрямую: тот рассчитан на TipTap NodeView (drag-обёртка, atom-узел), а
+// здесь обычный React-компонент в чате, ничего этого не нужно.
+function ChatTicketQrOverlay({ code, title, onClose }: { code: string; title: string; onClose: () => void }) {
+  const [dataUrl, setDataUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") onClose();
+    }
+    window.addEventListener("keydown", onKeyDown as unknown as EventListener);
+    return () => window.removeEventListener("keydown", onKeyDown as unknown as EventListener);
+  }, [onClose]);
+
+  useEffect(() => {
+    let cancelled = false;
+    QRCode.toDataURL(code, { width: 800, margin: 1 })
+      .then((url) => !cancelled && setDataUrl(url))
+      .catch(() => !cancelled && setDataUrl(null));
+    return () => {
+      cancelled = true;
+    };
+  }, [code]);
+
+  return (
+    <div className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-4 bg-white p-6">
+      <button
+        onClick={onClose}
+        title="Закрыть (Esc)"
+        className="absolute right-4 top-4 flex h-9 w-9 items-center justify-center rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200"
+      >
+        <X size={18} />
+      </button>
+      {title && <div className="text-center text-lg font-medium text-slate-800">{title}</div>}
+      {dataUrl ? (
+        <img src={dataUrl} alt="QR-код билета" style={{ width: "100%", maxWidth: "24rem" }} />
+      ) : (
+        <div className="flex h-64 w-64 items-center justify-center text-sm text-slate-400">Генерация QR…</div>
+      )}
+    </div>
+  );
+}
+
+// Билеты — единственный тип заметки, у которого search_base/get_note
+// возвращают properties вместо/вместе с excerpt (см. TOOL_PROMPT_FRAGMENTS
+// в dialogs.py — модели явно велено не переписывать эти поля текстом
+// заново, раз карточка рисуется сама). Дедуп по id — get_note и search_base
+// могли найти один и тот же билет за один ход.
+function TicketResultCards({
+  message,
+  results,
+  onOpenItem,
+}: {
+  message: DialogMessage;
+  results: DialogMessage[];
+  onOpenItem: (id: string, materialType: "note" | "list") => void;
+}) {
+  const [qrTicket, setQrTicket] = useState<TicketResult | null>(null);
+
+  const tickets = useMemo(() => {
+    const byId = new Map<string, TicketResult>();
+    for (const tc of message.tool_calls) {
+      if (tc.name !== "search_base" && tc.name !== "get_note") continue;
+      const result = results.find((r) => r.tool_call_id === tc.id);
+      if (!result) continue;
+      try {
+        const parsed = JSON.parse(result.content);
+        const candidates: Array<Record<string, unknown>> =
+          tc.name === "get_note" ? [parsed] : Array.isArray(parsed.results) ? parsed.results : [];
+        for (const item of candidates) {
+          if (item.material_type !== "ticket" || typeof item.id !== "string" || !item.properties) continue;
+          const props = item.properties as Record<string, unknown>;
+          byId.set(item.id, {
+            id: item.id,
+            title: (item.title as string) || "Билет",
+            ticketType: (props.ticket_type as string) || "other",
+            datetimeStart: (props.datetime_start as string) || "",
+            locationFrom: (props.location_from as string) || "",
+            locationTo: (props.location_to as string) || "",
+            seat: (props.seat as string) || "",
+            code: (props.code as string) || "",
+          });
+        }
+      } catch {
+        // не JSON/не тот формат — пропускаем
+      }
+    }
+    return Array.from(byId.values());
+  }, [message.tool_calls, results]);
+
+  if (tickets.length === 0) return null;
+
+  return (
+    <div className="mt-1.5 flex flex-col gap-2">
+      {tickets.map((ticket) => {
+        const Icon = TICKET_ICONS[ticket.ticketType] ?? Ticket;
+        const label = TICKET_LABELS[ticket.ticketType] ?? TICKET_LABELS.other;
+        return (
+          <div key={ticket.id} className="max-w-xs rounded border border-violet-200 bg-white">
+            <div className="flex items-start gap-2 px-3 py-2">
+              <Icon size={16} className="mt-0.5 shrink-0 text-violet-600" />
+              <div className="min-w-0 flex-1">
+                <div className="text-xs font-medium uppercase tracking-wide text-violet-600">{label}</div>
+                <div className="truncate text-sm font-medium text-slate-800">{ticket.title}</div>
+              </div>
+            </div>
+            <div className="space-y-1 border-t border-violet-100 px-3 py-2 text-xs text-slate-700">
+              {ticket.datetimeStart && (
+                <div className="flex items-center gap-1.5">
+                  <Calendar size={12} className="shrink-0 text-slate-400" />
+                  {formatTicketDateTime(ticket.datetimeStart)}
+                </div>
+              )}
+              {(ticket.locationFrom || ticket.locationTo) && (
+                <div className="flex items-center gap-1.5">
+                  <MapPin size={12} className="shrink-0 text-slate-400" />
+                  <span className="truncate">
+                    {ticket.locationFrom}
+                    {ticket.locationFrom && ticket.locationTo && " → "}
+                    {ticket.locationTo}
+                  </span>
+                </div>
+              )}
+              {ticket.seat && (
+                <div className="flex items-center gap-1.5">
+                  <Armchair size={12} className="shrink-0 text-slate-400" />
+                  {ticket.seat}
+                </div>
+              )}
+            </div>
+            <div className="flex flex-wrap items-center gap-1.5 border-t border-violet-100 px-2 py-1.5">
+              {ticket.code && (
+                <button
+                  onClick={() => setQrTicket(ticket)}
+                  className="flex items-center gap-1 rounded-full bg-violet-600 px-2.5 py-1 text-xs text-white hover:bg-violet-700"
+                >
+                  <QrCode size={12} /> Предъявить билет
+                </button>
+              )}
+              <button
+                onClick={() => onOpenItem(ticket.id, "note")}
+                className="flex items-center gap-1 rounded-full border border-slate-300 bg-white px-2.5 py-1 text-xs text-slate-700 hover:border-slate-400 hover:bg-slate-50"
+              >
+                Открыть заметку <ChevronRight size={11} />
+              </button>
+            </div>
+          </div>
+        );
+      })}
+      {qrTicket && <ChatTicketQrOverlay code={qrTicket.code} title={qrTicket.title} onClose={() => setQrTicket(null)} />}
     </div>
   );
 }
@@ -1038,6 +1227,9 @@ export default function AssistantChat({
                 )}
                 {message.tool_calls.length > 0 && <CalendarEventLinks message={message} results={toolResults} />}
                 {message.tool_calls.length > 0 && <MapsLinkButtons message={message} results={toolResults} />}
+                {message.tool_calls.length > 0 && (
+                  <TicketResultCards message={message} results={toolResults} onOpenItem={onOpenItem} />
+                )}
                 {message.role === "assistant" && message.content && (
                   <div className="flex items-center gap-0.5">
                     <SpeakButton

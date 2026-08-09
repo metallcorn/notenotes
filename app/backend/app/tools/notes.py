@@ -113,9 +113,19 @@ GET_NOTE = ToolDefinition(
 
 async def get_note(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
     item = await _get_item_cross_space(ctx, args.get("item_id"))
-    if item.material_type != "note":
+    if item.material_type not in ("note", "ticket"):
         raise ToolError("Это не заметка (возможно, список — используй get_list)")
-    return {"id": str(item.id), "title": item.title, "content": item.content}
+    result: dict[str, Any] = {"id": str(item.id), "title": item.title, "content": item.content}
+    if item.material_type == "ticket":
+        # content для билета — почти только служебный <div
+        # data-ticket-attachment ...> (сам текст полностью заменяется
+        # карточкой при распознавании, см. tickets.py) — моделью не
+        # читается осмысленно. properties — уже готовые чистые поля
+        # (тип, дата/время, откуда-куда, место), их и возвращаем как
+        # основной источник ответа.
+        result["material_type"] = "ticket"
+        result["properties"] = item.properties
+    return result
 
 
 UPDATE_NOTE = ToolDefinition(

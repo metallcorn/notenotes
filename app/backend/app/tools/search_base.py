@@ -38,16 +38,22 @@ async def handle(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
         items = await search_items(
             ctx.db, ctx.user_id, query, material_types=("note", "list", "ticket"), limit=20, match="or"
         )
-    return {
-        "results": [
-            {
-                "id": str(item.id),
-                "title": item.title,
-                "material_type": item.material_type,
-                "excerpt": item.content[:300],
-                "folder_id": str(item.folder_id) if item.folder_id else None,
-                "space_id": str(item.space_id),
-            }
-            for item in items
-        ]
-    }
+    def _serialize(item: Any) -> dict[str, Any]:
+        base = {
+            "id": str(item.id),
+            "title": item.title,
+            "material_type": item.material_type,
+            "folder_id": str(item.folder_id) if item.folder_id else None,
+            "space_id": str(item.space_id),
+        }
+        if item.material_type == "ticket":
+            # excerpt (первые 300 символов content) для билета — почти
+            # только обрывок служебного <div data-ticket-attachment ...>,
+            # обрезанный посреди атрибута: не текст, а мусор для модели.
+            # properties — уже готовые чистые поля, отдаём их вместо excerpt.
+            base["properties"] = item.properties
+        else:
+            base["excerpt"] = item.content[:300]
+        return base
+
+    return {"results": [_serialize(item) for item in items]}
