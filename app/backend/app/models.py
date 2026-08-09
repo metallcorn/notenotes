@@ -207,6 +207,12 @@ class Notification(Base):
     # диспетчер (app/notification_dispatch.py) проставляет после отправки,
     # чтобы не слать одно и то же уведомление повторно на каждом тике.
     dispatched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # "Выполнено" — независимая ось от trigger_at/read_at (реальная жалоба:
+    # напоминание с уже прошедшим trigger_at пользователь мысленно всё
+    # равно считает активным, пока не отметил сделанным явно; путать
+    # "время прошло" с "решено" — и есть баг). NULL — активное, вне
+    # зависимости от того, наступило ли уже trigger_at.
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class PushSubscription(Base):

@@ -60,6 +60,8 @@ SKILL_CATALOG: dict[str, dict[str, Any]] = {
     "create_calendar_event": {"label": "Календарь", "description": "Готовит файл события для добавления в твой календарь", "toggleable": True},
     "create_maps_link": {"label": "Карты и навигация", "description": "Готовит ссылку на место в Google Maps", "toggleable": True},
     "create_reminder": {"label": "Напоминания", "description": "Создаёт напоминание в центре уведомлений на выбранное время", "toggleable": True},
+    "list_reminders": {"label": "Просмотр напоминаний", "description": "Смотрит список активных напоминаний", "toggleable": False},
+    "resolve_reminder": {"label": "Отметка напоминаний", "description": "Отмечает напоминание выполненным", "toggleable": False},
     "run_python": {"label": "Python-вычисления", "description": "Точные вычисления в изолированной песочнице", "toggleable": True},
     "read_website": {"label": "Чтение сайтов по ссылке", "description": "Скачивает и читает содержимое страницы по присланной ссылке", "toggleable": True},
     "show_note_images": {
@@ -90,6 +92,8 @@ def _build_registry() -> dict[str, tuple[ToolDefinition, ToolHandler]]:
         python_sandbox.RUN_PYTHON.name: (python_sandbox.RUN_PYTHON, python_sandbox.run_python),
         read_website.DEFINITION.name: (read_website.DEFINITION, read_website.handle),
         reminders.CREATE_REMINDER.name: (reminders.CREATE_REMINDER, reminders.create_reminder),
+        reminders.LIST_REMINDERS.name: (reminders.LIST_REMINDERS, reminders.list_reminders),
+        reminders.RESOLVE_REMINDER.name: (reminders.RESOLVE_REMINDER, reminders.resolve_reminder),
         notes.CREATE_NOTE.name: (notes.CREATE_NOTE, notes.create_note),
         notes.CREATE_FOLDER.name: (notes.CREATE_FOLDER, notes.create_folder),
         notes.GET_NOTE.name: (notes.GET_NOTE, notes.get_note),

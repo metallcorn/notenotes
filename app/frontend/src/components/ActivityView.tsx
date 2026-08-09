@@ -1,12 +1,14 @@
 import { useMemo, useState } from "react";
-import { Bell, BellOff, CalendarClock, ChevronLeft, ListChecks, MessageSquare, Sparkles, StickyNote, X } from "lucide-react";
+import { Bell, BellOff, CalendarClock, Check, ChevronLeft, ListChecks, MessageSquare, Sparkles, StickyNote, X } from "lucide-react";
 import {
   useAllNotifications,
   useDeleteNotification,
   useDialogs,
   useMarkNotificationRead,
   useRecentItems,
+  useResolveNotification,
   useSpaces,
+  useUnresolveNotification,
 } from "../api/hooks";
 import type { Notification } from "../api/types";
 import Spinner from "./Spinner";
@@ -22,53 +24,75 @@ function formatWhen(value: string): string {
   });
 }
 
-// Тот же payload-контракт, что у NotificationBell — клик открывает
-// заметку/пункт списка, если ассистент их указал при создании напоминания
-// (create_reminder, tools/reminders.py); не указал — просто отмечаем
-// прочитанным, без перехода (это уже поведение колокольчика, не баг).
+// resolved_at — независимая ось от trigger_at (реальная жалоба: время
+// напоминания прошло не значит, что дело сделано — пользователь всё равно
+// считает его активным, пока сам не отметит). Кружок слева — эта отметка,
+// не путать с "прочитано" (read_at, влияет только на подсветку/бейдж).
+// Клик по самой строке — переход к заметке/пункту списка, если ассистент
+// их указал при создании (create_reminder, tools/reminders.py); работает
+// и для уже выполненных — вернуться посмотреть, к чему было напоминание.
 function NotificationRow({
   notification,
-  upcoming,
   onOpen,
 }: {
   notification: Notification;
-  upcoming: boolean;
   onOpen: (spaceId: string, itemId: string, entryId?: string) => void;
 }) {
+  const resolve = useResolveNotification();
+  const unresolve = useUnresolveNotification();
   const markRead = useMarkNotificationRead();
   const del = useDeleteNotification();
   const spaceId = notification.payload.space_id as string | undefined;
   const itemId = notification.payload.item_id as string | undefined;
   const entryId = notification.payload.entry_id as string | undefined;
-  const clickable = !upcoming && !!spaceId && !!itemId;
+  const clickable = !!spaceId && !!itemId;
+  const resolved = !!notification.resolved_at;
+  const overdue = !resolved && !!notification.trigger_at && new Date(notification.trigger_at).getTime() <= Date.now();
 
   return (
-    <div
-      className={`flex items-start gap-2 border-b px-4 py-3 ${
-        !upcoming && !notification.read_at ? "bg-slate-50" : ""
-      }`}
-    >
+    <div className={`flex items-start gap-2 border-b px-4 py-3 ${!resolved && !notification.read_at ? "bg-slate-50" : ""}`}>
+      <button
+        title={resolved ? "Вернуть в активные" : "Отметить выполненным"}
+        onClick={() => (resolved ? unresolve.mutate(notification.id) : resolve.mutate(notification.id))}
+        disabled={resolve.isPending || unresolve.isPending}
+        className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border disabled:opacity-50 ${
+          resolved ? "border-green-600 bg-green-600 text-white" : "border-slate-300 text-transparent hover:border-slate-400"
+        }`}
+      >
+        <Check size={12} />
+      </button>
       <button
         onClick={() => {
-          if (!upcoming && !notification.read_at) markRead.mutate(notification.id);
+          if (!notification.read_at) markRead.mutate(notification.id);
           if (clickable) onOpen(spaceId!, itemId!, entryId);
         }}
         disabled={!clickable}
         className={`min-w-0 flex-1 text-left ${clickable ? "cursor-pointer hover:opacity-80" : "cursor-default"}`}
       >
-        <div className={`truncate text-sm ${!upcoming && !notification.read_at ? "font-medium text-slate-900" : "text-slate-700"}`}>
+        <div
+          className={`truncate text-sm ${
+            resolved ? "text-slate-400 line-through" : !notification.read_at ? "font-medium text-slate-900" : "text-slate-700"
+          }`}
+        >
           {notification.title}
         </div>
         {notification.body && <div className="mt-0.5 truncate text-xs text-slate-500">{notification.body}</div>}
         <div className="mt-0.5 flex items-center gap-1 text-xs text-slate-400">
           <CalendarClock size={11} />
-          {upcoming
-            ? `сработает ${formatWhen(notification.trigger_at!)}`
-            : formatWhen(notification.created_at)}
+          {resolved
+            ? `выполнено ${formatWhen(notification.resolved_at!)}`
+            : notification.trigger_at
+              ? `${overdue ? "должно было сработать" : "сработает"} ${formatWhen(notification.trigger_at)}`
+              : formatWhen(notification.created_at)}
+          {overdue && (
+            <span className="ml-1 rounded-full bg-amber-100 px-1.5 py-0 text-[10px] font-medium text-amber-700">
+              просрочено
+            </span>
+          )}
         </div>
       </button>
       <button
-        title={upcoming ? "Отменить напоминание" : "Удалить из истории"}
+        title="Удалить"
         onClick={() => del.mutate(notification.id)}
         disabled={del.isPending}
         className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-slate-400 hover:bg-red-50 hover:text-red-600 disabled:opacity-50"
@@ -85,18 +109,23 @@ function NotificationsTab({
   onOpen: (spaceId: string, itemId: string, entryId?: string) => void;
 }) {
   const { data, isLoading } = useAllNotifications();
-  const now = Date.now();
 
-  const { upcoming, past } = useMemo(() => {
+  // Активные — НЕ по времени (прошедшее trigger_at ≠ решено), а по
+  // resolved_at: ничего, кроме самого пользователя (или resolve_reminder
+  // ассистента), не переводит напоминание в выполненные.
+  const { active, resolved } = useMemo(() => {
     const all = data ?? [];
-    const upcoming = all
-      .filter((n) => n.trigger_at && new Date(n.trigger_at).getTime() > now)
-      .sort((a, b) => new Date(a.trigger_at!).getTime() - new Date(b.trigger_at!).getTime());
-    const past = all
-      .filter((n) => !(n.trigger_at && new Date(n.trigger_at).getTime() > now))
-      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-    return { upcoming, past };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    const active = all
+      .filter((n) => !n.resolved_at)
+      .sort((a, b) => {
+        const at = a.trigger_at ? new Date(a.trigger_at).getTime() : -Infinity;
+        const bt = b.trigger_at ? new Date(b.trigger_at).getTime() : -Infinity;
+        return at - bt;
+      });
+    const resolved = all
+      .filter((n) => n.resolved_at)
+      .sort((a, b) => new Date(b.resolved_at!).getTime() - new Date(a.resolved_at!).getTime());
+    return { active, resolved };
   }, [data]);
 
   if (isLoading) {
@@ -107,7 +136,7 @@ function NotificationsTab({
     );
   }
 
-  if (upcoming.length === 0 && past.length === 0) {
+  if (active.length === 0 && resolved.length === 0) {
     return (
       <div className="flex flex-col items-center gap-2 p-8 text-center text-sm text-slate-400">
         <BellOff size={24} />
@@ -118,23 +147,23 @@ function NotificationsTab({
 
   return (
     <div>
-      {upcoming.length > 0 && (
+      {active.length > 0 && (
         <>
           <div className="bg-slate-50 px-4 py-1.5 text-xs font-medium uppercase tracking-wide text-slate-400">
-            Предстоящие
+            Активные
           </div>
-          {upcoming.map((n) => (
-            <NotificationRow key={n.id} notification={n} upcoming onOpen={onOpen} />
+          {active.map((n) => (
+            <NotificationRow key={n.id} notification={n} onOpen={onOpen} />
           ))}
         </>
       )}
-      {past.length > 0 && (
+      {resolved.length > 0 && (
         <>
           <div className="bg-slate-50 px-4 py-1.5 text-xs font-medium uppercase tracking-wide text-slate-400">
-            История
+            Выполненные
           </div>
-          {past.map((n) => (
-            <NotificationRow key={n.id} notification={n} upcoming={false} onOpen={onOpen} />
+          {resolved.map((n) => (
+            <NotificationRow key={n.id} notification={n} onOpen={onOpen} />
           ))}
         </>
       )}

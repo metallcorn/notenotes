@@ -21,13 +21,16 @@ async def list_notifications(
     scope: str = "due", user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
 ) -> list[Notification]:
     """scope="due" (по умолчанию) — как раньше, для колокольчика: только уже
-    наступившие/немедленные, не спойлерит будущие напоминания в бейдж.
-    scope="all" — для полноэкранного центра активности (ActivityView):
-    включая ещё не наступившие, чтобы показать раздел "Предстоящие"."""
+    наступившие/немедленные И ещё не выполненные — выполненное не должно
+    висеть в колокольчике (жалоба: "чтобы оно исчезло отсюда и из
+    колокольчика"). scope="all" — для полноэкранного центра активности
+    (ActivityView): и предстоящие, и выполненные тоже, экран сам делит их
+    на активные/выполненные по resolved_at, а не по времени."""
     query = select(Notification).where(Notification.user_id == user.id)
     if scope != "all":
         query = query.where(
-            or_(Notification.trigger_at.is_(None), Notification.trigger_at <= datetime.now(timezone.utc))
+            or_(Notification.trigger_at.is_(None), Notification.trigger_at <= datetime.now(timezone.utc)),
+            Notification.resolved_at.is_(None),
         )
     query = query.order_by(Notification.created_at.desc()).limit(300 if scope == "all" else 100)
     result = await db.execute(query)
@@ -69,6 +72,40 @@ async def delete_notification(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Уведомление не найдено")
     await db.delete(notification)
     await db.commit()
+
+
+@router.post("/{notification_id}/resolve", response_model=NotificationOut)
+async def resolve_notification(
+    notification_id: uuid.UUID, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+) -> Notification:
+    """"Выполнено" — независимая ось от trigger_at (реальная жалоба: время
+    напоминания прошло не значит, что дело сделано). Тот же путь, которым
+    пользуется и инструмент ассистента resolve_reminder
+    (tools/reminders.py) — один REST-эндпоинт на оба входа."""
+    notification = await db.get(Notification, notification_id)
+    if notification is None or notification.user_id != user.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Уведомление не найдено")
+    if notification.resolved_at is None:
+        notification.resolved_at = datetime.now(timezone.utc)
+        await db.commit()
+        await db.refresh(notification)
+    return notification
+
+
+@router.post("/{notification_id}/unresolve", response_model=NotificationOut)
+async def unresolve_notification(
+    notification_id: uuid.UUID, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+) -> Notification:
+    """Отменить пометку "выполнено" — вернуть в активные (передумал/отметил
+    по ошибке)."""
+    notification = await db.get(Notification, notification_id)
+    if notification is None or notification.user_id != user.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Уведомление не найдено")
+    if notification.resolved_at is not None:
+        notification.resolved_at = None
+        await db.commit()
+        await db.refresh(notification)
+    return notification
 
 
 @router.post("/{notification_id}/read", response_model=NotificationOut)

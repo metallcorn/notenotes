@@ -147,4 +147,5 @@ export interface Notification {
   read_at: string | null;
   created_at: string;
   trigger_at: string | null;
+  resolved_at: string | null;
 }

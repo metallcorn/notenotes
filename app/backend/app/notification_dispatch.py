@@ -57,6 +57,9 @@ async def _dispatch_due() -> None:
         result = await db.execute(
             select(Notification).where(
                 Notification.dispatched_at.is_(None),
+                # Уже отметили выполненным до наступления времени (сделали
+                # заранее) — незачем слать пинг о том, что уже решено.
+                Notification.resolved_at.is_(None),
                 (Notification.trigger_at.is_(None)) | (Notification.trigger_at <= datetime.now(timezone.utc)),
             )
         )

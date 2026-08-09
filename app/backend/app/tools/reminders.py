@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import uuid
 from datetime import datetime, timezone
 from typing import Any
+
+from sqlalchemy import select
 
 from app.llm.base import ToolDefinition
 from app.models import Notification
@@ -86,3 +89,80 @@ async def create_reminder(ctx: ToolContext, args: dict[str, Any]) -> dict[str, A
     await ctx.db.commit()
     await ctx.db.refresh(notification)
     return {"id": str(notification.id), "title": title, "trigger_at": trigger_at.isoformat()}
+
+
+# "Выполнено" — независимая ось от trigger_at (ТЗ живой жалобы: время
+# напоминания прошло не значит, что дело сделано, юзер продолжает считать
+# его активным, пока сам не отметит). list_reminders — чтобы модель могла
+# найти нужное напоминание по смыслу перед resolve_reminder, не зная id
+# заранее (тот же паттерн, что get_list/toggle_list_entry для пунктов
+# списка).
+
+LIST_REMINDERS = ToolDefinition(
+    name="list_reminders",
+    description=(
+        "Список активных (ещё не отмеченных выполненными) напоминаний пользователя — id, "
+        "заголовок, текст, время срабатывания. Используй перед resolve_reminder, чтобы найти "
+        "нужное напоминание по смыслу, если пользователь ссылается на него не по id, а по теме "
+        "(например «отметь, что с банком я разобрался»)."
+    ),
+    parameters={"type": "object", "properties": {}, "required": []},
+)
+
+
+async def list_reminders(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
+    result = await ctx.db.execute(
+        select(Notification)
+        .where(Notification.user_id == ctx.user_id, Notification.resolved_at.is_(None))
+        .order_by(Notification.trigger_at.asc().nulls_first())
+    )
+    reminders = result.scalars().all()
+    return {
+        "reminders": [
+            {
+                "id": str(n.id),
+                "title": n.title,
+                "body": n.body,
+                "trigger_at": n.trigger_at.isoformat() if n.trigger_at else None,
+            }
+            for n in reminders
+        ]
+    }
+
+
+RESOLVE_REMINDER = ToolDefinition(
+    name="resolve_reminder",
+    description=(
+        "Отметить напоминание выполненным — уходит из активных, вне зависимости от того, "
+        "наступило ли уже его время. Используй, когда пользователь говорит, что уже сделал или "
+        "разобрался с тем, о чём было напоминание. Не спрашивай подтверждения — сама просьба "
+        "пользователя уже и есть подтверждение (в отличие от create_reminder, где спрашивать "
+        "обязательно)."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "notification_id": {"type": "string", "description": "id напоминания, взятый из list_reminders"},
+        },
+        "required": ["notification_id"],
+    },
+)
+
+
+async def resolve_reminder(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
+    notification_id_raw = args.get("notification_id")
+    if not notification_id_raw:
+        raise ToolError("notification_id обязателен")
+    try:
+        notification_id = uuid.UUID(str(notification_id_raw))
+    except ValueError:
+        raise ToolError("Некорректный notification_id") from None
+
+    notification = await ctx.db.get(Notification, notification_id)
+    if notification is None or notification.user_id != ctx.user_id:
+        raise ToolError("Напоминание не найдено")
+
+    if notification.resolved_at is None:
+        notification.resolved_at = datetime.now(timezone.utc)
+        await ctx.db.commit()
+    return {"id": str(notification.id), "title": notification.title, "resolved": True}

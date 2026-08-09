@@ -613,6 +613,24 @@ export function useDeleteNotification() {
   });
 }
 
+// "Выполнено" — независимо от trigger_at (см. ActivityView.tsx): резолв
+// не значит "прошло время", значит "пользователь сам отметил".
+export function useResolveNotification() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.post<Notification>(`/notifications/${id}/resolve`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["notifications"] }),
+  });
+}
+
+export function useUnresolveNotification() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.post<Notification>(`/notifications/${id}/unresolve`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["notifications"] }),
+  });
+}
+
 export function useMarkNotificationRead() {
   const qc = useQueryClient();
   return useMutation({
