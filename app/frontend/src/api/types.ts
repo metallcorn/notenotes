@@ -70,6 +70,7 @@ export interface DialogMessage {
   role: "system" | "user" | "assistant" | "tool";
   content: string;
   tool_calls: ToolCall[];
+  display_tool_calls: ToolCall[];
   tool_call_id: string | null;
   name: string | null;
   suggested_replies: string[];

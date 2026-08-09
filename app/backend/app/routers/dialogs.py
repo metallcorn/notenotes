@@ -655,16 +655,22 @@ async def run_dialog_turn(db: AsyncSession, user: User, item: Item, content: str
             # (TicketResultCards/NoteResultLinks/LinkPreviewResultCards)
             # читают tool_calls именно текущего сообщения — без этого ответ
             # выглядел бы без единой рабочей ссылки/кнопки, при том что
-            # данные для карточки уже реально есть в истории диалога. Не
-            # доверяем модели соблюдение инструкции — молча донашиваем
-            # последний РЕАЛЬНЫЙ tool_calls этого диалога на текущее
-            # сообщение (те же id: фронт ищет tool-результаты по всей
-            # истории диалога, не только текущему ходу, см. AssistantChat.tsx).
-            # Не новый вызов тула и не лишний запрос к LLM — просто даём
-            # фронту ту же зацепку на уже известные данные.
+            # данные для карточки уже реально есть в истории диалога.
+            #
+            # display_tool_calls, НЕ tool_calls: реальная поломка, пойманная
+            # вживую — _to_llm_messages читает именно "tool_calls" и
+            # реконструирует по нему assistant-сообщение с tool_calls для
+            # LLM API, а Mistral (как и весь OpenAI-совместимый протокол)
+            # требует, чтобы такое сообщение было НЕМЕДЛЕННО продолжено
+            # tool-сообщениями с результатами — которых тут нет (настоящего
+            # вызова не было). Итог был 400 Bad Request на КАЖДЫЙ следующий
+            # ход этого диалога, включая уже сохранённые в БД записи —
+            # ломало реальный диалог пользователя намертво. display_tool_calls
+            # — отдельное поле, которое _to_llm_messages не читает вовсе
+            # (см. ниже), только фронт для отрисовки карточек.
             for prior in reversed(records):
                 if prior.get("role") == "assistant" and prior.get("tool_calls"):
-                    assistant_record["tool_calls"] = prior["tool_calls"]
+                    assistant_record["display_tool_calls"] = prior["tool_calls"]
                     break
         if suggest_calls:
             options: list[str] = []

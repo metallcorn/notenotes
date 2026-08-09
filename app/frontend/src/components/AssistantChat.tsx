@@ -309,7 +309,7 @@ function NoteResultLinks({
 }) {
   const notes = useMemo(() => {
     const byId = new Map<string, { id: string; title: string; materialType: "note" | "list" }>();
-    for (const tc of message.tool_calls) {
+    for (const tc of [...message.tool_calls, ...message.display_tool_calls]) {
       if (tc.name !== "search_base" && tc.name !== "get_note") continue;
       const result = results.find((r) => r.tool_call_id === tc.id);
       if (!result) continue;
@@ -328,7 +328,7 @@ function NoteResultLinks({
     }
     return Array.from(byId.values());
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [message.tool_calls, results]);
+  }, [message.tool_calls, message.display_tool_calls, results]);
 
   if (notes.length === 0) return null;
 
@@ -361,7 +361,7 @@ const _HREF_LINKPREVIEW_RE = /<a\s+href="([^"]+)"[^>]*data-linkpreview[^>]*>/g;
 
 function collectLinkPreviewUrls(message: DialogMessage, results: DialogMessage[]): string[] {
   const urls = new Set<string>();
-  for (const tc of message.tool_calls) {
+  for (const tc of [...message.tool_calls, ...message.display_tool_calls]) {
     if (tc.name !== "search_base" && tc.name !== "get_note") continue;
     const result = results.find((r) => r.tool_call_id === tc.id);
     if (!result) continue;
@@ -419,7 +419,7 @@ function LinkPreviewResultCards({ message, results }: { message: DialogMessage; 
   const urls = useMemo(
     () => collectLinkPreviewUrls(message, results),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [message.tool_calls, results],
+    [message.tool_calls, message.display_tool_calls, results],
   );
 
   if (urls.length === 0) return null;
@@ -666,7 +666,7 @@ function TicketResultCards({
 
   const tickets = useMemo(() => {
     const byId = new Map<string, TicketResult>();
-    for (const tc of message.tool_calls) {
+    for (const tc of [...message.tool_calls, ...message.display_tool_calls]) {
       if (tc.name !== "search_base" && tc.name !== "get_note") continue;
       const result = results.find((r) => r.tool_call_id === tc.id);
       if (!result) continue;
@@ -694,7 +694,7 @@ function TicketResultCards({
       }
     }
     return Array.from(byId.values());
-  }, [message.tool_calls, results]);
+  }, [message.tool_calls, message.display_tool_calls, results]);
 
   if (tickets.length === 0) return null;
 
@@ -1433,13 +1433,13 @@ export default function AssistantChat({
                 )}
                 {message.tool_calls.length > 0 && <CalendarEventLinks message={message} results={toolResults} />}
                 {message.tool_calls.length > 0 && <MapsLinkButtons message={message} results={toolResults} />}
-                {message.tool_calls.length > 0 && (
+                {(message.tool_calls.length > 0 || message.display_tool_calls.length > 0) && (
                   <TicketResultCards message={message} results={allToolResults} onOpenItem={onOpenItem} />
                 )}
-                {message.tool_calls.length > 0 && (
+                {(message.tool_calls.length > 0 || message.display_tool_calls.length > 0) && (
                   <NoteResultLinks message={message} results={allToolResults} onOpenItem={onOpenItem} />
                 )}
-                {message.tool_calls.length > 0 && (
+                {(message.tool_calls.length > 0 || message.display_tool_calls.length > 0) && (
                   <LinkPreviewResultCards message={message} results={allToolResults} />
                 )}
                 {message.role === "assistant" && message.content && (

@@ -30,6 +30,11 @@ class DialogMessageOut(BaseModel):
     role: str
     content: str
     tool_calls: list[ToolCallOut] = []
+    # Донесённые из более раннего хода tool_calls — только для отрисовки
+    # карточек на фронте (см. run_dialog_turn в routers/dialogs.py), никогда
+    # не смешивается с tool_calls: тот идёт в LLM API и требует реального
+    # tool-результата сразу после себя, этот — нет.
+    display_tool_calls: list[ToolCallOut] = []
     tool_call_id: str | None = None
     name: str | None = None
     suggested_replies: list[str] = []
