@@ -107,7 +107,30 @@ export default function DocumentAttachmentCard({ node, editor, getPos }: NodeVie
           </button>
         )}
         {text && expanded && (
-          <div className="max-h-96 overflow-y-auto whitespace-pre-wrap border-t px-3 py-2 text-xs text-slate-700">
+          // atom-узел целиком лежит в contentEditable={false} (NodeView
+          // без contentDOM — см. addNodeView) — а браузеры по спецификации
+          // редактирования обращаются с contenteditable=false "островом"
+          // внутри contenteditable=true родителя как с ОДНИМ неделимым
+          // блоком выделения: клик-протяг куда угодно внутри всегда
+          // выделяет остров целиком (реальная жалоба — не баг конкретно
+          // ProseMirror, поведение самого браузера). contentEditable=true
+          // здесь заново открывает вложенную "зону редактирования" именно
+          // для этого блока — она уже ведёт себя как обычный текст с
+          // нормальным частичным выделением. Печатать в него по-прежнему
+          // нельзя: onKeyDown/onPaste/onBeforeInput блокируют реальный ввод,
+          // а data-doc-text — маркер для stopEvent в DocumentAttachment.ts,
+          // чтобы ProseMirror не пытался сам обработать эти события.
+          <div
+            data-doc-text
+            contentEditable
+            suppressContentEditableWarning
+            draggable={false}
+            onKeyDown={(e) => e.preventDefault()}
+            onPaste={(e) => e.preventDefault()}
+            onBeforeInput={(e) => e.preventDefault()}
+            onDragStart={(e) => e.preventDefault()}
+            className="max-h-96 cursor-text select-text overflow-y-auto whitespace-pre-wrap border-t px-3 py-2 text-xs text-slate-700 outline-none"
+          >
             {text}
           </div>
         )}

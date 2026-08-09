@@ -60,6 +60,10 @@ export const DocumentAttachment = Node.create({
   },
 
   addNodeView() {
+    // Кастомный stopEvent тут не нужен: дефолтная реализация в @tiptap/core
+    // уже отдаёт события с target.isContentEditable браузеру напрямую, не
+    // трогая их сама — этого достаточно вместе с contentEditable={true} на
+    // спойлере в DocumentAttachmentCard.tsx (см. комментарий там).
     return ReactNodeViewRenderer(DocumentAttachmentCard);
   },
 
