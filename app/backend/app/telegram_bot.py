@@ -12,10 +12,11 @@ import httpx
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app import realtime
 from app.asr.factory import get_asr_client
 from app.core.config import get_settings
 from app.db import async_session
-from app.models import Item, Space, SpaceMember, TelegramLink, TelegramLinkCode, Upload, User
+from app.models import Folder, Item, Space, SpaceMember, TelegramLink, TelegramLinkCode, Upload, User
 from app.pdf_processing import AUTO_OCR_MAX_PDF_BYTES
 from app.pdf_processing import enqueue_ocr as enqueue_pdf_ocr
 from app.pdf_processing import extract_text as extract_pdf_text
@@ -54,6 +55,17 @@ _MAX_DOWNLOAD_BYTES = 20 * 1024 * 1024
 _media_groups: dict[str, dict] = {}
 _MEDIA_GROUP_DEBOUNCE_SECONDS = 1.5
 
+# Пересланное вручную ("выделить несколько сообщений → переслать") тоже
+# приходит отдельным апдейтом на каждое сообщение, но БЕЗ media_group_id —
+# он есть только у альбомов (фото/видео/документы, изначально отправленных
+# одним постом). Общего "id пачки" для остальных форвардов Bot API не даёт
+# вовсе, поэтому буферизуем сами — по (chat_id, автор пересылки), тем же
+# debounce-приёмом, что и альбомы, но с чуть большим окном (несколько
+# сообщений, разосланных вручную, могут прилетать c бОльшим разбросом по
+# времени, чем файлы одного альбома).
+_forward_batches: dict[str, dict] = {}
+_FORWARD_BATCH_DEBOUNCE_SECONDS = 2.5
+
 
 def _api_url(method: str) -> str:
     return f"{TELEGRAM_API_BASE}/bot{get_settings().telegram_bot_token}/{method}"
@@ -75,6 +87,27 @@ _MARKDOWN_MARKS_RE = re.compile(r"[*_`~]")
 # пустую строку — та же логика "пустая строка не годится в заголовок" ниже
 # просто переходит на следующую строку контента.
 _MARKDOWN_LINK_OR_IMAGE_RE = re.compile(r"!?\[([^\]]*)\]\([^)]*\)")
+
+# Голая ссылка, которую пользователь вставляет в веб-редактор, превращается
+# в карточку сайта (LinkPreview.ts/NoteEditor.tsx: editorProps.handlePaste
+# ловит вставку строки-URL целиком и создаёт узел linkPreview) — но это
+# чисто клиентское поведение, срабатывающее только на paste, а не при
+# обычном рендере markdown-контента. Заметки от бота никогда через paste
+# не проходят, поэтому без этого шага пересланная ссылка так и остаётся
+# голым текстом без карточки. Формат — тот же <a data-linkpreview>, что
+# сериализует сам редактор (LinkPreview.ts:56), тогда его же parseHTML-
+# правило (приоритет 100 над обычной ссылкой) подхватит узел при загрузке.
+_BARE_URL_LINE_RE = re.compile(r"^https?://\S+$")
+
+
+def _linkify_bare_urls(text: str) -> str:
+    def _wrap(line: str) -> str:
+        stripped = line.strip()
+        if _BARE_URL_LINE_RE.match(stripped):
+            return f'<a href="{stripped.replace(chr(34), "&quot;")}" data-linkpreview></a>'
+        return line
+
+    return "\n".join(_wrap(line) for line in text.split("\n"))
 
 
 def _derive_title(text: str, fallback: str = "") -> str:
@@ -231,6 +264,65 @@ async def _save_upload(
     return upload
 
 
+def _forward_sender_name(message: dict) -> str | None:
+    """Автор пересланного сообщения — под этим именем создаётся/переиспользуется
+    папка в Telegram-спейсе. Bot API 7.0+ даёт forward_origin (user/hidden_user/
+    chat/channel — разная форма под каждый тип), более старые клиенты —
+    forward_from/forward_from_chat/forward_sender_name (последнее — когда
+    исходный автор скрыл атрибуцию форварда). Пробуем оба формата; None —
+    не удалось определить (например, forward_date есть, а остальных полей
+    нет — тоже бывает), тогда заметка остаётся в корне спейса, без папки."""
+    origin = message.get("forward_origin")
+    if origin:
+        origin_type = origin.get("type")
+        if origin_type == "user":
+            u = origin.get("sender_user") or {}
+            name = f"{u.get('first_name', '')} {u.get('last_name', '')}".strip()
+            if name:
+                return name
+        elif origin_type == "hidden_user":
+            if origin.get("sender_user_name"):
+                return origin["sender_user_name"]
+        elif origin_type == "chat":
+            chat = origin.get("sender_chat") or {}
+            if chat.get("title"):
+                return chat["title"]
+        elif origin_type == "channel":
+            chat = origin.get("chat") or {}
+            if chat.get("title"):
+                return chat["title"]
+
+    forward_from = message.get("forward_from")
+    if forward_from:
+        name = f"{forward_from.get('first_name', '')} {forward_from.get('last_name', '')}".strip()
+        if name:
+            return name
+
+    forward_from_chat = message.get("forward_from_chat")
+    if forward_from_chat and forward_from_chat.get("title"):
+        return forward_from_chat["title"]
+
+    if message.get("forward_sender_name"):
+        return message["forward_sender_name"]
+
+    return None
+
+
+async def _get_or_create_folder(db: AsyncSession, space_id: uuid.UUID, name: str) -> tuple[uuid.UUID, bool]:
+    name = name.strip()[:255]
+    existing = (
+        await db.execute(
+            select(Folder).where(Folder.space_id == space_id, Folder.parent_id.is_(None), Folder.name == name)
+        )
+    ).scalar_one_or_none()
+    if existing is not None:
+        return existing.id, False
+    folder = Folder(space_id=space_id, parent_id=None, name=name)
+    db.add(folder)
+    await db.flush()
+    return folder.id, True
+
+
 async def _handle_start(chat_id: int, text: str) -> None:
     parts = text.split(maxsplit=1)
     if len(parts) < 2:
@@ -299,36 +391,6 @@ async def _handle_photo(db: AsyncSession, message: dict, space_id: uuid.UUID, au
     title = _derive_title(caption, fallback="Фото")
     await create_item_row(db, space_id=space_id, author_id=author_id, material_type="note", title=title, content=content)
     enqueue_vision(upload.id)
-
-
-async def _handle_voice(db: AsyncSession, message: dict, space_id: uuid.UUID, author_id: uuid.UUID) -> None:
-    voice = message.get("voice") or message.get("audio")
-    result = await _download_file(voice["file_id"])
-    if result is None:
-        await create_item_row(
-            db,
-            space_id=space_id,
-            author_id=author_id,
-            material_type="note",
-            content="🎤 Голосовое сообщение больше 20 МБ — сохранить не удалось.",
-        )
-        return
-    content_bytes, _file_path = result
-    mime_type = voice.get("mime_type", "audio/ogg")
-    upload = await _save_upload(db, space_id, author_id, content_bytes, "voice.ogg", mime_type)
-
-    transcript = ""
-    settings = get_settings()
-    if settings.deepgram_api_key or settings.whisper_api_key:
-        try:
-            transcript = await get_asr_client().transcribe(content_bytes, mime_type)
-        except Exception:
-            logger.exception("Ошибка распознавания голосового сообщения из Telegram")
-
-    file_link = f"[voice.ogg](/api/uploads/{upload.id})"
-    content = f"{file_link}\n\n{transcript}" if transcript.strip() else file_link
-    title = _derive_title(transcript, fallback="Голосовое сообщение")
-    await create_item_row(db, space_id=space_id, author_id=author_id, material_type="note", title=title, content=content)
 
 
 async def _handle_video(db: AsyncSession, message: dict, space_id: uuid.UUID, author_id: uuid.UUID) -> None:
@@ -468,31 +530,94 @@ async def _flush_media_group(group_id: str) -> None:
     messages = group["messages"]
     chat_id = group["chat_id"]
 
+    first = messages[0]
+    is_forwarded = "forward_origin" in first or "forward_date" in first
+    sender_name = _forward_sender_name(first) if is_forwarded else None
+
     async with async_session() as db:
         link = (await db.execute(select(TelegramLink).where(TelegramLink.chat_id == chat_id))).scalar_one_or_none()
         if link is None:
             return
-        await _handle_media_group(db, messages, link.space_id, link.user_id)
+        saved = await _handle_forward_batch(db, messages, link.space_id, link.user_id, sender_name)
 
-    await send_message(chat_id, "Сохранено ✅")
+    if saved:
+        await send_message(chat_id, "Сохранено ✅")
 
 
-async def _handle_media_group(db: AsyncSession, messages: list[dict], space_id: uuid.UUID, author_id: uuid.UUID) -> None:
-    """Альбом (несколько фото/видео одним постом) — одна заметка со всеми
-    файлами по порядку, а не по заметке на файл. Подпись Telegram кладёт
-    только на одно сообщение группы (обычно первое) — ищем её по всем."""
-    caption_raw, caption_entities = "", None
+def _buffer_forward_message(message: dict, chat_id: int, sender_name: str | None) -> None:
+    key = f"{chat_id}:{sender_name or ''}"
+    batch = _forward_batches.setdefault(key, {"messages": [], "chat_id": chat_id, "sender_name": sender_name})
+    batch["messages"].append(message)
+    batch["last_seen"] = time.monotonic()
+    if len(batch["messages"]) == 1:
+        _schedule_forward_batch_flush(key)
+
+
+def _schedule_forward_batch_flush(key: str) -> None:
+    async def _later() -> None:
+        await asyncio.sleep(_FORWARD_BATCH_DEBOUNCE_SECONDS)
+        enqueue_update({"_forward_batch_flush": key})
+
+    asyncio.create_task(_later())
+
+
+async def _flush_forward_batch(key: str) -> None:
+    batch = _forward_batches.get(key)
+    if batch is None:
+        return
+    if time.monotonic() - batch["last_seen"] < _FORWARD_BATCH_DEBOUNCE_SECONDS - 0.05:
+        _schedule_forward_batch_flush(key)
+        return
+
+    del _forward_batches[key]
+    messages = batch["messages"]
+    chat_id = batch["chat_id"]
+    sender_name = batch["sender_name"]
+
+    async with async_session() as db:
+        link = (await db.execute(select(TelegramLink).where(TelegramLink.chat_id == chat_id))).scalar_one_or_none()
+        if link is None:
+            return
+        saved = await _handle_forward_batch(db, messages, link.space_id, link.user_id, sender_name)
+
+    if saved:
+        await send_message(chat_id, "Сохранено ✅")
+
+
+async def _handle_forward_batch(
+    db: AsyncSession,
+    messages: list[dict],
+    space_id: uuid.UUID,
+    author_id: uuid.UUID,
+    sender_name: str | None,
+) -> bool:
+    """Несколько сообщений одним постом (альбом, media_group_id) ИЛИ
+    несколько сообщений, пересланных вручную одним действием (без
+    media_group_id — буферизуются отдельно, см. _buffer_forward_message) —
+    в обоих случаях одна заметка со всеми частями по порядку, а не заметка
+    на сообщение. sender_name задан только когда пачка пришла форвардом
+    (папка по автору пересылки создаётся/переиспользуется здесь же); прямой
+    альбом от самого пользователя — как раньше, без папки.
+
+    Побочные эффекты (enqueue_vision/enqueue_transcription/enqueue_pdf_ocr)
+    откладываются до после итоговой заметки: пока идёт сборка, upload-записи
+    только flush'нуты, не закоммичены — воркер, дёрнутый раньше времени, не
+    найдёт их в БД."""
+    folder_id: uuid.UUID | None = None
+    folder_created = False
+    if sender_name:
+        folder_id, folder_created = await _get_or_create_folder(db, space_id, sender_name)
+
+    deferred: list[tuple] = []
+    parts: list[str] = []
+    title = ""
     for m in messages:
-        if m.get("caption"):
-            caption_raw, caption_entities = m["caption"], m.get("caption_entities")
-            break
-    caption = _entities_to_markdown(caption_raw, caption_entities)
-
-    parts: list[str] = [caption] if caption else []
-    has_photo = False
-    for m in messages:
-        if "photo" in m:
-            has_photo = True
+        if m.get("text"):
+            formatted = _entities_to_markdown(m["text"], m.get("entities"))
+            if not title:
+                title = _derive_title(formatted)
+            parts.append(_linkify_bare_urls(formatted))
+        elif "photo" in m:
             photos = m["photo"]
             largest = max(photos, key=lambda p: p.get("file_size", 0))
             result = await _download_file(largest["file_id"])
@@ -502,8 +627,12 @@ async def _handle_media_group(db: AsyncSession, messages: list[dict], space_id: 
             content_bytes, file_path = result
             filename = file_path.rsplit("/", 1)[-1]
             upload = await _save_upload(db, space_id, author_id, content_bytes, filename, "image/jpeg")
-            parts.append(f"![](/api/uploads/{upload.id})\n\n{image_placeholder_text(upload.id)}")
-            enqueue_vision(upload.id)
+            caption = _entities_to_markdown(m.get("caption", ""), m.get("caption_entities"))
+            if caption and not title:
+                title = _derive_title(caption)
+            body = f"{caption}\n\n" if caption else ""
+            parts.append(f"{body}![](/api/uploads/{upload.id})\n\n{image_placeholder_text(upload.id)}")
+            deferred.append((enqueue_vision, upload.id))
         elif "video" in m:
             video = m["video"]
             file_size = video.get("file_size", 0)
@@ -518,19 +647,95 @@ async def _handle_media_group(db: AsyncSession, messages: list[dict], space_id: 
             filename = file_path.rsplit("/", 1)[-1]
             mime_type = video.get("mime_type", "video/mp4")
             upload = await _save_upload(db, space_id, author_id, content_bytes, filename, mime_type)
+            caption = _entities_to_markdown(m.get("caption", ""), m.get("caption_entities"))
+            if caption and not title:
+                title = _derive_title(caption)
+            body = f"{caption}\n\n" if caption else ""
             parts.append(
-                f'<video src="/api/uploads/{upload.id}" controls preload="metadata" '
+                f'{body}<video src="/api/uploads/{upload.id}" controls preload="metadata" '
                 f'style="max-width: 100%; max-height: 70vh;"></video>\n\n{video_placeholder_text(upload.id)}'
             )
-            enqueue_transcription(upload.id)
+            deferred.append((enqueue_transcription, upload.id))
+        elif "voice" in m or "audio" in m:
+            voice = m.get("voice") or m.get("audio")
+            result = await _download_file(voice["file_id"])
+            if result is None:
+                parts.append("🎤 Голосовое сообщение больше 20 МБ — сохранить не удалось.")
+                continue
+            content_bytes, _file_path = result
+            mime_type = voice.get("mime_type", "audio/ogg")
+            upload = await _save_upload(db, space_id, author_id, content_bytes, "voice.ogg", mime_type)
+            transcript = ""
+            settings = get_settings()
+            if settings.deepgram_api_key or settings.whisper_api_key:
+                try:
+                    transcript = await get_asr_client().transcribe(content_bytes, mime_type)
+                except Exception:
+                    logger.exception("Ошибка распознавания голосового сообщения из Telegram")
+            file_link = f"[voice.ogg](/api/uploads/{upload.id})"
+            parts.append(f"{file_link}\n\n{transcript}" if transcript.strip() else file_link)
+            if transcript.strip() and not title:
+                title = _derive_title(transcript)
+        elif "document" in m:
+            document = m["document"]
+            filename = document.get("file_name", "файл")
+            file_size = document.get("file_size", 0)
+            if file_size and file_size > _MAX_DOWNLOAD_BYTES:
+                mb = file_size / (1024 * 1024)
+                parts.append(f"📎 Файл «{filename}» ({mb:.0f} МБ) — больше 20 МБ, сохранить не удалось.")
+                continue
+            result = await _download_file(document["file_id"])
+            if result is None:
+                parts.append(f"📎 Файл «{filename}» — больше 20 МБ, сохранить не удалось.")
+                continue
+            content_bytes, _file_path = result
+            mime_type = document.get("mime_type", "application/octet-stream")
+            upload = await _save_upload(db, space_id, author_id, content_bytes, filename, mime_type)
+            caption = _entities_to_markdown(m.get("caption", ""), m.get("caption_entities"))
+            if caption and not title:
+                title = _derive_title(caption)
+            body = f"{caption}\n\n" if caption else ""
+            attachment_url = f"/api/uploads/{upload.id}"
+            is_pdf = mime_type == "application/pdf" or filename.lower().endswith(".pdf")
+            if is_pdf:
+                pdf_text = extract_pdf_text(content_bytes)
+                if pdf_text:
+                    parts.append(f"{body}{serialize_document_attachment(attachment_url, filename, pdf_text)}")
+                else:
+                    user = await db.get(User, author_id)
+                    if user is not None and user.auto_process_uploads and len(content_bytes) <= AUTO_OCR_MAX_PDF_BYTES:
+                        parts.append(f"{body}{pdf_placeholder_text(upload.id)}")
+                        upload.transcription_status = "pending"
+                        deferred.append((enqueue_pdf_ocr, upload.id))
+                    else:
+                        parts.append(f"{body}{serialize_document_attachment(attachment_url, filename, '')}")
+            else:
+                parts.append(f"{body}{serialize_document_attachment(attachment_url, filename, '')}")
 
+    if not parts:
+        return False
     content = "\n\n".join(parts)
-    title = _derive_title(caption, fallback="Фото" if has_photo else "Видео")
-    await create_item_row(db, space_id=space_id, author_id=author_id, material_type="note", title=title, content=content)
+    if not title:
+        title = sender_name or ""
+    await create_item_row(
+        db,
+        space_id=space_id,
+        author_id=author_id,
+        material_type="note",
+        title=title,
+        content=content,
+        folder_id=folder_id,
+    )
+    if folder_created:
+        await realtime.notify_space(space_id, "folders")
+    for fn, upload_id in deferred:
+        fn(upload_id)
+    return True
 
 
 async def _transcribe_voice_only(message: dict) -> str:
-    """Как в _handle_voice, но без сохранения как Upload — это разговорная
+    """Как голосовая часть _handle_forward_batch, но без сохранения как
+    Upload — это разговорная
     реплика ассистенту, не захват контента. Пустая строка — не удалось
     скачать/распознать, вызывающий код сам решает, что сказать пользователю."""
     voice = message.get("voice") or message.get("audio")
@@ -621,6 +826,10 @@ async def _process(update: dict) -> None:
         await _flush_media_group(update["_media_group_flush"])
         return
 
+    if "_forward_batch_flush" in update:
+        await _flush_forward_batch(update["_forward_batch_flush"])
+        return
+
     if "callback_query" in update:
         await _handle_callback_query(update["callback_query"])
         return
@@ -669,31 +878,31 @@ async def _process(update: dict) -> None:
             _buffer_media_group_message(message, media_group_id, chat_id)
             return
 
+        # Пересланное вне альбома (текст, одиночное фото/видео/файл/голос,
+        # или несколько сообщений, отправленных вручную одним "переслать")
+        # — буферизуем по автору форварда: одна заметка на пачку, в папке
+        # по имени отправителя (см. _buffer_forward_message).
+        if is_forwarded:
+            sender_name = _forward_sender_name(message)
+            _buffer_forward_message(message, chat_id, sender_name)
+            return
+
         if "photo" in message:
             await _handle_photo(db, message, link.space_id, link.user_id)
         elif "voice" in message or "audio" in message:
-            if is_forwarded:
-                await _handle_voice(db, message, link.space_id, link.user_id)
+            transcript = await _transcribe_voice_only(message)
+            if transcript.strip():
+                await _handle_assistant_message(db, link, transcript)
             else:
-                transcript = await _transcribe_voice_only(message)
-                if transcript.strip():
-                    await _handle_assistant_message(db, link, transcript)
-                else:
-                    await send_message(chat_id, "Не удалось распознать голосовое сообщение.")
-                return
+                await send_message(chat_id, "Не удалось распознать голосовое сообщение.")
+            return
         elif "video" in message:
             await _handle_video(db, message, link.space_id, link.user_id)
         elif "document" in message:
             await _handle_document(db, message, link.space_id, link.user_id)
-        elif text and not is_forwarded:
+        elif text:
             await _handle_assistant_message(db, link, text)
             return
-        elif text:
-            formatted = _entities_to_markdown(text, message.get("entities"))
-            title = _derive_title(formatted)
-            await create_item_row(
-                db, space_id=link.space_id, author_id=link.user_id, material_type="note", title=title, content=formatted
-            )
         else:
             return
 
