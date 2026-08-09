@@ -92,5 +92,5 @@ async def search_items(
 async def search(
     q: str, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
 ) -> list[ItemOut]:
-    items = await search_items(db, user.id, q)
+    items = await search_items(db, user.id, q, material_types=("note", "ticket"))
     return [await _serialize(db, item, user.id) for item in items]

@@ -30,13 +30,13 @@ async def handle(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
     query = str(args.get("query", "")).strip()
     if not query:
         return {"results": []}
-    items = await search_items(ctx.db, ctx.user_id, query, material_types=("note", "list"), limit=20)
+    items = await search_items(ctx.db, ctx.user_id, query, material_types=("note", "list", "ticket"), limit=20)
     if not items:
         # Модель обычно пишет запрос естественной фразой ("купить продукты"),
         # а не одним точным словом — при пустом строгом результате пробуем
         # мягче, по любому слову, а не по всем сразу.
         items = await search_items(
-            ctx.db, ctx.user_id, query, material_types=("note", "list"), limit=20, match="or"
+            ctx.db, ctx.user_id, query, material_types=("note", "list", "ticket"), limit=20, match="or"
         )
     return {
         "results": [

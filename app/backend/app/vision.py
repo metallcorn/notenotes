@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import logging
+import re
 import uuid
 from pathlib import Path
 
@@ -29,11 +30,36 @@ MISTRAL_VISION_MODEL = "mistral-small-latest"
 MISTRAL_API_URL = "https://api.mistral.ai/v1/chat/completions"
 
 _PROMPT = (
-    "Опиши это изображение кратко (одно-два предложения, что на нём) и, если на "
-    "изображении есть читаемый текст, приведи его дословно после описания под "
-    "заголовком «Текст на изображении». Отвечай только результатом, без вступлений "
-    "и комментариев, в формате Markdown, на русском языке."
+    "Сначала одной строкой ответь, похоже ли изображение на билет (жд/авиа/"
+    "автобусный/на мероприятие, посадочный талон и т.п.) — строго «БИЛЕТ: да» "
+    "или «БИЛЕТ: нет», больше ничего в этой строке. Затем с новой строки — "
+    "опиши это изображение кратко (одно-два предложения, что на нём) и, если "
+    "на изображении есть читаемый текст, приведи его дословно после описания "
+    "под заголовком «Текст на изображении». Остальное отвечай только "
+    "результатом, без вступлений и комментариев, в формате Markdown, на "
+    "русском языке."
 )
+
+# Билеты — отдельный пайплайн (tickets.py) со своим структурированным
+# извлечением полей, но классификация "это билет?" встроена в этот же
+# vision-вызов, а не отдельный LLM-запрос — эта проверка почти всегда
+# отрицательная (подавляющее большинство загрузок не билеты), так что
+# отдельный запрос "не билет ли это" на каждую картинку был бы чистым
+# расходом. Маркер первой строкой, не JSON — существующий формат ответа
+# уже свободный текст (markdown-описание), переводить весь вызов на
+# строгий JSON рискованно сломать обычные описания; терпимый парсинг той
+# же строки (как ```json-ограждения в autotag.py) — тот же принцип.
+_TICKET_MARKER_RE = re.compile(r"^БИЛЕТ:\s*(да|нет)\b", re.IGNORECASE)
+
+
+def _split_ticket_marker(text: str) -> tuple[bool, str]:
+    stripped = text.strip()
+    m = _TICKET_MARKER_RE.match(stripped)
+    if not m:
+        return False, text
+    is_ticket = m.group(1).lower() == "да"
+    rest = stripped[m.end() :].lstrip(" \n")
+    return is_ticket, rest
 
 # Не гоняем на анализ огромные фото без нужды (тот же принцип, что 10 МБ
 # звука для видео) — 8 МБ с запасом хватает на любое реалистичное фото с
@@ -154,19 +180,34 @@ async def _process(upload_id: uuid.UUID) -> None:
         return
 
     try:
-        description = await _analyze(image_bytes, content_type, settings.llm_api_key)
+        raw = await _analyze(image_bytes, content_type, settings.llm_api_key)
     except Exception:
         logger.exception("Ошибка Mistral vision при анализе %s", upload_id)
         await _fail()
         return
+
+    is_ticket, description = _split_ticket_marker(raw)
 
     async with async_session() as db:
         upload = await db.get(Upload, upload_id)
         if upload is None:
             return
         upload.transcript = description
-        upload.transcription_status = "done" if description.strip() else "failed"
+        # Билет остаётся "processing" — финальный статус (done/failed)
+        # проставит tickets.py, когда закончит структурированное
+        # извлечение; плейсхолдер в заметке (тот же самый) висит до тех пор.
+        upload.transcription_status = "processing" if is_ticket else ("done" if description.strip() else "failed")
         await db.commit()
+
+    if is_ticket and description.strip():
+        # Локальный импорт: tickets.py импортирует _replace_in_referencing_items
+        # и placeholder_text отсюда на уровне модуля (как pdf_processing.py) —
+        # обычный top-level импорт друг друга дал бы цикл, поэтому обратное
+        # направление (vision → tickets) — отложенный импорт по месту вызова.
+        from app import tickets
+
+        tickets.enqueue_ticket_extraction(upload_id)
+        return
 
     if not description.strip():
         logger.warning("Mistral vision вернул пустой результат для %s", upload_id)
