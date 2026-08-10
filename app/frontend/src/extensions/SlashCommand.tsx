@@ -38,6 +38,19 @@ function buildItems(onInsertImage: () => void): SlashCommandItem[] {
       run: (editor, range) => editor.chain().focus().deleteRange(range).setHorizontalRule().run(),
     },
     {
+      title: "Отступ",
+      // В отличие от нескольких пустых абзацев подряд (которые схлопываются
+      // в один при сохранении — Markdown не различает несколько пустых
+      // строк и одну), это отдельный блочный узел — можно ставить сколько
+      // угодно подряд, каждый переживёт сохранение и переоткрытие.
+      // Вставляем сразу с пустым абзацем следом и переводим туда курсор —
+      // иначе после вставки атом остаётся NodeSelection'ом, и следующая же
+      // напечатанная буква по умолчанию поведению ProseMirror заменяет
+      // собой сам узел вместо того, чтобы просто продолжить текст.
+      run: (editor, range) =>
+        editor.chain().focus().deleteRange(range).insertContent([{ type: "spacer" }, { type: "paragraph" }]).run(),
+    },
+    {
       title: "Картинка",
       run: (editor, range) => {
         editor.chain().focus().deleteRange(range).run();

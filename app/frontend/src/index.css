@@ -158,6 +158,21 @@
   border-top: 2px solid #e2e8f0;
 }
 
+.tiptap .note-spacer {
+  height: 1.5em;
+  position: relative;
+}
+.tiptap .note-spacer::after {
+  content: "";
+  position: absolute;
+  inset: 0.65em 0;
+  border-top: 1px dashed transparent;
+}
+.tiptap .note-spacer:hover::after,
+.tiptap .note-spacer.ProseMirror-selectednode::after {
+  border-top-color: #cbd5e1;
+}
+
 .tiptap table {
   border-collapse: collapse;
   margin: 0.75em 0;

@@ -55,6 +55,7 @@ const HTML_DOC_STYLE = `
   th { background: #f1f5f9; }
   a { color: #2563eb; }
   img { max-width: 100%; border-radius: 0.375rem; }
+  div[data-spacer] { height: 1.5em; }
 `;
 
 export function wrapHtmlDocument(title: string, bodyHtml: string): string {

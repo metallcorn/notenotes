@@ -42,6 +42,7 @@ import { Video } from "../extensions/Video";
 import { LinkPreview } from "../extensions/LinkPreview";
 import { DocumentAttachment, serializeDocumentAttachment } from "../extensions/DocumentAttachment";
 import { TicketAttachment } from "../extensions/TicketAttachment";
+import { Spacer } from "../extensions/Spacer";
 import { SlashCommand } from "../extensions/SlashCommand";
 
 // Только когда вставленный текст ЦЕЛИКОМ — голая ссылка (случай "вставил
@@ -112,6 +113,7 @@ export default function NoteEditor({
       LinkPreview,
       DocumentAttachment,
       TicketAttachment,
+      Spacer,
       LinkExtension.configure({ HTMLAttributes: { target: "_blank", rel: "noopener noreferrer" } }),
       Table.configure({ resizable: false }),
       TableRow,
