@@ -525,6 +525,24 @@ def _looks_like_leaked_tool_call(content: str, tool_names: set[str]) -> bool:
     return any(stripped.startswith(name) for name in tool_names)
 
 
+def _looks_like_missed_choice(content: str) -> bool:
+    """Эвристика ТОЛЬКО для логирования, не для блокировки поведения —
+    реальный случай (ролплей-тест): финальный ответ перечисляет варианты
+    выбора обычным текстом/буллетами вместо вызова suggest_replies (для
+    выбора папки уже есть детерминированный фикс на этот конкретный
+    случай выше, см. list_folders_names; это — сигнал на ВСЕ остальные
+    формы того же паттерна, которые код не умеет чинить сам, потому что
+    не может понять смысл текста). Грубая: вопрос плюс 2+ строки,
+    похожие на список вариантов. Не полагаемся на неё в рантайме —
+    только копим сигнал в логах между раундами ролплей-тестирования,
+    вместо того чтобы ждать, пока паттерн снова случайно поймает
+    очередной ручной прогон."""
+    if "?" not in content:
+        return False
+    option_like_lines = sum(1 for line in content.splitlines() if line.strip().startswith(("-", "*", "**")))
+    return option_like_lines >= 2
+
+
 def _flatten_transcript(records: list[dict]) -> str:
     # str(...) — подстраховка: если content когда-нибудь снова окажется не
     # строкой (см. MistralClient._from_wire), это не должно ронять весь
@@ -898,6 +916,27 @@ async def run_dialog_turn(db: AsyncSession, user: User, item: Item, content: str
         if mentioned or "папк" in text_lower:
             options = [*mentioned, "Без папки"]
             records[-1]["suggested_replies"] = options
+
+    # Сигнал для мониторинга между раундами ролплей-тестирования, а не для
+    # рантайм-поведения — фикс выше закрывает только форму "после
+    # list_folders". Та же болезнь может проявиться в любом другом месте
+    # (например "напоминание нужно?" текстом вместо suggest_replies), где
+    # у нас нет списка реальных сущностей, чтобы детерминированно
+    # восстановить чипы — только логируем, чтобы накапливать частоту по
+    # логам между прогонами, а не полагаться только на то, что очередной
+    # ручной/ролплей-раунд случайно наткнётся на конкретный пример.
+    if (
+        records
+        and records[-1]["role"] == "assistant"
+        and not records[-1].get("tool_calls")
+        and not records[-1].get("suggested_replies")
+        and _looks_like_missed_choice(records[-1]["content"])
+    ):
+        logger.warning(
+            "Похоже на вариант выбора текстом без suggest_replies (диалог %s): %r",
+            item.id,
+            records[-1]["content"][:200],
+        )
 
     item.properties = {**item.properties, "messages": records}
     item.content = _flatten_transcript(records)
