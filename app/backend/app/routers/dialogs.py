@@ -137,6 +137,16 @@ SYSTEM_PROMPT_BASE = (
     "реальные пункты — get_list. Чтобы отметить УЖЕ существующий пункт "
     "выполненным/купленным — toggle_list_entry, а не add_list_entry: "
     "add_list_entry создаёт новый пункт и превратит отметку в дублирование.\n\n"
+    "Когда search_base для add_list_entry находит НЕСКОЛЬКО подходящих по "
+    "теме списков — не выбирай автоматически тот, что просто ближе по "
+    "теме (еда / не еда), если один из них назван в честь конкретного "
+    "человека (например «Непродовольственные закупки (Ульяна)» — это ЕЁ "
+    "личный список заказов, а не общая категория непродовольственных "
+    "товаров вообще). Бытовой предмет для всех (лампочки, батарейки, "
+    "хозтовары) не обязательно принадлежит именно её списку просто "
+    "потому что оба нейтральны к еде. Неочевидно — спроси через "
+    "suggest_replies, в какой список добавить, а не угадывай по "
+    "совпадению темы.\n\n"
     "Когда у твоего вопроса есть естественные короткие варианты ответа "
     "(выбор из существующих папок, да/нет, чек-лист или заметка) — заканчивай "
     "ход ВЫЗОВОМ ИНСТРУМЕНТА suggest_replies с 2-5 вариантами, чтобы "
@@ -654,6 +664,7 @@ async def run_dialog_turn(db: AsyncSession, user: User, item: Item, content: str
     used_web_search = False
     used_advanced_web_search = False
     folders_checked_this_turn = folders_checked_earlier
+    list_folders_names: list[str] = []
 
     if not settings.llm_api_key:
         records.append(
@@ -791,6 +802,7 @@ async def run_dialog_turn(db: AsyncSession, user: User, item: Item, content: str
             elif tc.name == "list_folders":
                 result = await dispatch(tc.name, ctx, tc.arguments, disabled=disabled_tool_names)
                 folders_checked_this_turn = True
+                list_folders_names = [f["name"] for f in result.get("folders", []) if f.get("name")]
             elif (
                 tc.name in ("create_note", "create_list")
                 and not str(tc.arguments.get("folder_id") or "").strip()
@@ -853,6 +865,39 @@ async def run_dialog_turn(db: AsyncSession, user: User, item: Item, content: str
         existing = records[-1].get("suggested_replies") or []
         if chip not in existing:
             records[-1]["suggested_replies"] = [*existing, chip]
+
+    # Тот же принцип, для другого реального случая, пойманного ролплей-
+    # тестом: после list_folders модель дважды подряд в одном диалоге
+    # написала варианты папок голым текстом вместо suggest_replies (в
+    # тексте даже затесались невидимые символы U+2060 — похоже на
+    # артефакт генерации самой модели, не нашего кода) — пользователь
+    # получал список названий папок без единого клика. Промпт это уже
+    # прямым текстом запрещает ("никогда не пиши варианты просто
+    # текстом"), но это тот самый случай, когда дословное соответствие
+    # промпту не гарантия — подстраховываем кодом. Условие узкое: список
+    # папок в этом ходу запрашивался, финальный ответ — чистый текст без
+    # tool_calls и без собственных suggested_replies (иначе бы не трогали
+    # то, что модель уже честно предложила сама). Реальные названия папок,
+    # которые модель упомянула текстом, вытаскиваем подстрокой — их же
+    # словами, а не гадаем — и всегда добавляем «Без папки» как честный
+    # запасной вариант.
+    if (
+        list_folders_names
+        and records
+        and records[-1]["role"] == "assistant"
+        and not records[-1].get("tool_calls")
+        and not records[-1].get("suggested_replies")
+        and records[-1]["content"].strip()
+    ):
+        text_lower = records[-1]["content"].lower()
+        # Регистронезависимо: модель нередко пишет название с большой буквы
+        # в начале строки/**жирным** ("**Блог (жабы)**"), даже если реальное
+        # имя папки — со строчной ("блог (жабы)") — точное совпадение
+        # регистра теряло бы такие варианты.
+        mentioned = [name for name in list_folders_names if name.lower() in text_lower]
+        if mentioned or "папк" in text_lower:
+            options = [*mentioned, "Без папки"]
+            records[-1]["suggested_replies"] = options
 
     item.properties = {**item.properties, "messages": records}
     item.content = _flatten_transcript(records)
