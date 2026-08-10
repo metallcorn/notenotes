@@ -3,6 +3,7 @@ import logging
 import re
 import uuid
 from datetime import datetime, timezone
+from typing import Any
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -28,6 +29,17 @@ logger = logging.getLogger(__name__)
 # явно пошло не так, лучше вернуть частичный результат, чем платить за LLM
 # без остановки.
 MAX_TOOL_ITERATIONS = 8
+
+# Реальный найденный класс ошибки (несколько раз подряд, на Mistral И на
+# Gemini): список назван в честь конкретного человека в скобках
+# ("Непродовольственные закупки (Ульяна)") — это ЕЁ личный список, не общая
+# категория, но модель раз за разом молча добавляла туда бытовой предмет,
+# ориентируясь только на совпадение темы (не еда → в "непродовольственный"
+# список, какой бы он ни был). Промпт это прямо запрещает — не помогло ни
+# разу; правило про "не выбирай список конкретного человека" оставляем в
+# промпте как объяснение ПОЧЕМУ, но сам факт проверки — детерминированно,
+# тем же приёмом, что list_folders-гейт выше.
+_NAMED_LIST_RE = re.compile(r"\(([А-ЯЁ][а-яё]+)\)")
 
 SYSTEM_PROMPT_BASE = (
     "Ты — ассистент базы знаний Notenotes. Работаешь внутри диалога с "
@@ -468,6 +480,35 @@ def _looks_like_missed_choice(content: str) -> bool:
     return option_like_lines >= 2
 
 
+async def _named_list_owner_mismatch(db: AsyncSession, list_id_raw: Any, user_text: str) -> str | None:
+    """Реальный случай (несколько раз, на Mistral И на Gemini): список
+    назван в честь конкретного человека в скобках — модель раз за разом
+    молча добавляла туда предмет, ориентируясь только на совпадение темы.
+    Возвращает имя владельца, если список назван на его имя И пользователь
+    в своей реплике этого имени не упоминал (значит, вероятно, не про
+    него/неё) — вызывающий код должен заблокировать add_list_entry."""
+    try:
+        list_id = uuid.UUID(str(list_id_raw))
+    except (ValueError, TypeError):
+        return None
+    item = await db.get(Item, list_id)
+    if item is None:
+        return None
+    match = _NAMED_LIST_RE.search(item.title)
+    if not match:
+        return None
+    owner = match.group(1)
+    # Русские имена склоняются по падежам ("Ульяна" -> "Ульяны"/"Ульяне"/
+    # "Ульяну") — точное совпадение подстроки пропустило бы упоминание в
+    # любом падеже, кроме именительного. Обрезаем последнюю букву (обычно
+    # окончание) и сравниваем по основе — ловит склонения, не идеально
+    # лингвистически, но достаточно для этой проверки.
+    stem = owner.lower()[:-1] if len(owner) > 3 else owner.lower()
+    if stem in user_text.lower():
+        return None
+    return owner
+
+
 def _flatten_transcript(records: list[dict]) -> str:
     # str(...) — подстраховка: если content когда-нибудь снова окажется не
     # строкой (см. MistralClient._from_wire), это не должно ронять весь
@@ -772,6 +813,18 @@ async def run_dialog_turn(db: AsyncSession, user: User, item: Item, content: str
                         "либо с folder_id найденной папки (после подтверждения пользователем), либо явно "
                         "без folder_id, если подходящей папки нет и корень спейса — осознанный выбор, а "
                         "не пропущенная проверка."
+                    )
+                }
+            elif tc.name == "add_list_entry" and (
+                owner := await _named_list_owner_mismatch(ctx.db, tc.arguments.get("list_id"), content)
+            ):
+                result = {
+                    "error": (
+                        f"Этот список назван в честь конкретного человека ({owner}) — это ЕГО/ЕЁ личный "
+                        f"список, не общая категория. Пользователь не упомянул «{owner}» в своём "
+                        f"сообщении для этого предмета — не факт, что предмет для {owner}. Спроси через "
+                        f"suggest_replies, в какой список добавить (этот, или другой/новый), прежде чем "
+                        f"вызывать add_list_entry снова."
                     )
                 }
             else:
