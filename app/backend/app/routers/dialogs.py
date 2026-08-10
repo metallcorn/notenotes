@@ -41,6 +41,77 @@ MAX_TOOL_ITERATIONS = 8
 # тем же приёмом, что list_folders-гейт выше.
 _NAMED_LIST_RE = re.compile(r"\(([А-ЯЁ][а-яё]+)\)")
 
+# "Choice paralysis" — задокументированный эффект (исследования 2025-2026):
+# без отбора точность выбора тула у агента падает до ~13% на большом
+# наборе, порог, где это начинает мешать — примерно 20-50 тулов. У нас 28
+# — прямо в переходной зоне; поймано вживую на Llama 3.3 70B (Groq) —
+# модель послабее иногда путает имя тула именно на полном наборе, хотя тот
+# же тул в изоляции или в наборе поменьше вызывается верно каждый раз.
+# Mistral/Gemini с тем же полным набором не путаются (или путаются реже) —
+# но раз порог всё равно рядом, и тулов дальше будет только больше,
+# сокращаем набор ДЛЯ ВСЕХ провайдеров, не только для Groq: тулы, явно не
+# относящиеся к теме хода, не отправляются модели вовсе, а не просто
+# "должны быть проигнорированы" — так дешевле по токенам и безопаснее по
+# выбору сразу для всех, а не костыль под одного слабого провайдера.
+#
+# CORE — не фильтруются никогда: это то, что нужно почти в каждом ходу
+# (поиск/чтение/запись заметок и списков, суть работы ассистента). Раз
+# промах (тул не включён, хотя был нужен) сильно дороже промаха в другую
+# сторону (лишний тул в наборе) — категории сделаны с запасом на
+# срабатывание, не жалеем ключевых слов.
+_CORE_TOOL_NAMES = {
+    "search_base", "get_note", "create_note", "update_note", "delete_note",
+    "suggest_replies", "list_folders", "list_all_items", "remember_fact",
+    "list_memories", "add_tag", "list_tags", "create_list", "get_list",
+    "add_list_entry", "toggle_list_entry",
+}
+_TOOL_CATEGORIES: dict[str, set[str]] = {
+    "web": {"web_search", "read_website", "create_maps_link"},
+    "calendar_reminders": {"create_calendar_event", "create_reminder", "list_reminders", "resolve_reminder"},
+    "structure": {"create_folder", "list_items_by_tag", "list_items_in_folder"},
+    "utility": {"run_python"},
+    "forget": {"forget_fact"},
+}
+_CATEGORY_KEYWORDS: dict[str, tuple[str, ...]] = {
+    "web": (
+        "интернет", "погугли", "в сети", "сайт", "ссылк", "http", "адрес", "карт",
+        "маршрут", "как добраться", "где наход", "бар", "ресторан", "кафе", "музей",
+        "закрыва", "открыт", "работает ли", "акци", "скидк", "магазин",
+        "allegro", "amazon", "zalando",
+    ),
+    "calendar_reminders": (
+        "напомни", "напоминани", "календар", "событи", "дедлайн", "не забыть",
+        "не забуд", "встреч", "во сколько", "к какому времени", "успеть", "выходны",
+    ),
+    "structure": ("папк", "тег", "по тегу"),
+    "utility": ("посчита", "сумм", "вычисли", "процент", "сортир", "среднее", "разниц"),
+    "forget": ("забудь", "сотри факт", "удали из памяти", "не запоминай"),
+}
+
+
+def _relevant_tool_names(all_names: set[str], recent_text: str, already_used: set[str]) -> set[str]:
+    """already_used — имена тулов, уже вызывавшихся раньше в ЭТОМ диалоге.
+    Их держим в наборе всегда, независимо от категорий/ключевых слов: если
+    убрать тул из объявленного набора на следующем ходу, а в истории
+    диалога уже есть его вызов, строгие провайдеры (поймано на Groq)
+    отклонят весь запрос — "tool not in request.tools", ровно тот баг,
+    который весь день разбирали. Список папок/тегов почти никогда не
+    меняется за диалог, поэтому один раз использованный тул почти всегда
+    и дальше уместен — это не большая потеря точности отбора."""
+    text_lower = recent_text.lower()
+    selected = (set(_CORE_TOOL_NAMES) | already_used) & all_names
+    for category, names in _TOOL_CATEGORIES.items():
+        keywords = _CATEGORY_KEYWORDS.get(category, ())
+        if any(kw in text_lower for kw in keywords):
+            selected |= names & all_names
+    # Любой тул, не попавший ни в CORE, ни в известную категорию (например,
+    # новый, ещё не рассортированный) — включаем по умолчанию: осторожность
+    # в сторону "лишний тул", не "тул отсутствует, когда нужен".
+    categorized = set().union(*_TOOL_CATEGORIES.values())
+    selected |= all_names - _CORE_TOOL_NAMES - categorized
+    return selected
+
+
 SYSTEM_PROMPT_BASE = (
     "Ты — ассистент базы знаний Notenotes. Работаешь внутри диалога с "
     "пользователем, можешь искать и изменять его заметки и списки через "
@@ -651,7 +722,14 @@ async def run_dialog_turn(db: AsyncSession, user: User, item: Item, content: str
 
     settings = get_settings()
     disabled_tool_names = set(user.disabled_tools)
-    tool_definitions = get_tool_definitions(disabled=disabled_tool_names)
+    all_tool_definitions = get_tool_definitions(disabled=disabled_tool_names)
+    already_used_tools = {
+        tc.get("name") for r in records if r.get("role") == "assistant" for tc in r.get("tool_calls", []) if tc.get("name")
+    }
+    relevant_names = _relevant_tool_names(
+        {d.name for d in all_tool_definitions}, recent_user_text, already_used_tools
+    )
+    tool_definitions = [d for d in all_tool_definitions if d.name in relevant_names]
     ctx = ToolContext(db=db, user_id=user.id, space_id=item.space_id)
     web_search_calls = 0
     max_web_search_calls = settings.web_search_max_calls_per_turn

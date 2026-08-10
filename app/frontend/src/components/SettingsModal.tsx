@@ -28,7 +28,7 @@ const LLM_PROVIDERS = [
   { value: "", label: "По умолчанию" },
   { value: "mistral", label: "Mistral" },
   { value: "gemini", label: "Gemini Flash" },
-  { value: "groq", label: "Groq (GPT OSS 120B)" },
+  { value: "groq", label: "Groq (Llama 3.3 70B)" },
 ];
 
 export default function SettingsModal({ onClose }: { onClose: () => void }) {

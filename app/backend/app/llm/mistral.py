@@ -47,6 +47,11 @@ class MistralClient:
                 args = json.loads(fn.get("arguments") or "{}")
             except json.JSONDecodeError:
                 args = {}
+            # Тот же случай, что поймали на Groq: для тулов без параметров
+            # arguments иногда приходит буквально строкой "null", а не
+            # "{}" — json.loads даёт None, обработчики тулов ждут dict.
+            if not isinstance(args, dict):
+                args = {}
             tool_calls.append(ToolCall(id=tc["id"], name=fn["name"], arguments=args))
 
         raw_content = message.get("content")
