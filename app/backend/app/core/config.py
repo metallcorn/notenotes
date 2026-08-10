@@ -30,6 +30,13 @@ class Settings(BaseSettings):
     # 2-3 полноценных хода в сутки. 2.5-flash (старше, дешевле в
     # обслуживании для Google) даёт рабочий запас для тестирования.
     gemini_model: str = "gemini-2.5-flash"
+    groq_api_key: str = ""
+    # gpt-oss-120b изначально был выбран по объективным цифрам (быстрее,
+    # дешевле, больше параметров), но его free tier TPM (8000) меньше
+    # нашего полного промпта+тулов даже после сжатия (~11500 токенов) —
+    # 413 на каждый вызов. llama-3.3-70b-versatile — единственный из
+    # проверенных, чей free tier (12000 TPM) реально вмещает наш запрос.
+    groq_model: str = "llama-3.3-70b-versatile"
     tavily_api_key: str = ""
     # CLAUDE.md: хардкап обязателен с первой версии, без исключений —
     # иначе агентный цикл может сжечь месячный бесплатный лимит Tavily
@@ -39,10 +46,12 @@ class Settings(BaseSettings):
     # Голосовой ассистент (ТЗ §10a, §14). ASR — одноразовая транскрипция
     # записанной реплики (не потоковая), поэтому Deepgram/Whisper — оба
     # простой REST. TTS — Palabra, у него потоковый WebSocket-протокол
-    # (см. app/tts/palabra.py).
+    # (см. app/tts/palabra.py). asr_provider="whisper" использует Groq
+    # (whisper-large-v3) через groq_api_key выше, отдельного ключа не было
+    # и не нужно — раньше был WHISPER_API_KEY, но его значение всегда было
+    # ключом от Groq (реальный найденный баг, см. asr/whisper.py).
     asr_provider: str = "deepgram"
     deepgram_api_key: str = ""
-    whisper_api_key: str = ""
     tts_provider: str = "palabra"
     palabra_api_key: str = ""
     palabra_region: str = "eu"

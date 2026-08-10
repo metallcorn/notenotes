@@ -3,6 +3,7 @@ from functools import lru_cache
 from app.core.config import get_settings
 from app.llm.base import LLMClient
 from app.llm.gemini import GeminiClient
+from app.llm.groq import GroqClient
 from app.llm.mistral import MistralClient
 
 
@@ -20,6 +21,8 @@ def _client_for(provider: str) -> LLMClient:
         return MistralClient(api_key=settings.llm_api_key, model=settings.llm_model)
     if provider == "gemini":
         return GeminiClient(api_key=settings.gemini_api_key, model=settings.gemini_model)
+    if provider == "groq":
+        return GroqClient(api_key=settings.groq_api_key, model=settings.groq_model)
     raise ValueError(f"Неизвестный LLM-провайдер: {provider}")
 
 

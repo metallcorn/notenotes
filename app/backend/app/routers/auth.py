@@ -91,7 +91,7 @@ async def update_me(
     if payload.llm_provider is not None:
         # "" — глобальный дефолт из LLM_PROVIDER (app/llm/factory.py), иначе
         # только реально существующие провайдеры — не доверяем фронтенду.
-        allowed = {"", "mistral", "gemini"}
+        allowed = {"", "mistral", "gemini", "groq"}
         value = payload.llm_provider.strip().lower()
         if value not in allowed:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Неизвестный провайдер: {value}")

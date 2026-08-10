@@ -15,5 +15,5 @@ def get_asr_client() -> ASRClient:
     if settings.asr_provider == "deepgram":
         return DeepgramClient(api_key=settings.deepgram_api_key)
     if settings.asr_provider == "whisper":
-        return WhisperClient(api_key=settings.whisper_api_key)
+        return WhisperClient(api_key=settings.groq_api_key)
     raise ValueError(f"Неизвестный ASR_PROVIDER: {settings.asr_provider}")
