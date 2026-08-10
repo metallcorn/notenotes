@@ -587,6 +587,19 @@ async def run_dialog_turn(db: AsyncSession, user: User, item: Item, content: str
     ниже (send_message) и Telegram-моста (app/telegram_bot.py) — та же
     логика должна вести себя одинаково в обоих местах, а не дублироваться."""
     records: list[dict] = list(item.properties.get("messages", []))
+    # Проверено где-то РАНЬШЕ в этом диалоге (не обязательно в этом ходу) —
+    # реальный баг, пойманный ролплей-тестом: гейт ниже требовал list_folders
+    # именно в ТЕКУЩЕМ ходу, поэтому когда пользователь на СЛЕДУЮЩЕЙ реплике
+    # подтверждал "без папки" в ответ на уже заданный вопрос, гейт всё равно
+    # блокировал повторно (list_folders в этом новом ходу не звался — модель
+    # ведь уже знала ответ из истории) — модель застревала и один раз молча
+    # положила заметку не туда, соврав, что "не получилось без папки".
+    # Список папок за один диалог почти никогда не меняется, поэтому "хоть
+    # раз в этом диалоге" — достаточная и куда менее ломкая проверка, чем
+    # "именно в этом ходу".
+    folders_checked_earlier = any(
+        tc.get("name") == "list_folders" for r in records if r.get("role") == "assistant" for tc in r.get("tool_calls", [])
+    )
     records.append({"id": str(uuid.uuid4()), "role": "user", "content": content, "created_at": _now_iso()})
 
     if item.title in ("", "Новый диалог"):
@@ -601,7 +614,7 @@ async def run_dialog_turn(db: AsyncSession, user: User, item: Item, content: str
     verified_urls: set[str] = set()
     used_web_search = False
     used_advanced_web_search = False
-    folders_checked_this_turn = False
+    folders_checked_this_turn = folders_checked_earlier
 
     if not settings.llm_api_key:
         records.append(
@@ -757,11 +770,11 @@ async def run_dialog_turn(db: AsyncSession, user: User, item: Item, content: str
                 result = {
                     "error": (
                         "Сначала вызови list_folders — folder_id не передан, а папки в этом спейсе ещё "
-                        "не проверены в этом ходу. Проверь, нет ли уже подходящей по теме папки (не "
-                        "обязательно совпадающей по названию буквально), и вызови создание снова: либо "
-                        "с folder_id найденной папки (после подтверждения пользователем), либо явно без "
-                        "folder_id, если подходящей папки нет и корень спейса — осознанный выбор, а не "
-                        "пропущенная проверка."
+                        "не проверены нигде в этом диалоге. Проверь, нет ли уже подходящей по теме папки "
+                        "(не обязательно совпадающей по названию буквально), и вызови создание снова: "
+                        "либо с folder_id найденной папки (после подтверждения пользователем), либо явно "
+                        "без folder_id, если подходящей папки нет и корень спейса — осознанный выбор, а "
+                        "не пропущенная проверка."
                     )
                 }
             else:
