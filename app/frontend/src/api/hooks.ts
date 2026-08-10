@@ -86,6 +86,14 @@ export function useUpdateAutoProcessUploads() {
   });
 }
 
+export function useUpdateLlmProvider() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (llm_provider: string) => api.patch<User>("/auth/me", { llm_provider }),
+    onSuccess: (user) => qc.setQueryData(["me"], user),
+  });
+}
+
 export function useAiTransform() {
   return useMutation({
     mutationFn: (payload: { action: "summarize" | "reformat" | "rewrite"; text: string; instruction?: string }) =>

@@ -12,6 +12,7 @@ import {
   useUpdateAutoProcessUploads,
   useUpdateCustomInstructions,
   useUpdateDisabledTools,
+  useUpdateLlmProvider,
   useUpdateTtsVoice,
 } from "../api/hooks";
 import { DEFAULT_MEDIA_CACHE_LIMIT_MB, getMediaCacheLimitBytes, setMediaCacheLimitMb } from "../lib/offlineSettings";
@@ -23,6 +24,12 @@ const VOICE_PRESETS = [
   { value: "default_high", label: "Женский" },
 ];
 
+const LLM_PROVIDERS = [
+  { value: "", label: "По умолчанию" },
+  { value: "mistral", label: "Mistral" },
+  { value: "gemini", label: "Gemini Flash" },
+];
+
 export default function SettingsModal({ onClose }: { onClose: () => void }) {
   const { data: me } = useMe();
   const { data: memories, isLoading } = useMemories();
@@ -32,6 +39,7 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
   const updateInstructions = useUpdateCustomInstructions();
   const updateDisabledTools = useUpdateDisabledTools();
   const updateTtsVoice = useUpdateTtsVoice();
+  const updateLlmProvider = useUpdateLlmProvider();
   const updateAutoProcessUploads = useUpdateAutoProcessUploads();
   const pushSubscription = usePushSubscription();
   const { data: telegramStatus } = useTelegramStatus();
@@ -160,6 +168,30 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
                 Всегда включено: {coreSkills.map((s) => s.label).join(", ")}.
               </div>
             )}
+          </div>
+
+          <div className="mb-6">
+            <div className="mb-1 text-sm font-medium text-slate-900">Модель ассистента</div>
+            <div className="mb-2 text-xs text-slate-400">
+              Для сравнения провайдеров — переключение действует сразу, без перезагрузки, только для этого
+              аккаунта.
+            </div>
+            <div className="flex gap-1.5">
+              {LLM_PROVIDERS.map((p) => (
+                <button
+                  key={p.value}
+                  onClick={() => updateLlmProvider.mutate(p.value)}
+                  disabled={updateLlmProvider.isPending}
+                  className={`rounded border px-3 py-1.5 text-sm disabled:opacity-50 ${
+                    (me?.llm_provider || "") === p.value
+                      ? "border-slate-900 bg-slate-900 text-white"
+                      : "border-slate-300 text-slate-700 hover:bg-slate-50"
+                  }`}
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
           </div>
 
           <div className="mb-6">

@@ -699,7 +699,7 @@ async def run_dialog_turn(db: AsyncSession, user: User, item: Item, content: str
         await db.refresh(item)
         return records
 
-    llm_client = get_llm_client()
+    llm_client = get_llm_client(user.llm_provider)
 
     memories_result = await db.execute(
         select(AssistantMemory.content).where(AssistantMemory.user_id == user.id).order_by(AssistantMemory.created_at)

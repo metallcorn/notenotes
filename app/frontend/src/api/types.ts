@@ -7,6 +7,7 @@ export interface User {
   disabled_tools: string[];
   tts_voice: string;
   auto_process_uploads: boolean;
+  llm_provider: string;
 }
 
 export interface Skill {

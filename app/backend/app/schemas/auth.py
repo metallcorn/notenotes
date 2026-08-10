@@ -46,6 +46,7 @@ class UserOut(BaseModel):
     disabled_tools: list[str] = []
     tts_voice: str = "default_low"
     auto_process_uploads: bool = True
+    llm_provider: str = ""
 
 
 class UserUpdate(BaseModel):
@@ -55,3 +56,4 @@ class UserUpdate(BaseModel):
     disabled_tools: list[str] | None = None
     tts_voice: str | None = Field(default=None, min_length=1, max_length=128)
     auto_process_uploads: bool | None = None
+    llm_provider: str | None = None

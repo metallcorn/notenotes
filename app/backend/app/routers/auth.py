@@ -88,6 +88,14 @@ async def update_me(
         user.tts_voice = payload.tts_voice.strip()
     if payload.auto_process_uploads is not None:
         user.auto_process_uploads = payload.auto_process_uploads
+    if payload.llm_provider is not None:
+        # "" — глобальный дефолт из LLM_PROVIDER (app/llm/factory.py), иначе
+        # только реально существующие провайдеры — не доверяем фронтенду.
+        allowed = {"", "mistral", "gemini"}
+        value = payload.llm_provider.strip().lower()
+        if value not in allowed:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Неизвестный провайдер: {value}")
+        user.llm_provider = value
     await db.commit()
     await db.refresh(user)
     return user

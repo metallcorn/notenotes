@@ -34,6 +34,10 @@ class User(Base):
     # авто-OCR PDF-сканов) — по умолчанию включена, поведение для тех,
     # кто настройку не трогал, не меняется.
     auto_process_uploads: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
+    # Per-user переопределение LLM-провайдера ассистента ("" — глобальный
+    # дефолт из LLM_PROVIDER). Живой переключатель в настройках для A/B
+    # сравнения провайдеров без передеплоя — см. llm/factory.py.
+    llm_provider: Mapped[str] = mapped_column(String(32), default="", server_default="")
 
 
 class Space(Base):
