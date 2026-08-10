@@ -24,7 +24,7 @@ class Settings(BaseSettings):
     # переключиться в настройках per-user, не трогая глобальный дефолт
     # выше) — см. llm/factory.py и llm/gemini.py.
     gemini_api_key: str = ""
-    gemini_model: str = "gemini-2.5-flash"
+    gemini_model: str = "gemini-3.5-flash"
     tavily_api_key: str = ""
     # CLAUDE.md: хардкап обязателен с первой версии, без исключений —
     # иначе агентный цикл может сжечь месячный бесплатный лимит Tavily

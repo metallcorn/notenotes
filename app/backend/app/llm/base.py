@@ -9,6 +9,12 @@ class ToolCall:
     id: str
     name: str
     arguments: dict[str, Any]
+    # Провайдер-специфичные данные, которые нужно хранить непрозрачно и
+    # вернуть провайдеру как есть на следующем ходу — например, у Gemini
+    # 3.x каждый functionCall обязан нести thoughtSignature обратно, иначе
+    # 400 INVALID_ARGUMENT ("missing thought_signature"). Mistral это поле
+    # просто никогда не заполняет.
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass

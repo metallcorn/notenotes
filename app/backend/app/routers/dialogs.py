@@ -466,7 +466,7 @@ def _to_llm_messages(records: list[dict], system_prompt: str) -> list[Message]:
         role = r["role"]
         if role == "assistant":
             tool_calls = [
-                ToolCall(id=tc["id"], name=tc["name"], arguments=tc["arguments"])
+                ToolCall(id=tc["id"], name=tc["name"], arguments=tc["arguments"], metadata=tc.get("metadata", {}))
                 for tc in r.get("tool_calls", [])
             ]
             content = r.get("content", "")
@@ -765,7 +765,8 @@ async def run_dialog_turn(db: AsyncSession, user: User, item: Item, content: str
         }
         if real_tool_calls:
             assistant_record["tool_calls"] = [
-                {"id": tc.id, "name": tc.name, "arguments": tc.arguments} for tc in real_tool_calls
+                {"id": tc.id, "name": tc.name, "arguments": tc.arguments, **({"metadata": tc.metadata} if tc.metadata else {})}
+                for tc in real_tool_calls
             ]
         elif assistant_record["content"].strip():
             # Модель иногда отвечает по памяти о более раннем результате
