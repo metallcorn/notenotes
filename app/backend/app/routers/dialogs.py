@@ -635,6 +635,17 @@ async def run_dialog_turn(db: AsyncSession, user: User, item: Item, content: str
     is_fresh_start = not records
     records.append({"id": str(uuid.uuid4()), "role": "user", "content": content, "created_at": _now_iso()})
 
+    # Реальный баг, пойманный ролплей-тестом: _named_list_owner_mismatch
+    # ниже сначала сравнивал имя только с ТЕКУЩИМ сообщением — а обычный
+    # диалог многоходовый: "добавь Ульяне крем" → "какой именно?" →
+    # "NYX ...". Имя было во ВТОРОМ ходу назад, не в этом — гейт ложно
+    # блокировал ответ на уточняющий вопрос. Берём последние несколько
+    # реплик ПОЛЬЗОВАТЕЛЯ (не ассистента — его текст не показатель того,
+    # что имел в виду человек), не только последнюю.
+    recent_user_text = " ".join(
+        r["content"] for r in records[-8:] if r.get("role") == "user" and r.get("content")
+    )
+
     if item.title in ("", "Новый диалог"):
         item.title = content[:60]
 
@@ -816,7 +827,7 @@ async def run_dialog_turn(db: AsyncSession, user: User, item: Item, content: str
                     )
                 }
             elif tc.name == "add_list_entry" and (
-                owner := await _named_list_owner_mismatch(ctx.db, tc.arguments.get("list_id"), content)
+                owner := await _named_list_owner_mismatch(ctx.db, tc.arguments.get("list_id"), recent_user_text)
             ):
                 result = {
                     "error": (
