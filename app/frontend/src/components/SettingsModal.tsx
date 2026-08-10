@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
-import { Send, Trash2, X } from "lucide-react";
+import { Plus, Send, Trash2, X } from "lucide-react";
 import {
+  useAddMemory,
   useDeleteMemory,
   useMe,
   useMemories,
@@ -27,6 +28,7 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
   const { data: memories, isLoading } = useMemories();
   const { data: skills, isLoading: skillsLoading } = useSkills();
   const deleteMemory = useDeleteMemory();
+  const addMemory = useAddMemory();
   const updateInstructions = useUpdateCustomInstructions();
   const updateDisabledTools = useUpdateDisabledTools();
   const updateTtsVoice = useUpdateTtsVoice();
@@ -42,6 +44,14 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
   const [telegramDeepLink, setTelegramDeepLink] = useState<string | null>(null);
   const [mediaCacheLimitMb, setMediaCacheLimitMbState] = useState(DEFAULT_MEDIA_CACHE_LIMIT_MB);
   const [mediaCacheSaved, setMediaCacheSaved] = useState(false);
+  const [newMemoryText, setNewMemoryText] = useState("");
+
+  function handleAddMemory() {
+    const text = newMemoryText.trim();
+    if (!text || addMemory.isPending) return;
+    addMemory.mutate(text);
+    setNewMemoryText("");
+  }
 
   useEffect(() => {
     getMediaCacheLimitBytes().then((bytes) => setMediaCacheLimitMbState(bytes / (1024 * 1024)));
@@ -317,8 +327,11 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
           <div>
             <div className="mb-1 text-sm font-medium text-slate-900">Память ассистента</div>
             <div className="mb-2 text-xs text-slate-400">
-              Факты, которые ассистент запомнил между диалогами — например, что означают твои личные
-              обозначения папок.
+              Факты, которые ассистент помнит в каждом диалоге, не только когда сам что-то запомнил из
+              разговора — например, что означают твои личные обозначения папок, город, состав семьи,
+              устойчивые предпочтения. Чем больше здесь надёжных фактов, тем реже придётся объяснять
+              одно и то же заново. Не стоит добавлять сюда точный домашний адрес и подобное — это
+              заметки, а не факты для ассистента.
             </div>
             {isLoading && <div className="text-sm text-slate-400">Загрузка…</div>}
             {!isLoading && (memories ?? []).length === 0 && (
@@ -338,6 +351,24 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
                 </li>
               ))}
             </ul>
+            <div className="mt-2 flex gap-2">
+              <input
+                value={newMemoryText}
+                onChange={(e) => setNewMemoryText(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") handleAddMemory();
+                }}
+                placeholder="Например: живу в Познани"
+                className="min-w-0 flex-1 rounded border px-3 py-1.5 text-sm"
+              />
+              <button
+                onClick={handleAddMemory}
+                disabled={addMemory.isPending || !newMemoryText.trim()}
+                className="flex shrink-0 items-center justify-center rounded bg-slate-900 px-3 py-1.5 text-sm text-white disabled:opacity-50"
+              >
+                {addMemory.isPending ? <Spinner size={14} className="text-white" /> : <Plus size={14} />}
+              </button>
+            </div>
           </div>
         </div>
       </div>

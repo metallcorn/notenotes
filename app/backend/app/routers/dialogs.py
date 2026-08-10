@@ -180,6 +180,28 @@ SHOW_NOTE_IMAGES_PROMPT_FRAGMENT = (
     "вроде 'Показать ещё 10', чтобы пользователь мог продолжить просмотр."
 )
 
+# Единоразовое приглашение рассказать о себе — только когда у пользователя
+# ВООБЩЕ нет ни одного диалога и ни одного запомненного факта (см. условие
+# в run_dialog_turn). Само по себе гейтится тем же "нет фактов" условием —
+# как только появится хотя бы один remember_fact (в том числе от этого же
+# приглашения), фрагмент перестанет добавляться сам собой, без отдельного
+# флага "уже показывали". Не выспрашиваем точный домашний адрес — в отличие
+# от города (низкая точность, безопасно) это куда более чувствительная
+# штука для факта, который живёт в промпте БЕЗУСЛОВНО, на каждый ход, а не
+# по запросу, как обычная заметка.
+ONBOARDING_PROMPT_FRAGMENT = (
+    "Это первое сообщение пользователя тебе вообще — ты пока о нём ничего "
+    "не знаешь. СНАЧАЛА ответь по сути на то, с чем он обратился, как "
+    "обычно. И только ПОСЛЕ этого, отдельным коротким абзацем — предложи "
+    "через suggest_replies узнать о нём чуть больше, чтобы дальше работать "
+    "точнее (город, кто в семье, чем занимается, повторяющиеся "
+    "предпочтения) — 2 варианта, что-то вроде 'Расскажи обо мне' и 'Не "
+    "сейчас'. Не устраивай из этого длинный список вопросов текстом и не "
+    "спрашивай точный домашний адрес — это для памяти ассистента (живёт в "
+    "промпте всегда, не по запросу) слишком чувствительно, города вполне "
+    "достаточно."
+)
+
 # Инструкции про конкретные необязательные тулы — добавляются в промпт,
 # только если тул реально доступен на этот ход (не отключён в настройках
 # пользователя). Раньше эти абзацы жили в SYSTEM_PROMPT_BASE безусловно —
@@ -359,7 +381,11 @@ TOOL_PROMPT_FRAGMENTS: dict[str, str] = {
 
 
 def _build_system_prompt(
-    memory_facts: list[str], custom_instructions: str, enabled_tools: set[str], disabled_tools: set[str]
+    memory_facts: list[str],
+    custom_instructions: str,
+    enabled_tools: set[str],
+    disabled_tools: set[str],
+    is_fresh_start: bool = False,
 ) -> str:
     # ISO, не локализованное имя дня недели — strftime("%A") в контейнере
     # без ru_RU-локали всё равно выдал бы английское имя, а модели ISO-даты
@@ -368,6 +394,8 @@ def _build_system_prompt(
     prompt = f"Сегодняшняя дата: {today} (ISO, UTC).\n\n" + SYSTEM_PROMPT_BASE
     if SHOW_NOTE_IMAGES_SKILL not in disabled_tools:
         prompt += "\n\n" + SHOW_NOTE_IMAGES_PROMPT_FRAGMENT
+    if is_fresh_start:
+        prompt += "\n\n" + ONBOARDING_PROMPT_FRAGMENT
     for tool_name, fragment in TOOL_PROMPT_FRAGMENTS.items():
         if tool_name in enabled_tools:
             prompt += "\n\n" + fragment
@@ -606,6 +634,11 @@ async def run_dialog_turn(db: AsyncSession, user: User, item: Item, content: str
     folders_checked_earlier = any(
         tc.get("name") == "list_folders" for r in records if r.get("role") == "assistant" for tc in r.get("tool_calls", [])
     )
+    # Первое сообщение в этом диалоге, и ни одного факта в памяти ещё нет —
+    # см. ONBOARDING_PROMPT_FRAGMENT. Гейтится по фактам, не по разовому
+    # флагу "уже спрашивали": как только появится хотя бы один remember_fact,
+    # условие само перестанет срабатывать в новых диалогах.
+    is_fresh_start = not records
     records.append({"id": str(uuid.uuid4()), "role": "user", "content": content, "created_at": _now_iso()})
 
     if item.title in ("", "Новый диалог"):
@@ -644,7 +677,9 @@ async def run_dialog_turn(db: AsyncSession, user: User, item: Item, content: str
     )
     memory_facts = [row[0] for row in memories_result.all()]
     enabled_tool_names = {d.name for d in tool_definitions}
-    system_prompt = _build_system_prompt(memory_facts, user.custom_instructions, enabled_tool_names, disabled_tool_names)
+    system_prompt = _build_system_prompt(
+        memory_facts, user.custom_instructions, enabled_tool_names, disabled_tool_names, is_fresh_start and not memory_facts
+    )
     tool_call_leak_retried = False
 
     for _ in range(MAX_TOOL_ITERATIONS):

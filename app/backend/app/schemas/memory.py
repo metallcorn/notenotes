@@ -10,3 +10,7 @@ class MemoryOut(BaseModel):
     id: uuid.UUID
     content: str
     created_at: datetime
+
+
+class MemoryCreate(BaseModel):
+    content: str

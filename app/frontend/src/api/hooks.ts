@@ -506,6 +506,14 @@ export function useDeleteMemory() {
   });
 }
 
+export function useAddMemory() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (content: string) => api.post<AssistantMemoryFact>("/memories", { content }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["memories"] }),
+  });
+}
+
 // --- голос (ASR/TTS) --------------------------------------------------------
 
 export function useTranscribeAudio() {
