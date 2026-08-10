@@ -139,6 +139,25 @@ def _esc(s: str) -> str:
     return s.replace("&", "&amp;").replace("\n", "&#10;").replace('"', "&quot;")
 
 
+# search_base — буквальный полнотекстовый поиск без понимания синонимов
+# (см. промпт: "'купить'/'покупка'/'закупка' — разные слова"). OCR-описание
+# билета говорит "посадочный талон"/"билет на автобус" и т.п., а реальный
+# пользователь чаще спрашивает обиходным словом — "авиабилет", "жд билет" —
+# которое буквально нигде в распознанном тексте не встречается. Реальный
+# случай: "какие у меня авиабилеты" не нашёл НИ ОДНОГО реального билета
+# (оба были в базе), модель полезла в теги вместо list_all_items и
+# нафантазировала билеты из совершенно посторонних заметок. Тот же
+# приём, что transliterate.py для транслитерации — закрываем словарный
+# разрыв детерминированно на стороне данных, а не понадеявшись на то, что
+# модель сама пойдёт по запасному пути.
+_SEARCH_SYNONYMS: dict[str, str] = {
+    "flight": "авиабилет самолёт рейс перелёт",
+    "train": "жд билет поезд ЖД",
+    "bus": "автобусный билет автобус",
+    "event": "билет на мероприятие",
+}
+
+
 def _serialize_ticket_card(url: str, filename: str, data: dict, raw_text: str, code: str | None) -> str:
     parts = [f'data-url="{_esc(url)}"']
     if filename:
@@ -165,8 +184,12 @@ def _serialize_ticket_card(url: str, filename: str, data: dict, raw_text: str, c
         # notenotes_extract_attr_text) вытаскивает для индекса только
         # атрибут ИМЕННО с этим именем — тот же приём, что у карточки PDF
         # (DocumentAttachmentCard/data-text), билет тоже должен находиться
-        # поиском по месту/дате/тексту.
-        parts.append(f'data-text="{_esc(raw_text)}"')
+        # поиском по месту/дате/тексту. Синонимы (_SEARCH_SYNONYMS выше)
+        # добавляем ПЕРЕД текстом, а не вместо него — сам OCR-текст всё
+        # равно нужен для поиска по месту/имени/дате.
+        synonyms = _SEARCH_SYNONYMS.get(ticket_type, "")
+        text_for_index = f"{synonyms}\n\n{raw_text}" if synonyms else raw_text
+        parts.append(f'data-text="{_esc(text_for_index)}"')
     return f"<div data-ticket-attachment {' '.join(parts)}></div>"
 
 
@@ -174,7 +197,7 @@ _REPLACE_RETRY_ATTEMPTS = 5
 _REPLACE_RETRY_DELAY_SECONDS = 2.0
 
 
-async def _finalize_ticket_item(upload_id: uuid.UUID, old: str, new: str, properties: dict) -> None:
+async def _finalize_ticket_item(upload_id: uuid.UUID, old: str, new: str, properties: dict, title: str | None) -> None:
     # Как vision._replace_in_referencing_items (тот же retry — плейсхолдер
     # может ещё не долететь до сервера дебаунсом автосохранения), но
     # дополнительно проставляет material_type/properties на том же Item в
@@ -191,6 +214,15 @@ async def _finalize_ticket_item(upload_id: uuid.UUID, old: str, new: str, proper
                     item.content = item.content.replace(old, new)
                     item.material_type = "ticket"
                     item.properties = {**item.properties, **properties}
+                    # Раньше title не трогали вовсе — заметка так и оставалась
+                    # с родовым названием исходного фото ("Фото"), хотя LLM
+                    # уже извлёк нормальное короткое название ("Билет
+                    # Дубай — Джакарта, 14.04"). Реальный найденный эффект:
+                    # ассистент не мог найти собственные билеты пользователя
+                    # ни по названию, ни по полнотекстовому поиску — заголовок
+                    # ничего не говорил о содержимом.
+                    if title and (not item.title or item.title == "Фото"):
+                        item.title = title
                     touched_spaces.add(item.space_id)
             if touched_spaces:
                 await db.commit()
@@ -241,7 +273,8 @@ async def _process(upload_id: uuid.UUID) -> None:
     code = _decode_code(upload_id)
     properties = _build_properties(upload_id, data, code)
     card = _serialize_ticket_card(f"/api/uploads/{upload_id}", filename, data, transcript, code)
-    await _finalize_ticket_item(upload_id, image_placeholder_text(upload_id), card, properties)
+    title = str(data.get("title") or "").strip()[:60] or None
+    await _finalize_ticket_item(upload_id, image_placeholder_text(upload_id), card, properties, title)
 
 
 async def run_worker() -> None:
