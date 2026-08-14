@@ -1,4 +1,7 @@
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+import time
+from collections import defaultdict
+
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -10,6 +13,41 @@ from app.schemas.auth import UserCreate, UserLogin, UserOut, UserUpdate
 from app.security import create_session_token, hash_password, verify_password
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
+
+# Реальный найденный баг security-аудита: /login не сопротивлялся перебору
+# пароля вообще — 6 заведомо неверных попыток подряд ушли без единой
+# задержки/блокировки. Считаем только НЕУДАЧНЫЕ попытки по IP (не логину —
+# заодно защищает от перебора самого логина), сбрасываем при успехе, чтобы
+# не блокировать обычные опечатки нескольких людей за одним IP навсегда.
+# In-memory, не Redis: один backend-процесс (без множественных воркеров,
+# см. CLAUDE.md про бюджет памяти), состояние переживает столько же,
+# сколько сам процесс — этого достаточно для 2-10 пользователей.
+_LOGIN_ATTEMPT_WINDOW_SECONDS = 300
+_LOGIN_MAX_ATTEMPTS = 5
+_login_attempts: dict[str, list[float]] = defaultdict(list)
+
+
+def _client_ip(request: Request) -> str:
+    # Caddy — обратный прокси перед backend'ом (docker-сеть edge), без
+    # --proxy-headers у uvicorn request.client.host был бы IP-адресом
+    # самого Caddy внутри сети, не реального посетителя. Caddy сам
+    # проставляет X-Forwarded-For по умолчанию, один хоп — берём первый
+    # адрес из списка.
+    forwarded = request.headers.get("x-forwarded-for")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
+
+
+def _login_attempts_blocked(ip: str) -> bool:
+    now = time.monotonic()
+    attempts = _login_attempts[ip]
+    attempts[:] = [t for t in attempts if now - t < _LOGIN_ATTEMPT_WINDOW_SECONDS]
+    return len(attempts) >= _LOGIN_MAX_ATTEMPTS
+
+
+def _record_failed_login(ip: str) -> None:
+    _login_attempts[ip].append(time.monotonic())
 
 
 def _set_session_cookie(response: Response, user_id) -> None:
@@ -48,12 +86,20 @@ async def register(payload: UserCreate, response: Response, db: AsyncSession = D
 
 
 @router.post("/login", response_model=UserOut)
-async def login(payload: UserLogin, response: Response, db: AsyncSession = Depends(get_db)) -> User:
+async def login(payload: UserLogin, request: Request, response: Response, db: AsyncSession = Depends(get_db)) -> User:
+    ip = _client_ip(request)
+    if _login_attempts_blocked(ip):
+        raise HTTPException(
+            status.HTTP_429_TOO_MANY_REQUESTS, "Слишком много неудачных попыток входа — попробуй через несколько минут"
+        )
+
     result = await db.execute(select(User).where(User.username == payload.username))
     user = result.scalar_one_or_none()
     if user is None or not verify_password(payload.password, user.password_hash):
+        _record_failed_login(ip)
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Неверный логин или пароль")
 
+    _login_attempts.pop(ip, None)
     _set_session_cookie(response, user.id)
     return user
 
