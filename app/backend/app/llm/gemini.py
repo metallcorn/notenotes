@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import logging
+
 import httpx
 
-from app.llm.base import LLMResponse, Message, ToolCall, ToolDefinition
+from app.llm.base import EmptyLLMResponseError, LLMResponse, Message, ToolCall, ToolDefinition
+
+logger = logging.getLogger(__name__)
 
 GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 
@@ -96,4 +100,19 @@ class GeminiClient:
             data = resp.json()
 
         candidate = data["candidates"][0]
-        return LLMResponse(message=self._from_wire(candidate), finish_reason=candidate.get("finishReason", ""))
+        finish_reason = candidate.get("finishReason", "")
+        message = self._from_wire(candidate)
+        if not message.content.strip() and not message.tool_calls:
+            # Реальный случай, пойманный вживую: под давлением free-tier
+            # квоты Gemini иногда отвечает 200 с пустым candidate
+            # (finishReason=STOP, ни текста, ни functionCall) вместо честной
+            # 429 — не наш баг в сборке запроса (contents были протокольно
+            # верны в каждом воспроизведённом случае), но раньше это тихо
+            # долетало до пользователя как пустой пузырь в чате.
+            logger.warning(
+                "Gemini вернул пустой ответ (finishReason=%s, usage=%s)",
+                finish_reason,
+                data.get("usageMetadata"),
+            )
+            raise EmptyLLMResponseError(f"Gemini вернул пустой ответ, finishReason={finish_reason!r}")
+        return LLMResponse(message=message, finish_reason=finish_reason)

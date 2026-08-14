@@ -17,6 +17,7 @@ from app.asr.factory import get_asr_client
 from app.core.config import get_settings
 from app.db import async_session
 from app.models import Folder, Item, Space, SpaceMember, TelegramLink, TelegramLinkCode, Upload, User
+from app.note_formatting import linkify_notes_content
 from app.pdf_processing import AUTO_OCR_MAX_PDF_BYTES
 from app.pdf_processing import enqueue_ocr as enqueue_pdf_ocr
 from app.pdf_processing import extract_text as extract_pdf_text
@@ -87,28 +88,6 @@ _MARKDOWN_MARKS_RE = re.compile(r"[*_`~]")
 # пустую строку — та же логика "пустая строка не годится в заголовок" ниже
 # просто переходит на следующую строку контента.
 _MARKDOWN_LINK_OR_IMAGE_RE = re.compile(r"!?\[([^\]]*)\]\([^)]*\)")
-
-# Голая ссылка, которую пользователь вставляет в веб-редактор, превращается
-# в карточку сайта (LinkPreview.ts/NoteEditor.tsx: editorProps.handlePaste
-# ловит вставку строки-URL целиком и создаёт узел linkPreview) — но это
-# чисто клиентское поведение, срабатывающее только на paste, а не при
-# обычном рендере markdown-контента. Заметки от бота никогда через paste
-# не проходят, поэтому без этого шага пересланная ссылка так и остаётся
-# голым текстом без карточки. Формат — тот же <a data-linkpreview>, что
-# сериализует сам редактор (LinkPreview.ts:56), тогда его же parseHTML-
-# правило (приоритет 100 над обычной ссылкой) подхватит узел при загрузке.
-_BARE_URL_LINE_RE = re.compile(r"^https?://\S+$")
-
-
-def _linkify_bare_urls(text: str) -> str:
-    def _wrap(line: str) -> str:
-        stripped = line.strip()
-        if _BARE_URL_LINE_RE.match(stripped):
-            return f'<a href="{stripped.replace(chr(34), "&quot;")}" data-linkpreview></a>'
-        return line
-
-    return "\n".join(_wrap(line) for line in text.split("\n"))
-
 
 def _derive_title(text: str, fallback: str = "") -> str:
     """Заметки из Telegram создавались без названия ("Без названия" в UI) —
@@ -616,7 +595,7 @@ async def _handle_forward_batch(
             formatted = _entities_to_markdown(m["text"], m.get("entities"))
             if not title:
                 title = _derive_title(formatted)
-            parts.append(_linkify_bare_urls(formatted))
+            parts.append(linkify_notes_content(formatted))
         elif "photo" in m:
             photos = m["photo"]
             largest = max(photos, key=lambda p: p.get("file_size", 0))
@@ -884,6 +863,23 @@ async def _process(update: dict) -> None:
         # по имени отправителя (см. _buffer_forward_message).
         if is_forwarded:
             sender_name = _forward_sender_name(message)
+            if sender_name is None:
+                # Временная диагностика реального случая: пересланный
+                # документ ушёл в корень спейса без папки — не удалось
+                # определить отправителя форварда. Логируем сырые поля,
+                # чтобы увидеть, какую форму на этот раз прислал Telegram
+                # (двойная пересылка/приватность форвардов и т.п.). Убрать
+                # после того, как причина найдена.
+                logger.info(
+                    "Пересланное сообщение без определённого sender_name: "
+                    "forward_origin=%r forward_from=%r forward_from_chat=%r "
+                    "forward_sender_name=%r keys=%r",
+                    message.get("forward_origin"),
+                    message.get("forward_from"),
+                    message.get("forward_from_chat"),
+                    message.get("forward_sender_name"),
+                    list(message.keys()),
+                )
             _buffer_forward_message(message, chat_id, sender_name)
             return
 

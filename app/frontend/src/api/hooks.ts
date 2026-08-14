@@ -413,8 +413,18 @@ export function useDialog(dialogId: string | undefined) {
 export function useCreateDialog() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: () => api.post<Dialog>("/dialogs", {}),
+    mutationFn: (payload?: { scoped_item_id?: string; selection?: string }) => api.post<Dialog>("/dialogs", payload ?? {}),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["dialogs"] }),
+  });
+}
+
+// Все скретч-диалоги "Спросить ассистента" для конкретной заметки, новые
+// сверху — NoteAssistantModal.tsx при открытии показывает их списком.
+// Мутация, не query: нужен разовый императивный вызов в конкретный момент
+// (при открытии панели), не закешированный автообновляющийся запрос.
+export function useScopedDialogs() {
+  return useMutation({
+    mutationFn: (itemId: string) => api.get<DialogSummary[]>(`/dialogs/scoped/${itemId}`),
   });
 }
 
@@ -573,6 +583,15 @@ export function useReprocessUpload() {
   });
 }
 
+// Синхронный вариант распознавания картинки — для вложения в сообщение
+// ассистенту (AssistantChat.tsx): результат нужен ДО отправки сообщения,
+// не фоновой заменой плейсхолдера, как у вложений в заметку.
+export function useDescribeUploadNow() {
+  return useMutation({
+    mutationFn: (uploadId: string) => api.post<{ description: string }>(`/uploads/${uploadId}/describe-now`),
+  });
+}
+
 // --- telegram ---------------------------------------------------------------
 
 export function useTelegramStatus() {
@@ -666,7 +685,7 @@ export function useMarkAllNotificationsRead() {
 export function useCreateReminder() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (payload: { title: string; body?: string; trigger_at: string }) =>
+    mutationFn: (payload: { title: string; body?: string; trigger_at: string; item_id?: string }) =>
       api.post<Notification>("/notifications", payload),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["notifications"] }),
   });

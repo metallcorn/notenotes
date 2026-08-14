@@ -62,6 +62,12 @@ export const uiStorage = {
   getChatContentWidth: (): ContentWidth => read<ContentWidth>("chatContentWidth", "narrow"),
   setChatContentWidth: (v: ContentWidth): void => write("chatContentWidth", v),
 
+  // Ширина боковой панели "Спросить ассистента" на десктопе (px,
+  // перетаскиванием) — реальная жалоба: фиксированные 420px не подходят
+  // всем, хочется двигать самому, как и остальные ширины в приложении.
+  getNotePanelWidth: (): number => read<number>("notePanelWidth", 420),
+  setNotePanelWidth: (v: number): void => write("notePanelWidth", v),
+
   // Какой из трёх верхнеуровневых экранов был открыт — иначе обновление
   // страницы всегда откатывало на «Заметки», даже если человек сидел в
   // Ассистенте или Корзине (жалоба из отзыва).

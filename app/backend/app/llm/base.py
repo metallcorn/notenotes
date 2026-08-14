@@ -47,3 +47,12 @@ class LLMResponse:
 
 class LLMClient(Protocol):
     async def chat(self, messages: list[Message], tools: list[ToolDefinition]) -> LLMResponse: ...
+
+
+class EmptyLLMResponseError(Exception):
+    """Провайдер ответил 200, но без текста и без tool_calls — реальный
+    случай, пойманный на Gemini под давлением free-tier квоты: вместо
+    честной 429 иногда прилетает пустой candidate с finishReason=STOP.
+    Раньше это тихо превращалось в пустой пузырь в чате — теперь клиент
+    поднимает эту ошибку явно, чтобы routers/dialogs.py показал тот же
+    честный "попробуй ещё раз", что и для сетевых сбоев, вместо тишины."""

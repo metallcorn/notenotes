@@ -11,6 +11,7 @@ from app import realtime
 from app.deps import ensure_space_access
 from app.llm.base import ToolDefinition
 from app.models import Folder, Item, ItemTag, ItemVersion, Space, SpaceMember, Tag
+from app.note_formatting import linkify_notes_content
 from app.routers.items import create_item_row
 from app.tools.registry import ToolContext, ToolError
 
@@ -79,7 +80,13 @@ CREATE_NOTE = ToolDefinition(
 
 async def create_note(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
     title = str(args.get("title", "")).strip()
-    content = str(args.get("content", ""))
+    # Ассистент никогда не проходит через paste в редакторе, поэтому строка
+    # вида "[readyfest.pl](url)" сама по себе не станет карточкой сайта без
+    # этого шага (тот же приём, что уже был у Telegram-бота, см.
+    # note_formatting.py — реальная жалоба: заметки от ассистента с
+    # ссылками выглядели "необработанными" по сравнению с заметками,
+    # созданными вручную вставкой ссылки).
+    content = linkify_notes_content(str(args.get("content", "")))
     folder_id, space_id = await _resolve_folder(ctx, args.get("folder_id"))
 
     item = await create_item_row(
@@ -131,7 +138,16 @@ async def get_note(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
 
 UPDATE_NOTE = ToolDefinition(
     name="update_note",
-    description="Изменить заголовок и/или содержимое существующей заметки. Незаданные поля не меняются.",
+    description=(
+        "Изменить заголовок и/или содержимое существующей заметки. Незаданные поля не меняются. "
+        "content заменяет содержимое ЦЕЛИКОМ, не добавляет к старому — просто ДОПИСАТЬ что-то "
+        "в конец (лог тренировки по подходу, добавить пункт и т.п.) используй append_to_note, "
+        "не это: он сам дописывает в базе, не заставляя тебя перепечатывать всё, что уже было, "
+        "а значит невозможно случайно потерять тег вложения (![](url), <video>, <audio>, "
+        "data-url=...) или старую запись при переписывании. Настоящее update_note — для "
+        "правки/удаления/реструктуризации уже существующего текста, когда правда нужно "
+        "заменить содержимое целиком."
+    ),
     parameters={
         "type": "object",
         "properties": {
@@ -148,6 +164,11 @@ async def update_note(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
     item = await _get_item_cross_space(ctx, args.get("item_id"))
     new_title = args.get("title")
     new_content = args.get("content")
+    if new_content is not None:
+        # Та же причина, что в create_note — ассистент не проходит через
+        # paste в редакторе, ссылка сама по себе не станет карточкой без
+        # этого шага.
+        new_content = linkify_notes_content(str(new_content))
 
     content_changed = (new_title is not None and new_title != item.title) or (
         new_content is not None and new_content != item.content
@@ -167,6 +188,44 @@ async def update_note(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
     await ctx.db.refresh(item)
     await realtime.notify_space(item.space_id, "items")
     return {"id": str(item.id), "title": item.title}
+
+
+APPEND_TO_NOTE = ToolDefinition(
+    name="append_to_note",
+    description=(
+        "Добавить текст В КОНЕЦ существующей заметки, не трогая то, что там уже есть. "
+        "Безопаснее update_note для этого случая: не нужно самому копировать и печатать "
+        "заново весь текущий текст, поэтому невозможно случайно что-то потерять при "
+        "переписывании — картинку, вложение, старую запись. Используй для 'допиши/добавь "
+        "к заметке X', особенно когда заметка уже содержит вложения (картинки/видео/аудио/"
+        "файлы/билеты) или когда правишь её много раз подряд по чуть-чуть (например, лог "
+        "тренировки — по подходу за раз). Для настоящего переписывания/удаления/"
+        "реструктуризации уже существующего текста — update_note, не это."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "item_id": {"type": "string"},
+            "text": {"type": "string", "description": "Текст, который нужно добавить в конец заметки"},
+        },
+        "required": ["item_id", "text"],
+    },
+)
+
+
+async def append_to_note(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
+    item = await _get_item_cross_space(ctx, args.get("item_id"))
+    text = str(args.get("text", "")).strip()
+    if not text:
+        raise ToolError("Пустой текст для добавления")
+
+    ctx.db.add(ItemVersion(item_id=item.id, title=item.title, content=item.content, author_id=ctx.user_id))
+    item.content = f"{item.content.rstrip()}\n\n{text}" if item.content.strip() else text
+
+    await ctx.db.commit()
+    await ctx.db.refresh(item)
+    await realtime.notify_space(item.space_id, "items")
+    return {"id": str(item.id), "title": item.title, "content": item.content}
 
 
 DELETE_NOTE = ToolDefinition(

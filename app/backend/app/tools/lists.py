@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import uuid
 from datetime import datetime, timezone
 from typing import Any
@@ -12,6 +13,24 @@ from app.models import Folder, Item, Space
 from app.routers.items import create_item_row
 from app.routers.lists import _broadcast, _serialize
 from app.tools.registry import ToolContext, ToolError
+
+logger = logging.getLogger(__name__)
+
+
+async def _safe_broadcast(item: Item) -> None:
+    """Реальный найденный баг: WS-рассылка (чисто UX-приятность — синхронизация
+    открытых вкладок в реальном времени) шла ПОСЛЕ db.commit() — то есть
+    сам список УЖЕ сохранился, но если _serialize/_broadcast упадёт
+    (поймано вживую: тестовые данные без created_at — Pydantic ValidationError),
+    исключение улетает наружу и registry.dispatch превращает успешную
+    операцию в "Внутренняя ошибка" для модели. Модель в ответ на РЕАЛЬНО
+    удавшийся toggle честно, но неверно, говорила пользователю, что
+    отметить не получилось. Рассылка — не источник истины, не должна уметь
+    маскировать удавшуюся запись под провал."""
+    try:
+        await _broadcast(item.id, _serialize(item).model_dump(mode="json"))
+    except Exception:
+        logger.exception("Не удалось разослать обновление списка %s по WS (сама запись уже сохранена)", item.id)
 
 
 def _now_iso() -> str:
@@ -191,7 +210,7 @@ async def add_list_entry(ctx: ToolContext, args: dict[str, Any]) -> dict[str, An
     await ctx.db.commit()
     await ctx.db.refresh(item)
 
-    await _broadcast(item.id, _serialize(item).model_dump(mode="json"))
+    await _safe_broadcast(item)
     return {"list_id": str(item.id), "entries": [e["text"] for e in entries]}
 
 
@@ -239,5 +258,5 @@ async def toggle_list_entry(ctx: ToolContext, args: dict[str, Any]) -> dict[str,
     await ctx.db.commit()
     await ctx.db.refresh(item)
 
-    await _broadcast(item.id, _serialize(item).model_dump(mode="json"))
+    await _safe_broadcast(item)
     return {"list_id": str(item.id), "entry": target["text"], "checked": checked}

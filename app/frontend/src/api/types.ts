@@ -85,6 +85,9 @@ export interface DialogSummary {
   title: string;
   created_at: string;
   updated_at: string;
+  // Только у скретч-диалогов заметки (see NoteAssistantModal.tsx) — первое
+  // сообщение пользователя коротко, чтобы отличать их друг от друга в списке.
+  preview?: string | null;
 }
 
 export interface Dialog extends DialogSummary {
@@ -121,6 +124,8 @@ export interface UploadResult {
   content_type: string;
   pdf_text: string | null;
   pdf_ocr_queued: boolean;
+  preview_text: string | null;
+  has_thumbnail: boolean;
 }
 
 export interface ItemVersion {

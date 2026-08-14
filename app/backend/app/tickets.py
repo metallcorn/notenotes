@@ -18,6 +18,7 @@ from app.llm.factory import get_llm_client
 from app.models import Item, Upload
 from app.vision import _replace_in_referencing_items
 from app.vision import placeholder_text as image_placeholder_text
+from app.vision import serialize_image_ocr_result
 
 logger = logging.getLogger(__name__)
 
@@ -266,7 +267,7 @@ async def _process(upload_id: uuid.UUID) -> None:
         # Не удалось извлечь структуру — не оставляем заметку висеть на
         # плейсхолдере вечно: показываем как обычное распознанное
         # изображение, тем же путём, что vision.py для не-билетов.
-        formatted = f"**Изображение:**\n\n{transcript}"
+        formatted = serialize_image_ocr_result(transcript)
         await _replace_in_referencing_items(upload_id, image_placeholder_text(upload_id), formatted)
         return
 

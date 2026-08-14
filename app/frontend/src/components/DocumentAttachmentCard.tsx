@@ -1,8 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { NodeViewWrapper } from "@tiptap/react";
 import type { NodeViewProps } from "@tiptap/react";
 import { ChevronDown, ChevronUp, Download, File, FileText, X } from "lucide-react";
 import { useReprocessUpload } from "../api/hooks";
+import { useIsPartOfAttachmentStack, useTapReveal } from "../lib/useNodeViewPreview";
 import Spinner from "./Spinner";
 
 const UPLOAD_ID_RE = /\/api\/uploads\/([0-9a-f-]{36})/i;
@@ -38,14 +40,42 @@ function PdfPreviewOverlay({ url, onClose }: { url: string; onClose: () => void 
   );
 }
 
+// Всплывающая мини-превьюшка страницы PDF по ховеру/тапу — тот же приём
+// (портал в body, без position: absolute внутри редактора), что
+// HoverPopover в LinkPreviewCard.tsx: редактор сам overflow-контейнер,
+// абсолютное позиционирование внутри него обрезалось бы.
+function ThumbnailPopover({ anchor, thumbnailUrl }: { anchor: HTMLElement; thumbnailUrl: string }) {
+  const [position, setPosition] = useState<{ top: number; left: number } | null>(null);
+
+  useEffect(() => {
+    const rect = anchor.getBoundingClientRect();
+    setPosition({ top: rect.bottom + 4, left: rect.left });
+  }, [anchor]);
+
+  if (!position) return null;
+
+  return createPortal(
+    <div style={{ top: position.top, left: position.left }} className="fixed z-50 overflow-hidden rounded border bg-white shadow-lg">
+      <img src={thumbnailUrl} alt="" className="max-h-64 w-48 object-cover object-top" />
+    </div>,
+    document.body,
+  );
+}
+
 export default function DocumentAttachmentCard({ node, editor, getPos }: NodeViewProps) {
   const { url, filename, text } = node.attrs as { url: string; filename: string; text: string };
   const [expanded, setExpanded] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
+  const [thumbFailed, setThumbFailed] = useState(false);
+  const [hovered, setHovered] = useState(false);
   const reprocess = useReprocessUpload();
+  const stacked = useIsPartOfAttachmentStack(editor, getPos);
+  const { revealed, handleTap } = useTapReveal();
 
   const isPdf = filename.toLowerCase().endsWith(".pdf");
   const uploadId = url.match(UPLOAD_ID_RE)?.[1] ?? null;
+  const thumbnailUrl = isPdf && uploadId && !thumbFailed ? `${url}/thumbnail` : null;
+  const rowRef = useRef<HTMLDivElement>(null);
 
   async function handleReprocess() {
     if (!uploadId || typeof getPos !== "function") return;
@@ -62,13 +92,33 @@ export default function DocumentAttachmentCard({ node, editor, getPos }: NodeVie
     await reprocess.mutateAsync(uploadId);
   }
 
+  // Подборка (пачка файлов/ссылок подряд) — превью сразу, без действия;
+  // одиночный файл среди текста — компактно, превью по ховеру (мышь) или
+  // первому тапу (тач-экран, второй тап открывает — см. useTapReveal).
+  const showBanner = stacked && thumbnailUrl;
+  const showHoverPreview = !stacked && (hovered || revealed) && thumbnailUrl && rowRef.current;
+
   return (
     <NodeViewWrapper as="div" className="my-1" data-drag-handle draggable>
-      <div className="inline-block max-w-full rounded border bg-slate-50">
-        <div className="flex items-center">
+      <div className={`overflow-hidden rounded border bg-slate-50 ${stacked ? "max-w-md" : "inline-block max-w-full"}`}>
+        {showBanner && (
+          <img
+            src={thumbnailUrl!}
+            alt=""
+            className="h-40 w-full cursor-pointer object-cover object-top"
+            onClick={() => setPreviewOpen(true)}
+            onError={() => setThumbFailed(true)}
+          />
+        )}
+        <div
+          ref={rowRef}
+          onMouseEnter={() => setHovered(true)}
+          onMouseLeave={() => setHovered(false)}
+          className="flex items-center"
+        >
           {isPdf ? (
             <button
-              onClick={() => setPreviewOpen(true)}
+              onClick={(e) => (stacked ? setPreviewOpen(true) : handleTap(e, () => setPreviewOpen(true)))}
               className="flex min-w-0 flex-1 items-center gap-2 px-3 py-2 text-left text-sm text-slate-800 hover:bg-slate-100"
             >
               <FileText size={16} className="shrink-0 text-red-500" />
@@ -96,6 +146,7 @@ export default function DocumentAttachmentCard({ node, editor, getPos }: NodeVie
             </a>
           )}
         </div>
+        {showHoverPreview && <ThumbnailPopover anchor={rowRef.current!} thumbnailUrl={thumbnailUrl!} />}
 
         {text && (
           <button
@@ -103,7 +154,9 @@ export default function DocumentAttachmentCard({ node, editor, getPos }: NodeVie
             className="flex w-full items-center gap-1 border-t px-3 py-1.5 text-xs text-slate-500 hover:bg-slate-100"
           >
             {expanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
-            {expanded ? "Скрыть распознанный текст" : "Показать распознанный текст"}
+            {expanded
+              ? isPdf ? "Скрыть распознанный текст" : "Скрыть содержимое файла"
+              : isPdf ? "Показать распознанный текст" : "Показать содержимое файла"}
           </button>
         )}
         {text && expanded && (

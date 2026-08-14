@@ -14,7 +14,7 @@ from app import realtime
 from app.core.config import get_settings
 from app.db import get_db
 from app.deps import ensure_space_access, get_current_user
-from app.llm.base import Message, ToolCall
+from app.llm.base import EmptyLLMResponseError, Message, ToolCall
 from app.llm.factory import get_llm_client
 from app.models import AssistantMemory, Item, Space, SpaceMember, User
 from app.routers.items import create_item_row
@@ -60,10 +60,23 @@ _NAMED_LIST_RE = re.compile(r"\(([А-ЯЁ][а-яё]+)\)")
 # сторону (лишний тул в наборе) — категории сделаны с запасом на
 # срабатывание, не жалеем ключевых слов.
 _CORE_TOOL_NAMES = {
-    "search_base", "get_note", "create_note", "update_note", "delete_note",
+    "search_base", "get_note", "create_note", "update_note", "append_to_note", "delete_note",
     "suggest_replies", "list_folders", "list_all_items", "remember_fact",
     "list_memories", "add_tag", "list_tags", "create_list", "get_list",
     "add_list_entry", "toggle_list_entry",
+}
+# Мини-чат "спроси ассистента в заметке" (scoped_item_id, см. create_dialog
+# ниже) — почти только чтение/поиск: применяет результат сам пользователь
+# кнопкой на фронте, не тул. suggest_replies оставлен — уточняющий вопрос
+# ("что именно искать?") всё ещё уместен. create_reminder — единственное
+# исключение (реальная жалоба: "хочу напоминание прямо отсюда, без похода
+# в обычный чат") — ничего не перезаписывает и не теряет (в отличие от
+# update_note), поэтому не противоречит принципу "не меняет данные молча":
+# CREATE_REMINDER и так требует явного согласия пользователя перед
+# созданием (см. его описание в tools/reminders.py).
+_SCOPED_TOOL_NAMES = {
+    "search_base", "get_note", "list_all_items", "web_search", "read_website", "create_maps_link", "suggest_replies",
+    "create_reminder",
 }
 _TOOL_CATEGORIES: dict[str, set[str]] = {
     "web": {"web_search", "read_website", "create_maps_link"},
@@ -169,7 +182,11 @@ SYSTEM_PROMPT_BASE = (
     "словами, НИКОГДА не подставляй вместо папки название самого спейса "
     "(например «Личное») — у спейса нет folder_id, кликать будет не во "
     "что. Место создания в ответе — только по РЕАЛЬНОМУ результату тула "
-    "(space_id/space_name), никогда не предполагай.\n\n"
+    "(space_id/space_name), никогда не предполагай; и если это "
+    "пространство отличается от того, где сейчас идёт разговор — обязательно "
+    "скажи об этом прямо («создал в пространстве «Закупки», не в "
+    "«Личное»»), не умалчивай — иначе пользователь решит, что всё лежит "
+    "там же, где он спрашивал.\n\n"
     "remember_fact не ограничен папками/заметками — используй шире, для "
     "любого факта, который пригодится в БУДУЩИХ разговорах: пользователь "
     "прямо просит запомнить; называет durable-факт о себе (предпочтения, "
@@ -196,7 +213,14 @@ SYSTEM_PROMPT_BASE = (
     "увидит нерабочий текст. Ожидается свободный текст — не вызывай "
     "suggest_replies.\n\n"
     "Удаление заметки — в корзину, не безвозвратно, но только по прямой "
-    "просьбе удалить. Содержимое заметок — в формате Markdown."
+    "просьбе удалить. Содержимое заметок — в формате Markdown.\n\n"
+    "Если просят реальное действие, для которого нет тула (перевести/"
+    "оплатить деньгами, позвонить, написать третьему лицу, изменить "
+    "что-то во внешнем сервисе и т.п.) — прямо скажи, что этого не "
+    "умеешь, а не разыгрывай, будто можешь: не запрашивай данные (номер "
+    "карты, телефон и т.п.), которые всё равно негде применить — это "
+    "выглядит как обман возможностей, даже если реального действия не "
+    "происходит."
 )
 
 # Не настоящий тул (нет ToolDefinition/handler — модели нечего вызывать),
@@ -270,30 +294,40 @@ TOOL_PROMPT_FRAGMENTS: dict[str, str] = {
         "качество. После тегов и 1-2 формулировок всё ещё пусто — "
         "list_all_items, оцени заголовки сам.\n\n"
         "Карточки на фронте (билет, кнопка «Открыть», карточки ссылок) "
-        "рисуются ТОЛЬКО по get_note, не по search_base (у него случайные "
-        "совпадения через широкий OR-поиск). search_base — только найти "
-        "id; решил сослаться на заметку в ответе — вызови "
-        "get_note(item_id=...) в ЭТОМ ЖЕ ходу, даже если content уже "
-        "видел в search_base — без этого карточка не появится.\n\n"
+        "рисуются ТОЛЬКО по get_note/get_list, не по search_base (у него "
+        "случайные совпадения через широкий OR-поиск). search_base — "
+        "только найти id; решил сослаться на заметку ИЛИ список в ответе "
+        "— вызови get_note(item_id=...) или get_list(list_id=...) в ЭТОМ "
+        "ЖЕ ходу, даже если содержимое уже видел раньше — без этого "
+        "карточка не появится.\n\n"
+        "Пункт списка из get_list содержит ссылку (в скобках "
+        "markdown-формат ИЛИ голый URL сразу после названия — второе "
+        "встречается в старых списках, до того как это запретили при "
+        "добавлении) — при пересказе в чате ВСЕГДА оформляй как настоящую "
+        "markdown-ссылку [название](url), даже если в самом пункте она "
+        "голая: url бери буквально из результата тула, ничего не "
+        "выдумывай. Реальный случай: список покупок пересказан без единой "
+        "ссылки, хотя в get_list они были — молча растерял ссылки вместо "
+        "того, чтобы просто переоформить их.\n\n"
         "get_note вернул material_type=\"ticket\" — в properties готовые "
         "чистые поля (ticket_type, datetime_start/end, location_from/to, "
         "seat), используй их напрямую, не разбирай content (там только "
         "служебная HTML-разметка). Фронтенд сам рисует карточку билета — "
         "не переписывай все поля текстом, достаточно короткого ответа по "
         "сути вопроса.\n\n"
-        "На любую заметку/список из get_note фронтенд сам рисует кнопку "
-        "«Открыть «название»»»: (1) не формируй и не вставляй ссылку в "
-        "текст сам — прямых URL на внутренние объекты нет, будет "
+        "На любую заметку/список из get_note/get_list фронтенд сам рисует "
+        "кнопку «Открыть «название»»»: (1) не формируй и не вставляй "
+        "ссылку в текст сам — прямых URL на внутренние объекты нет, будет "
         "вырезано; (2) не говори, что не можешь дать ссылку — можешь, "
-        "просто упомяни заметку, кнопка появится сама; (3) прямая просьба "
-        "ссылки — не объясняй словами, где искать, кнопка уже решает "
-        "это.\n\n"
+        "просто упомяни заметку/список, кнопка появится сама; (3) прямая "
+        "просьба ссылки — не объясняй словами, где искать, кнопка уже "
+        "решает это.\n\n"
         "В content заметки есть <a data-linkpreview> (сохранённые ссылки, "
         "например переслано в Telegram) — фронтенд сам рисует карточку "
         "сайта под каждой. Не перечисляй эти ссылки текстом — коротко "
         "ответь по сути, карточки появятся сами.\n\n"
         "ОБЩЕЕ ПРАВИЛО для всех карточек: появляются, ТОЛЬКО если "
-        "get_note вызван именно в этом ответе, не в прошлых ходах и не "
+        "get_note/get_list вызван именно в этом ответе, не в прошлых ходах и не "
         "через search_base. Просят показать/повторить то, о чём уже шла "
         "речь — вызови get_note(item_id=...) заново, даже если содержимое "
         "и так знаешь из контекста. Лишний вызов дешевле ответа без "
@@ -305,6 +339,20 @@ TOOL_PROMPT_FRAGMENTS: dict[str, str] = {
         "а не считай в уме: языковые модели систематически ошибаются в "
         "арифметике, а тул считает точно. Не показывай пользователю код, "
         "если не просил — только результат."
+    ),
+    "toggle_list_entry": (
+        "Реальный случай: пользователь написал «X не было в наличии, "
+        "остальное купил» — про X (то, чего НЕ было) toggle_list_entry "
+        "вызвался с checked=true (отметило купленным именно то, что "
+        "прямо назвали НЕ купленным), а «остальное» вообще не "
+        "переключилось. Отрицание («не было», «не купил», «не то») "
+        "относится к КОНКРЕТНОМУ упомянутому пункту — держи в уме, что "
+        "оно означает checked=false ИМЕННО для него, а не default "
+        "checked=true по инерции. «Остальное»/«всё кроме этого» — это "
+        "ВСЕ ОСТАЛЬНЫЕ пункты списка (проверь по get_list, не полагайся "
+        "на память), для них отдельные вызовы с checked=true. Несколько "
+        "пунктов одним сообщением — вызови toggle_list_entry для каждого "
+        "по отдельности, не пропускай ни один из подразумеваемых."
     ),
     "web_search": (
         "Если пользователь спрашивает про конкретное название реального "
@@ -521,16 +569,82 @@ def _strip_unverified_links(text: str, allowed_urls: set[str]) -> str:
     return _MARKDOWN_LINK_RE.sub(replace, text)
 
 
+# Пункт списка — либо уже нормальный markdown ("[Название](url)"), либо
+# старый формат до правила в ADD_LIST_ENTRY ("Название https://..." одной
+# строкой) — второй встречается в реальных списках, добавленных до этого
+# правила (см. list_entries.py). Оба варианта дают (подпись, url).
+_ENTRY_LINK_RE = re.compile(r"^\[([^\]]*)\]\((https?://[^\s)]+)\)$|^(.+?)\s+(https?://\S+)$")
+
+
+def _extract_entry_link(text: str) -> tuple[str, str] | None:
+    match = _ENTRY_LINK_RE.match(text.strip())
+    if not match:
+        return None
+    if match.group(2):
+        return match.group(1).strip(), match.group(2)
+    if match.group(4):
+        return match.group(3).strip(), match.group(4)
+    return None
+
+
+def _append_missing_entry_links(content: str, entries: list[tuple[str, str]]) -> str:
+    """Реальный случай: модель честно пересказала пункты списка (по
+    названию, верно), но ни разу не оформила ни одну ссылку как markdown —
+    промпт-инструкция это делать не сработала (проверено вживую дважды).
+    Переписывать текст модели рискованно (легко воткнуть ссылку не туда) —
+    вместо этого ДОПИСЫВАЕМ отдельным блоком после её ответа ссылки на
+    пункты, которые она явно упомянула (хотя бы одно значимое слово
+    названия есть в её тексте), но не сослалась на них сама. Ничего не
+    трогаем в самом тексте модели, только добавляем то, чего там не
+    хватает."""
+    if not entries:
+        return content
+    content_lower = content.lower()
+    missing: list[tuple[str, str]] = []
+    seen_urls: set[str] = set()
+    for label, url in entries:
+        if url in content or url in seen_urls:
+            continue
+        words = re.findall(r"[а-яёa-z0-9]{4,}", label.lower())
+        if words and not any(w in content_lower for w in words[:4]):
+            continue
+        missing.append((label or url, url))
+        seen_urls.add(url)
+    if not missing:
+        return content
+
+    # Реальная жалоба: полный повтор названий пункт-в-пункт после уже
+    # написанного моделью списка выглядел как "список продублировался" —
+    # визуально те же строки дважды. Одна короткая строка вместо второго
+    # такого же списка: если в названии есть привычный разделитель
+    # ("Бренд — Модель"), берём короткий хвост после последнего — этого
+    # достаточно, чтобы отличить пункты друг от друга, не повторяя всё
+    # название целиком.
+    def _short_label(label: str) -> str:
+        for sep in (" — ", " – ", " - "):
+            if sep in label:
+                return label.rsplit(sep, 1)[-1].strip()
+        return label if len(label) <= 30 else label[:27].strip() + "…"
+
+    links_line = " · ".join(f"[{_short_label(label)}]({url})" for label, url in missing)
+    return f"{content}\n\n🔗 {links_line}"
+
+
 def _looks_like_leaked_tool_call(content: str, tool_names: set[str]) -> bool:
     """Модель иногда пишет вызов инструмента как текст ответа вместо
-    настоящего tool_call — content начинается с имени реального тула и
-    заканчивается JSON-объектом (между ними бывает мусор — наблюдали живьём
-    случайное лишнее слово). Настоящий текстовый ответ так не выглядит,
-    поэтому ложных срабатываний на обычных ответах практически не бывает."""
+    настоящего tool_call — content заканчивается JSON-объектом с именем
+    реального тула прямо перед ним. Раньше проверяли только СТРОГОЕ начало
+    строки — реальный случай (ролплей-тест, новый вариант того же паттерна):
+    мусор оказался ПЕРЕД именем тула, не только между именем и JSON
+    ("...]teřísuggest_replies{...}") — startswith это пропускал целиком,
+    suggest_replies молча ломался (ни кнопок, ни настоящего вызова). Ищем
+    имя+JSON где угодно в строке, не только в начале — по-прежнему не
+    полагаемся только на "заканчивается }", это и держит ложные
+    срабатывания низкими."""
     stripped = content.strip()
     if not stripped.endswith("}"):
         return False
-    return any(stripped.startswith(name) for name in tool_names)
+    return any(re.search(rf"{re.escape(name)}\s*\{{", stripped) for name in tool_names)
 
 
 def _looks_like_missed_choice(content: str) -> bool:
@@ -551,19 +665,72 @@ def _looks_like_missed_choice(content: str) -> bool:
     return option_like_lines >= 2
 
 
-async def _named_list_owner_mismatch(db: AsyncSession, list_id_raw: Any, user_text: str) -> str | None:
+_UPLOAD_REF_RE = re.compile(r"/api/uploads/[0-9a-f-]{36}")
+
+
+async def _missing_attachments_on_update(
+    db: AsyncSession, user_id: uuid.UUID, item_id_raw: Any, new_content: str
+) -> list[str]:
+    """Реальный случай (найден пользователем на живой заметке): update_note
+    заменяет content ЦЕЛИКОМ, не диффом — заметка с загруженной картинкой
+    собиралась по ходу тренировки через много update_note подряд (по
+    подходу за раз), и на каком-то шаге модель, переписывая текст,
+    "потеряла" тег картинки (![](url)), а плейсхолдер распознавания рядом
+    почему-то сохранился — воркер потом честно вписал готовое описание на
+    место плейсхолдера, создав иллюзию, что всё в порядке, хотя сама
+    картинка пропала из заметки насовсем. У любого вложения (картинка,
+    видео, аудио, файл, билет) путь к файлу всегда содержит буквальный
+    /api/uploads/<id> — единый, надёжный, объективный сигнал независимо от
+    формата тега (markdown-картинка, <video>, <audio>, data-url=...).
+    Возвращает пути вложений, которые были в СТАРОМ содержимом, но
+    отсутствуют в новом — пустой список, если ничего не потерялось.
+
+    Реальный найденный баг security-ревью: этот гейт читает content ДО
+    настоящей проверки доступа в самом update_note (_get_item_cross_space,
+    tools/notes.py) — без своей проверки здесь модель, вызванная с чужим
+    item_id (угаданным/подсмотренным где-то), могла получить в ответ
+    список id вложений заметки из спейса, к которому у пользователя нет
+    доступа — сама проверка ниже (elif tc.name == "update_note" и
+    dispatch()) до этого случая просто не доходила, гейт срабатывал раньше."""
+    try:
+        item_id = uuid.UUID(str(item_id_raw))
+    except (ValueError, TypeError):
+        return []
+    item = await db.get(Item, item_id)
+    if item is None:
+        return []
+    try:
+        await ensure_space_access(db, item.space_id, user_id)
+    except HTTPException:
+        return []
+    old_refs = set(_UPLOAD_REF_RE.findall(item.content))
+    if not old_refs:
+        return []
+    return sorted(ref for ref in old_refs if ref not in new_content)
+
+
+async def _named_list_owner_mismatch(db: AsyncSession, user_id: uuid.UUID, list_id_raw: Any, user_text: str) -> str | None:
     """Реальный случай (несколько раз, на Mistral И на Gemini): список
     назван в честь конкретного человека в скобках — модель раз за разом
     молча добавляла туда предмет, ориентируясь только на совпадение темы.
     Возвращает имя владельца, если список назван на его имя И пользователь
     в своей реплике этого имени не упоминал (значит, вероятно, не про
-    него/неё) — вызывающий код должен заблокировать add_list_entry."""
+    него/неё) — вызывающий код должен заблокировать add_list_entry.
+
+    Проверка доступа — тот же найденный security-баг, что и у соседнего
+    _missing_attachments_on_update: без неё модель, вызванная с чужим
+    list_id, могла вытащить заголовок (и через него — имя) списка из
+    спейса, к которому у пользователя нет доступа."""
     try:
         list_id = uuid.UUID(str(list_id_raw))
     except (ValueError, TypeError):
         return None
     item = await db.get(Item, list_id)
     if item is None:
+        return None
+    try:
+        await ensure_space_access(db, item.space_id, user_id)
+    except HTTPException:
         return None
     match = _NAMED_LIST_RE.search(item.title)
     if not match:
@@ -578,6 +745,31 @@ async def _named_list_owner_mismatch(db: AsyncSession, list_id_raw: Any, user_te
     if stem in user_text.lower():
         return None
     return owner
+
+
+def _ambiguous_list_pick(list_id_raw: Any, candidates_seen: dict[str, str], user_text: str) -> list[str] | None:
+    """Реальный случай (ролплей-тест, другая тема от именного гейта выше):
+    search_base В ЭТОМ ЖЕ ходу нашёл несколько подходящих по теме списков
+    (два тестовых-заглушки рядом с настоящим), а модель выбрала один молча
+    — записала предмет в реальный список пользователя, не спросив. Промпт
+    уже прямо просит спросить в такой ситуации (TOOL_PROMPT_FRAGMENTS) —
+    не сработало ни разу, тот же урок, что и с именными списками: код, не
+    формулировка. Не account-wide эвристика (не считаем ВСЕ списки
+    пользователя — так словит и однозначные случаи вроде "молоко в список
+    покупок" при двух тематически разных настоящих списках) — только то,
+    что модель САМА увидела через search_base в этом ходу: объективный
+    сигнал реальной неоднозначности, а не наша догадка о ней.
+    list_all_items сюда намеренно не попадает — модель зовёт его часто
+    просто "для порядка", это не показатель активного выбора между
+    вариантами, в отличие от тематического search_base."""
+    list_id = str(list_id_raw)
+    if len(candidates_seen) < 2 or list_id not in candidates_seen:
+        return None
+    title_words = re.findall(r"[а-яёa-z]{4,}", candidates_seen[list_id].lower())
+    if title_words and any(w in user_text.lower() for w in title_words):
+        return None
+    others = [title for cid, title in candidates_seen.items() if cid != list_id and title]
+    return others or None
 
 
 def _flatten_transcript(records: list[dict]) -> str:
@@ -600,7 +792,15 @@ async def list_dialogs(user: User = Depends(get_current_user), db: AsyncSession 
         select(Item, Space.name)
         .join(Space, Space.id == Item.space_id)
         .join(SpaceMember, SpaceMember.space_id == Item.space_id)
-        .where(SpaceMember.user_id == user.id, Item.material_type == "dialog", Item.deleted_at.is_(None))
+        .where(
+            SpaceMember.user_id == user.id,
+            Item.material_type == "dialog",
+            Item.deleted_at.is_(None),
+            # Мини-чаты "спроси ассистента в заметке" (scoped_item_id в
+            # properties) — утилитарные скретч-диалоги, не полноценные
+            # разговоры, в общем списке не показываются намеренно.
+            Item.properties["scoped_item_id"].astext.is_(None),
+        )
         .order_by(Item.updated_at.desc())
     )
     rows = (await db.execute(query)).all()
@@ -617,20 +817,82 @@ async def list_dialogs(user: User = Depends(get_current_user), db: AsyncSession 
 async def create_dialog(
     payload: DialogCreate, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
 ) -> DialogOut:
-    if payload.space_id is not None:
+    properties: dict[str, Any] = {"messages": []}
+    title = payload.title or "Новый диалог"
+
+    if payload.scoped_item_id is not None:
+        # Живёт в том же спейсе, что и заметка, к которой привязан — не
+        # "домашнем" спейсе пользователя (см. _default_space_id) и не
+        # явно переданном space_id: контекст целиком про эту заметку,
+        # логично, что и диалог там же.
+        scoped_item = await db.get(Item, payload.scoped_item_id)
+        if scoped_item is None or scoped_item.deleted_at is not None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Заметка не найдена")
+        await ensure_space_access(db, scoped_item.space_id, user.id)
+        space_id = scoped_item.space_id
+        properties["scoped_item_id"] = str(scoped_item.id)
+        if payload.selection.strip():
+            properties["scoped_selection"] = payload.selection.strip()
+        title = payload.title or f"Ассистент: {scoped_item.title}"
+    elif payload.space_id is not None:
         await ensure_space_access(db, payload.space_id, user.id)
         space_id = payload.space_id
     else:
         space_id = await _default_space_id(db, user.id)
+
     item = await create_item_row(
-        db,
-        space_id=space_id,
-        author_id=user.id,
-        material_type="dialog",
-        title=payload.title or "Новый диалог",
-        properties={"messages": []},
+        db, space_id=space_id, author_id=user.id, material_type="dialog", title=title, properties=properties,
     )
     return _serialize(item)
+
+
+_PREVIEW_MAX_CHARS = 90
+
+
+def _dialog_preview(item: Item) -> str | None:
+    """Первое сообщение пользователя, коротко — реальная жалоба: у всех
+    скретч-диалогов одной заметки одинаковый заголовок ("Ассистент:
+    {название заметки}"), в списке их иначе не отличить друг от друга."""
+    for record in item.properties.get("messages", []):
+        if record.get("role") == "user" and record.get("content", "").strip():
+            text = " ".join(record["content"].split())
+            if len(text) > _PREVIEW_MAX_CHARS:
+                text = text[:_PREVIEW_MAX_CHARS].rstrip() + "…"
+            return text
+    return None
+
+
+@router.get("/scoped/{item_id}", response_model=list[DialogSummaryOut])
+async def list_scoped_dialogs(
+    item_id: uuid.UUID, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+) -> list[DialogSummaryOut]:
+    """Все скретч-диалоги "Спросить ассистента" для этой заметки, новые
+    сверху — NoteAssistantModal.tsx при открытии показывает их списком
+    (реальный запрос: "хочу видеть предыдущие и выбрать, а не только
+    последний"), а не молча продолжает/создаёт новый. Пустой список —
+    нормальный случай ("диалогов ещё не было"), не ошибка."""
+    scoped_item = await db.get(Item, item_id)
+    if scoped_item is None or scoped_item.deleted_at is not None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Заметка не найдена")
+    await ensure_space_access(db, scoped_item.space_id, user.id)
+    query = (
+        select(Item, Space.name)
+        .join(Space, Space.id == Item.space_id)
+        .where(
+            Item.material_type == "dialog",
+            Item.deleted_at.is_(None),
+            Item.properties["scoped_item_id"].astext == str(item_id),
+        )
+        .order_by(Item.updated_at.desc())
+    )
+    rows = (await db.execute(query)).all()
+    return [
+        DialogSummaryOut(
+            id=item.id, space_id=item.space_id, space_name=space_name, title=item.title,
+            created_at=item.created_at, updated_at=item.updated_at, preview=_dialog_preview(item),
+        )
+        for item, space_name in rows
+    ]
 
 
 @router.get("/{dialog_id}", response_model=DialogOut)
@@ -723,13 +985,73 @@ async def run_dialog_turn(db: AsyncSession, user: User, item: Item, content: str
     settings = get_settings()
     disabled_tool_names = set(user.disabled_tools)
     all_tool_definitions = get_tool_definitions(disabled=disabled_tool_names)
-    already_used_tools = {
-        tc.get("name") for r in records if r.get("role") == "assistant" for tc in r.get("tool_calls", []) if tc.get("name")
-    }
-    relevant_names = _relevant_tool_names(
-        {d.name for d in all_tool_definitions}, recent_user_text, already_used_tools
-    )
-    tool_definitions = [d for d in all_tool_definitions if d.name in relevant_names]
+
+    # Мини-чат "спроси ассистента в заметке" (NoteAssistantModal.tsx на
+    # фронте) — привязан к конкретной заметке через scoped_item_id в
+    # properties (см. create_dialog). Тулы урезаны до чтения/поиска — этот
+    # чат не должен уметь молча создать/поменять/удалить ЧТО-ТО ДРУГОЕ,
+    # только найти информацию и предложить её пользователю; применяет в
+    # саму заметку сам пользователь кнопкой на фронте, не тул. Контент
+    # заметки читается заново на каждом ходу (не один раз при создании
+    # диалога) — пользователь может продолжать её редактировать между
+    # репликами чата.
+    scoped_item_id_raw = item.properties.get("scoped_item_id")
+    scoped_note_context: str | None = None
+    if scoped_item_id_raw:
+        scoped_item = await db.get(Item, uuid.UUID(str(scoped_item_id_raw)))
+        # Реальный найденный баг security-ревью: доступ к заметке проверялся
+        # только один раз, при создании диалога (create_dialog). Если
+        # заметку потом переносят в другой спейс (POST /items/{id}/move),
+        # этот диалог продолжал бы читать её АКТУАЛЬНОЕ содержимое каждый
+        # ход и вписывать в промпт модели, даже если пользователь диалога
+        # больше не имеет доступа к новому спейсу заметки — утечка контента
+        # через ответы ассистента в обход обычной проверки прав.
+        scoped_access_ok = False
+        if scoped_item is not None:
+            try:
+                await ensure_space_access(db, scoped_item.space_id, user.id)
+                scoped_access_ok = True
+            except HTTPException:
+                scoped_access_ok = False
+        if scoped_item is not None and scoped_item.deleted_at is None and scoped_access_ok:
+            tool_definitions = [d for d in all_tool_definitions if d.name in _SCOPED_TOOL_NAMES]
+            scoped_selection = str(item.properties.get("scoped_selection") or "").strip()
+            focus_line = (
+                f'\n\nПользователь выделил в заметке именно этот фрагмент перед тем, как открыть '
+                f'этот чат: «{scoped_selection}» — фокусируйся на нём, если явно не попросит шире.'
+                if scoped_selection
+                else ""
+            )
+            scoped_note_context = (
+                f"Этот диалог — вспомогательный, открыт прямо из заметки «{scoped_item.title}» "
+                f"(id={scoped_item.id}), пользователь работает над ней сейчас. Текущее содержимое "
+                f"заметки:\n\n"
+                f"---\n{scoped_item.content}\n---\n"
+                f"{focus_line}\n\n"
+                "Твоя задача — найти/уточнить информацию по просьбе пользователя (в вебе через "
+                "web_search/read_website, среди других его заметок через search_base/get_note) и "
+                "предложить, чем обогатить эту заметку или как обновить её часть. У тебя НЕТ тулов "
+                "изменения самой заметки (create_note/update_note и т.п.) — это осознанно, не "
+                "пытайся и не извиняйся за это: результат применяет сам пользователь кнопкой "
+                "«Вставить в заметку» под твоим ответом, поэтому отвечай текстом, который имеет "
+                "смысл вставить как есть — без вступлений вроде «Вот что я нашёл», сразу суть.\n\n"
+                "Исключение — create_reminder ТЕБЕ ДОСТУПЕН прямо здесь (ничего не перезаписывает, "
+                "поэтому не под тем же ограничением): если пользователь просит напоминание по теме "
+                "разговора — создавай его с item_id="
+                f'"{scoped_item.id}", чтобы клик по уведомлению открывал именно эту заметку. Как и '
+                "всегда для create_reminder — сначала спроси, нужно ли и на какое время, не создавай "
+                "молча."
+            )
+        else:
+            tool_definitions = []
+    if scoped_note_context is None:
+        already_used_tools = {
+            tc.get("name") for r in records if r.get("role") == "assistant" for tc in r.get("tool_calls", []) if tc.get("name")
+        }
+        relevant_names = _relevant_tool_names(
+            {d.name for d in all_tool_definitions}, recent_user_text, already_used_tools
+        )
+        tool_definitions = [d for d in all_tool_definitions if d.name in relevant_names]
     ctx = ToolContext(db=db, user_id=user.id, space_id=item.space_id)
     web_search_calls = 0
     max_web_search_calls = settings.web_search_max_calls_per_turn
@@ -738,6 +1060,8 @@ async def run_dialog_turn(db: AsyncSession, user: User, item: Item, content: str
     used_advanced_web_search = False
     folders_checked_this_turn = folders_checked_earlier
     list_folders_names: list[str] = []
+    list_candidates_seen_this_turn: dict[str, str] = {}
+    linked_entries_seen_this_turn: list[tuple[str, str]] = []
 
     if not settings.llm_api_key:
         records.append(
@@ -762,14 +1086,20 @@ async def run_dialog_turn(db: AsyncSession, user: User, item: Item, content: str
     memory_facts = [row[0] for row in memories_result.all()]
     enabled_tool_names = {d.name for d in tool_definitions}
     system_prompt = _build_system_prompt(
-        memory_facts, user.custom_instructions, enabled_tool_names, disabled_tool_names, is_fresh_start and not memory_facts
+        memory_facts,
+        user.custom_instructions,
+        enabled_tool_names,
+        disabled_tool_names,
+        is_fresh_start and not memory_facts and scoped_note_context is None,
     )
+    if scoped_note_context:
+        system_prompt += "\n\n" + scoped_note_context
     tool_call_leak_retried = False
 
     for _ in range(MAX_TOOL_ITERATIONS):
         try:
             response = await llm_client.chat(_to_llm_messages(records, system_prompt), tool_definitions)
-        except httpx.HTTPError:
+        except (httpx.HTTPError, EmptyLLMResponseError):
             logger.exception("Ошибка обращения к LLM-провайдеру")
             records.append(
                 {
@@ -815,7 +1145,9 @@ async def run_dialog_turn(db: AsyncSession, user: User, item: Item, content: str
         assistant_record: dict = {
             "id": str(uuid.uuid4()),
             "role": "assistant",
-            "content": _strip_unverified_links(assistant_msg.content, verified_urls),
+            "content": _append_missing_entry_links(
+                _strip_unverified_links(assistant_msg.content, verified_urls), linked_entries_seen_this_turn
+            ),
             "created_at": _now_iso(),
         }
         if real_tool_calls:
@@ -873,10 +1205,23 @@ async def run_dialog_turn(db: AsyncSession, user: User, item: Item, content: str
                         url = search_result.get("url")
                         if url:
                             verified_urls.add(url)
+                    # include_images=true — те же реальные URL с Tavily, тот
+                    # же принцип "пришло из тула, не выдумка модели", просто
+                    # это markdown-картинка ![]() (_strip_unverified_links
+                    # проверяет URL в скобках независимо от ! перед ними).
+                    for image in result.get("images", []) or []:
+                        url = image.get("url")
+                        if url:
+                            verified_urls.add(url)
             elif tc.name == "list_folders":
                 result = await dispatch(tc.name, ctx, tc.arguments, disabled=disabled_tool_names)
                 folders_checked_this_turn = True
                 list_folders_names = [f["name"] for f in result.get("folders", []) if f.get("name")]
+            elif tc.name == "search_base":
+                result = await dispatch(tc.name, ctx, tc.arguments, disabled=disabled_tool_names)
+                for found in result.get("results", []) or []:
+                    if found.get("material_type") == "list" and found.get("id"):
+                        list_candidates_seen_this_turn[found["id"]] = found.get("title", "")
             elif (
                 tc.name in ("create_note", "create_list")
                 and not str(tc.arguments.get("folder_id") or "").strip()
@@ -904,8 +1249,29 @@ async def run_dialog_turn(db: AsyncSession, user: User, item: Item, content: str
                         "не пропущенная проверка."
                     )
                 }
+            elif (
+                tc.name == "update_note"
+                and tc.arguments.get("content") is not None
+                and (
+                    missing_attachments := await _missing_attachments_on_update(
+                        ctx.db, ctx.user_id, tc.arguments.get("item_id"), str(tc.arguments["content"])
+                    )
+                )
+            ):
+                result = {
+                    "error": (
+                        f"В текущем содержимом заметки есть вложение(я) ({', '.join(missing_attachments)}), "
+                        f"которых нет в новом content — update_note заменяет содержимое ЦЕЛИКОМ, не "
+                        f"добавляет к старому. Похоже, при переписывании текста вложение потерялось. "
+                        f"Вызови get_note(item_id=...), возьми его content КАК ЕСТЬ (включая все теги "
+                        f"вложений — ![](url), <video>, <audio>, data-url=...), допиши к нему нужное и "
+                        f"вызови update_note снова с ПОЛНЫМ содержимым, ничего не пропуская."
+                    )
+                }
             elif tc.name == "add_list_entry" and (
-                owner := await _named_list_owner_mismatch(ctx.db, tc.arguments.get("list_id"), recent_user_text)
+                owner := await _named_list_owner_mismatch(
+                    ctx.db, ctx.user_id, tc.arguments.get("list_id"), recent_user_text
+                )
             ):
                 result = {
                     "error": (
@@ -916,8 +1282,40 @@ async def run_dialog_turn(db: AsyncSession, user: User, item: Item, content: str
                         f"вызывать add_list_entry снова."
                     )
                 }
+            elif tc.name == "add_list_entry" and (
+                other_lists := _ambiguous_list_pick(
+                    tc.arguments.get("list_id"), list_candidates_seen_this_turn, recent_user_text
+                )
+            ):
+                result = {
+                    "error": (
+                        f"search_base в этом ходу нашёл несколько подходящих по теме списков "
+                        f"({'; '.join(other_lists)} и выбранный) — пользователь явно не назвал, какой "
+                        f"именно имел в виду. Выбирать самому по теме нельзя: можно записать не в тот "
+                        f"список. Спроси через suggest_replies, какой из найденных списков имелся в виду, "
+                        f"прежде чем вызывать add_list_entry снова."
+                    )
+                }
             else:
                 result = await dispatch(tc.name, ctx, tc.arguments, disabled=disabled_tool_names)
+
+            # Реальный найденный баг: _strip_unverified_links ниже считал
+            # "верифицированной" только ссылку из web_search этого хода —
+            # ссылка внутри пункта СПИСКА или содержимого ЗАМЕТКИ (get_list/
+            # get_note/search_base — уже реальные данные из базы, не
+            # выдумка модели) резалась точно так же, как придуманная. Итог:
+            # модель пересказывала список покупок с настоящими
+            # markdown-ссылками на товары, а в чате они превращались в
+            # голый текст. Любая ссылка, реально пришедшая В РЕЗУЛЬТАТЕ
+            # тула (не в аргументах вызова — те могла написать сама модель),
+            # достаточно "верифицирована" для показа кликабельной.
+            for _, found_url in _MARKDOWN_LINK_RE.findall(json.dumps(result, ensure_ascii=False)):
+                verified_urls.add(found_url)
+            if tc.name == "get_list":
+                for entry in result.get("entries", []) or []:
+                    link = _extract_entry_link(str(entry.get("text", "")))
+                    if link:
+                        linked_entries_seen_this_turn.append(link)
 
             records.append(
                 {

@@ -8,8 +8,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app import realtime
 from app.core.config import get_settings
 from app.db import get_db
-from app.deps import get_current_user
-from app.models import Notification, User
+from app.deps import ensure_space_access, get_current_user
+from app.models import Item, Notification, User
 from app.schemas.notification import NotificationCreateIn, NotificationOut
 from app.security import decode_session_token
 
@@ -49,8 +49,28 @@ async def create_notification(
     trigger_at = payload.trigger_at
     if trigger_at.tzinfo is None:
         trigger_at = trigger_at.replace(tzinfo=timezone.utc)
+
+    notification_payload: dict = {}
+    if payload.item_id:
+        try:
+            item_id = uuid.UUID(payload.item_id)
+        except ValueError:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Некорректный id заметки") from None
+        item = await db.get(Item, item_id)
+        if item is None or item.deleted_at is not None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Заметка не найдена")
+        await ensure_space_access(db, item.space_id, user.id)
+        notification_payload = {
+            "item_id": str(item.id), "space_id": str(item.space_id), "material_type": item.material_type
+        }
+
     notification = Notification(
-        user_id=user.id, type="reminder", title=payload.title, body=payload.body, trigger_at=trigger_at
+        user_id=user.id,
+        type="reminder",
+        title=payload.title,
+        body=payload.body,
+        payload=notification_payload,
+        trigger_at=trigger_at,
     )
     db.add(notification)
     await db.commit()

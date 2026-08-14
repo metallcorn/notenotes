@@ -8,6 +8,7 @@ import {
   CalendarPlus,
   Check,
   ChevronDown,
+  ClipboardPaste,
   ChevronLeft,
   ChevronRight,
   Copy,
@@ -15,6 +16,7 @@ import {
   Maximize2,
   Mic,
   MapPin,
+  Paperclip,
   Pencil,
   Plane,
   QrCode,
@@ -32,7 +34,16 @@ import QRCode from "qrcode";
 import ReactMarkdown, { type Components } from "react-markdown";
 import ReactDOMServer from "react-dom/server";
 import remarkGfm from "remark-gfm";
-import { useDeleteDialogMessage, useDialog, useLinkPreview, useSendDialogMessage, useSpeak, useUpdateItem } from "../api/hooks";
+import {
+  useDeleteDialogMessage,
+  useDescribeUploadNow,
+  useDialog,
+  useLinkPreview,
+  useSendDialogMessage,
+  useSpeak,
+  useUpdateItem,
+  useUploadFile,
+} from "../api/hooks";
 import type { DialogMessage, ToolCall } from "../api/types";
 import { uiStorage, type ContentWidth } from "../lib/storage";
 import { downloadFile, sanitizeFilename, wrapHtmlDocument } from "../lib/export";
@@ -61,7 +72,40 @@ import Spinner from "./Spinner";
 // Для этого нужен доступ к стейту компонента, отсюда useMemo ниже.
 function buildMarkdownComponents(onImageClick: (src: string, alt: string) => void): Components {
   return {
-    a: ({ node: _node, ...props }) => <a {...props} target="_blank" rel="noopener noreferrer" />,
+    // Реальная жалоба: ссылки в чате ассистента выглядели голым синим
+    // текстом — не тот же визуальный язык, что уже есть у ссылок в
+    // заметках (favicon-бейдж, InlineLinkFavicon.ts). Тот же приём здесь,
+    // напрямую в react-markdown (у чата свой рендерер, не ProseMirror
+    // заметок — код декорации оттуда сюда не переносится один в один):
+    // иконка сайта по хосту перед текстом ссылки, пропускаем ссылки на
+    // сам notenotes.* (внутренние deep-link'и — иконка приложения на
+    // собственных ссылках смысла не имеет).
+    a: ({ node: _node, href, children, ...props }) => {
+      let hostname: string | null = null;
+      try {
+        if (href) {
+          const parsed = new URL(href, window.location.href);
+          if (parsed.hostname !== window.location.hostname) hostname = parsed.hostname;
+        }
+      } catch {
+        hostname = null;
+      }
+      return (
+        <a {...props} href={href} target="_blank" rel="noopener noreferrer">
+          {hostname && (
+            <img
+              src={`https://${hostname}/favicon.ico`}
+              alt=""
+              className="inline-link-favicon"
+              onError={(e) => {
+                (e.currentTarget as HTMLImageElement).style.display = "none";
+              }}
+            />
+          )}
+          {children}
+        </a>
+      );
+    },
     img: ({ node: _node, alt, src, ...props }) => (
       <img
         {...props}
@@ -339,16 +383,21 @@ function NoteResultLinks({
     // разных раундах одного хода (модель проверяла кандидатов один за
     // другим) — см. cardToolCalls в groupMessages.
     for (const tc of message.cardToolCalls) {
-      if (tc.name !== "get_note") continue;
+      // get_list — тот же осознанный "показать вот этот конкретный список"
+      // выбор, что get_note для заметок (реальная жалоба: пересказ списка
+      // покупок в чате не давал открыть сам список одним кликом, только
+      // get_note такое умел). get_list не отдаёт material_type в ответе
+      // (незачем — он и так всегда список), подставляем сами.
+      if (tc.name !== "get_note" && tc.name !== "get_list") continue;
       const result = results.find((r) => r.tool_call_id === tc.id);
       if (!result) continue;
       try {
         const parsed = JSON.parse(result.content);
         const candidates: Array<Record<string, unknown>> =
-          tc.name === "get_note" ? [parsed] : Array.isArray(parsed.results) ? parsed.results : [];
+          tc.name === "get_note" || tc.name === "get_list" ? [parsed] : Array.isArray(parsed.results) ? parsed.results : [];
         for (const item of candidates) {
           if (typeof item.id !== "string" || item.error || item.material_type === "ticket") continue;
-          const materialType = item.material_type === "list" ? "list" : "note";
+          const materialType = tc.name === "get_list" || item.material_type === "list" ? "list" : "note";
           byId.set(item.id, { id: item.id, title: (item.title as string) || "Без названия", materialType });
         }
       } catch {
@@ -960,15 +1009,42 @@ export default function AssistantChat({
   dialogId,
   onBack,
   onOpenItem,
+  onApplyToNote,
+  contextNote,
+  alwaysShowBack,
 }: {
   dialogId: string;
   onBack: () => void;
   onOpenItem: (id: string, materialType: "note" | "list") => void;
+  // Мини-чат "спроси ассистента в заметке" (NoteAssistantModal.tsx) — та же
+  // отрисовка сообщений/карточек/suggest_replies, что и у обычного
+  // диалога, плюс одна дополнительная кнопка на ответах ассистента. Не
+  // делаем отдельный узкий компонент под мини-чат — дублировало бы всю эту
+  // разметку карточек ради одной кнопки.
+  onApplyToNote?: (text: string) => void;
+  // Реальная жалоба: плашка "что выделено" отдельным баннером НАД чатом
+  // выглядела инородно ("супер невчеидно"). Рендерится теперь прямо в
+  // ленте сообщений, первым элементом — визуально часть разговора, не
+  // посторонний UI поверх него.
+  contextNote?: string;
+  // Обычный (полноэкранный) ассистент прячет "назад" на десктопе (см.
+  // lg:hidden ниже — тот же брейкпоинт, что переключает раскладку в
+  // AppShell.tsx, а не md, которым был раньше: между 768 и 1024px экран
+  // уже одна панель на весь экран, но кнопки назад не было — реальный
+  // найденный баг, тот же класс, что и у NoteEditor/ListEditor/TrashView/
+  // ActivityView, везде поправлено разом) — там всегда виден сайдбар,
+  // альтернативный способ вернуться. В NoteAssistantModal.tsx сайдбара нет
+  // и бэкдроп для клика
+  // на десктопе намеренно убран (чтобы не перекрывать заметку) — без этой
+  // кнопки панель нечем закрыть вообще (реальный найденный баг).
+  alwaysShowBack?: boolean;
 }) {
   const { data: dialog } = useDialog(dialogId);
   const sendMessage = useSendDialogMessage(dialogId);
   const deleteMessage = useDeleteDialogMessage(dialogId);
   const updateItem = useUpdateItem();
+  const uploadFile = useUploadFile(dialog?.space_id);
+  const describeUploadNow = useDescribeUploadNow();
   const qc = useQueryClient();
   const [deletingMessageId, setDeletingMessageId] = useState<string | null>(null);
   const [renamingTitle, setRenamingTitle] = useState(false);
@@ -988,6 +1064,20 @@ export default function AssistantChat({
   const [lightbox, setLightbox] = useState<{ images: { src: string; alt: string }[]; startIndex: number } | null>(
     null,
   );
+  // Реальный запрос: "хочу скинуть ассистенту картинку/файл из телефона,
+  // чтобы он распознал содержимое и учёл его в ответе" — раньше такой
+  // возможности не было вовсе. Распознаём СРАЗУ при прикреплении, а не
+  // после отправки: "он всё равно то же самое будет делать" — незачем
+  // заставлять модель отдельным тулом лезть за содержимым файла, которое
+  // и так можно отдать текстом в этом же сообщении.
+  const [pendingAttachment, setPendingAttachment] = useState<{
+    filename: string;
+    url: string;
+    contentType: string;
+    status: "processing" | "ready" | "error";
+    text: string;
+  } | null>(null);
+  const attachInputRef = useRef<HTMLInputElement>(null);
   const markdownComponents = useMemo(
     () => buildMarkdownComponents((src, alt) => setLightbox({ images: [{ src, alt }], startIndex: 0 })),
     [],
@@ -1113,9 +1203,55 @@ export default function AssistantChat({
     }
   }, [dialog, dialogId, autoSpeak]);
 
-  async function submitContent(content: string) {
-    if (!content || sendMessage.isPending) return;
+  async function handleAttachFile(file: File) {
+    setPendingAttachment({ filename: file.name, url: "", contentType: file.type, status: "processing", text: "" });
+    try {
+      const uploaded = await uploadFile.mutateAsync({ file });
+      let text = uploaded.pdf_text ?? uploaded.preview_text ?? "";
+      if (uploaded.content_type.startsWith("image/")) {
+        try {
+          const result = await describeUploadNow.mutateAsync(uploaded.id);
+          text = result.description;
+        } catch {
+          text = "";
+        }
+      }
+      setPendingAttachment({
+        filename: uploaded.filename,
+        url: uploaded.url,
+        contentType: uploaded.content_type,
+        status: text ? "ready" : "error",
+        text,
+      });
+    } catch {
+      setPendingAttachment({ filename: file.name, url: "", contentType: file.type, status: "error", text: "" });
+    }
+  }
+
+  // Прикреплённый файл сворачиваем в текст самого сообщения — тот же
+  // текст, что модель и так получила бы, если бы сама распознавала
+  // содержимое инструментом; ей не нужен отдельный тул, всё уже здесь.
+  function buildContentWithAttachment(text: string): string {
+    const attachment = pendingAttachment;
+    if (!attachment || attachment.status === "processing") return text;
+    const parts = [text];
+    if (attachment.contentType.startsWith("image/") && attachment.url) {
+      parts.push(`![${attachment.filename}](${attachment.url})`);
+    }
+    if (attachment.status === "ready" && attachment.text) {
+      parts.push(`Распознано в приложенном файле «${attachment.filename}»:\n${attachment.text}`);
+    } else if (attachment.status === "error") {
+      parts.push(`(не получилось распознать содержимое файла «${attachment.filename}»)`);
+    }
+    return parts.filter(Boolean).join("\n\n");
+  }
+
+  async function submitContent(rawContent: string) {
+    if (pendingAttachment?.status === "processing") return;
+    const content = buildContentWithAttachment(rawContent);
+    if (!content.trim() || sendMessage.isPending) return;
     setInput("");
+    setPendingAttachment(null);
     // Оптимистично показываем реплику сразу — агентный цикл на сервере
     // может занять много секунд (несколько вызовов инструментов подряд),
     // и без этого пользователь не видел, что вообще отправил сообщение.
@@ -1382,7 +1518,8 @@ export default function AssistantChat({
       <div className="flex items-center gap-1 border-b p-3">
         <button
           onClick={onBack}
-          className="-ml-1 flex h-8 w-8 shrink-0 items-center justify-center text-slate-500 md:hidden"
+          title="Закрыть"
+          className={`-ml-1 flex h-8 w-8 shrink-0 items-center justify-center text-slate-500 ${alwaysShowBack ? "" : "lg:hidden"}`}
         >
           <ChevronLeft size={18} />
         </button>
@@ -1426,6 +1563,11 @@ export default function AssistantChat({
 
       <div className="min-h-0 flex-1 overflow-y-auto p-4">
         <div className={`space-y-3 ${widthClass}`}>
+          {contextNote && (
+            <div className="mx-auto max-w-[85%] rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+              Обсуждается выделенный фрагмент: «{contextNote.length > 160 ? contextNote.slice(0, 160) + "…" : contextNote}»
+            </div>
+          )}
           {groups.length === 0 && (
             <div className="flex h-full items-center justify-center text-center text-sm text-slate-400">
               Спросите что-нибудь о своих заметках или попросите создать новую
@@ -1434,7 +1576,7 @@ export default function AssistantChat({
           {groups.map(({ message, toolResults }, index) => (
             <div
               key={message.id}
-              className={`flex items-start gap-1 ${message.role === "user" ? "justify-end" : "justify-start"}`}
+              className={`message-fade-in flex items-start gap-1 ${message.role === "user" ? "justify-end" : "justify-start"}`}
             >
               {message.role === "assistant" && (
                 <button
@@ -1489,6 +1631,15 @@ export default function AssistantChat({
                       onClick={() => toggleSpeak(message.id, message.content)}
                     />
                     <CopyButton text={message.content} />
+                    {onApplyToNote && (
+                      <button
+                        onClick={() => onApplyToNote(message.content)}
+                        title="Вставить в заметку"
+                        className="flex h-6 w-6 items-center justify-center rounded text-slate-400 hover:bg-slate-200 hover:text-slate-700"
+                      >
+                        <ClipboardPaste size={13} />
+                      </button>
+                    )}
                   </div>
                 )}
                 {/* Чипы актуальны только у последней реплики — старые из
@@ -1522,7 +1673,7 @@ export default function AssistantChat({
             </div>
           ))}
           {pendingUserText && (
-            <div className="flex justify-end">
+            <div className="message-fade-in flex justify-end">
               <div className="max-w-[85%] rounded-lg bg-slate-900 px-3 py-2 text-sm text-white opacity-60">
                 <div className="whitespace-pre-wrap">{pendingUserText}</div>
               </div>
@@ -1553,8 +1704,52 @@ export default function AssistantChat({
 
       {voiceError && <div className="border-t bg-amber-50 px-3 py-1.5 text-xs text-amber-700">{voiceError}</div>}
 
+      {pendingAttachment && (
+        <div className={`border-t bg-slate-50 px-3 pt-2 ${widthClass}`}>
+          <div className="flex items-center gap-2 rounded border bg-white px-2 py-1.5 text-xs text-slate-600">
+            {pendingAttachment.status === "processing" ? (
+              <Spinner size={12} />
+            ) : (
+              <Paperclip size={12} className={pendingAttachment.status === "error" ? "text-amber-500" : "text-slate-400"} />
+            )}
+            <span className="flex-1 truncate">
+              {pendingAttachment.filename}
+              {pendingAttachment.status === "processing" && " — распознаю…"}
+              {pendingAttachment.status === "error" && " — не удалось распознать содержимое"}
+            </span>
+            <button
+              type="button"
+              onClick={() => setPendingAttachment(null)}
+              title="Убрать вложение"
+              className="shrink-0 text-slate-400 hover:text-red-600"
+            >
+              <X size={13} />
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="border-t p-3">
         <form onSubmit={handleSubmit} className={`flex gap-2 ${widthClass}`}>
+          <input
+            ref={attachInputRef}
+            type="file"
+            hidden
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              e.target.value = "";
+              if (file) handleAttachFile(file);
+            }}
+          />
+          <button
+            type="button"
+            onClick={() => attachInputRef.current?.click()}
+            title="Прикрепить файл"
+            disabled={sendMessage.isPending}
+            className="flex shrink-0 items-center justify-center rounded border px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 disabled:opacity-50"
+          >
+            <Paperclip size={14} />
+          </button>
           <button
             type="button"
             onClick={toggleRecording}
@@ -1598,7 +1793,11 @@ export default function AssistantChat({
           </div>
           <button
             type="submit"
-            disabled={sendMessage.isPending || !input.trim()}
+            disabled={
+              sendMessage.isPending ||
+              pendingAttachment?.status === "processing" ||
+              (!input.trim() && !pendingAttachment)
+            }
             className="flex shrink-0 items-center justify-center rounded bg-slate-900 px-4 py-2 text-sm text-white disabled:opacity-50"
           >
             {sendMessage.isPending ? <Spinner size={14} className="text-white" /> : "Отправить"}
