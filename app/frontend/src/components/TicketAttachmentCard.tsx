@@ -15,12 +15,15 @@ import {
   MapPin,
   Plane,
   QrCode,
+  RefreshCw,
   Ticket,
   Train,
   X,
 } from "lucide-react";
 import type { TicketAttachmentData } from "../extensions/TicketAttachment";
-import { useCreateReminder } from "../api/hooks";
+import { useCreateReminder, useReprocessUpload } from "../api/hooks";
+
+const UPLOAD_ID_RE = /\/api\/uploads\/([0-9a-f-]{36})/i;
 
 // Предустановленные смещения — не произвольный ввод времени: билет уже
 // даёт единственную осмысленную точку отсчёта (время отправления), выбор
@@ -160,7 +163,7 @@ function TicketQrOverlay({
   );
 }
 
-export default function TicketAttachmentCard({ node }: NodeViewProps) {
+export default function TicketAttachmentCard({ node, editor, getPos }: NodeViewProps) {
   const {
     url,
     filename,
@@ -181,10 +184,34 @@ export default function TicketAttachmentCard({ node }: NodeViewProps) {
   const [reminderConfirm, setReminderConfirm] = useState<{ hours: number; triggerAt: Date } | null>(null);
   const [reminderDone, setReminderDone] = useState(false);
   const createReminder = useCreateReminder();
+  const reprocess = useReprocessUpload();
 
   const isPdf = filename.toLowerCase().endsWith(".pdf");
   const Icon = TICKET_ICONS[ticketType] ?? Ticket;
   const label = TICKET_LABELS[ticketType] ?? TICKET_LABELS.other;
+  const uploadId = url.match(UPLOAD_ID_RE)?.[1] ?? null;
+
+  // Реальный найденный баг: у карточки билета не было способа попросить
+  // распознать заново, в отличие от документов/картинок в заметке
+  // (DocumentAttachmentCard.tsx) — а OCR вероятностный, реально ловили
+  // случай, когда дата мероприятия крупным чётким текстом на самой
+  // картинке, но vision-модель её не расшифровала. Билет всегда собран
+  // из картинки (tickets.py запускается только из vision.py) — PDF сюда
+  // не попадает, isPdf оставляем как есть на всякий случай.
+  async function handleReprocess() {
+    if (!uploadId || isPdf || typeof getPos !== "function") return;
+    // Тот же плейсхолдер, что vision.py.placeholder_text() — именно его
+    // ищет и заменяет tickets.py, когда распознавание закончится снова.
+    const placeholder = `⏳ Описание изображения ${uploadId} обрабатывается…`;
+    const pos = getPos();
+    editor
+      .chain()
+      .focus()
+      .deleteRange({ from: pos, to: pos + node.nodeSize })
+      .insertContentAt(pos, { type: "paragraph", content: [{ type: "text", text: placeholder }] })
+      .run();
+    await reprocess.mutateAsync(uploadId);
+  }
 
   const googleCalendarUrl = (() => {
     if (!datetimeStart) return null;
@@ -220,11 +247,17 @@ export default function TicketAttachmentCard({ node }: NodeViewProps) {
 
   function confirmReminder() {
     if (!reminderConfirm) return;
+    // itemId — из storage расширения (см. TicketAttachment.ts), не пропа:
+    // без него уведомление создавалось без привязки к билету и клик по
+    // нему в центре уведомлений не открывал ничего (реальный найденный
+    // баг — "почему уведомления никуда не ведут").
+    const itemId = editor.storage.ticketAttachment?.itemId as string | null | undefined;
     createReminder.mutate(
       {
         title: `${label}: ${title || filename}`,
         body: locationFrom || locationTo ? `${locationFrom}${locationFrom && locationTo ? " → " : ""}${locationTo}` : "",
         trigger_at: reminderConfirm.triggerAt.toISOString(),
+        ...(itemId ? { item_id: itemId } : {}),
       },
       { onSuccess: () => setReminderDone(true) },
     );
@@ -271,18 +304,32 @@ export default function TicketAttachmentCard({ node }: NodeViewProps) {
         </div>
 
         {datetimeStart && (
-          <div className="relative border-t border-violet-200 px-3 py-1.5">
+          // onMouseDown/stopPropagation на всём ряду — реальный найденный
+          // баг: карточка (NodeViewWrapper) сама draggable для
+          // перетаскивания как блока, и без остановки события ProseMirror
+          // успевал перехватить mousedown РАНЬШЕ клика по ссылке (тот же
+          // класс бага, что уже чинили сегодня у кнопки ИИ в BubbleMenu) —
+          // из-за этого клик по "Google Календарь" визуально выделял текст
+          // соседних элементов и иногда срабатывал на обеих ссылках сразу
+          // (открывались две вкладки).
+          <div className="relative border-t border-violet-200 px-3 py-1.5" onMouseDown={(e) => e.stopPropagation()}>
             <div className="flex flex-wrap items-center gap-1.5">
               <a
                 href={googleCalendarUrl ?? undefined}
                 target="_blank"
                 rel="noopener noreferrer"
+                // style, не className — .tiptap a в index.css (цвет+подчёркивание
+                // для обычных ссылок заметки) специфичнее text-slate-700 и
+                // побеждал бы его (реальный найденный баг: кнопка синяя и
+                // подчёркнутая вместо серой пилюли как у соседних кнопок).
+                style={{ color: "inherit", textDecoration: "none" }}
                 className="flex items-center gap-1 rounded-full border border-slate-300 bg-white px-2.5 py-1 text-xs text-slate-700 hover:border-slate-400 hover:bg-slate-50"
               >
                 <CalendarPlus size={12} /> Google Календарь
               </a>
               <a
                 href={icsUrl ?? undefined}
+                style={{ color: "inherit", textDecoration: "none" }}
                 className="flex items-center gap-1 rounded-full border border-slate-300 bg-white px-2.5 py-1 text-xs text-slate-700 hover:border-slate-400 hover:bg-slate-50"
               >
                 <CalendarPlus size={12} /> .ics
@@ -356,10 +403,21 @@ export default function TicketAttachmentCard({ node }: NodeViewProps) {
             href={url}
             download={filename || undefined}
             title="Скачать"
+            style={{ color: "inherit", textDecoration: "none" }}
             className="flex h-8 w-8 shrink-0 items-center justify-center text-slate-400 hover:text-slate-700"
           >
             <Download size={13} />
           </a>
+          {!isPdf && uploadId && (
+            <button
+              onClick={handleReprocess}
+              disabled={reprocess.isPending}
+              title="Распознать заново"
+              className="flex h-8 w-8 shrink-0 items-center justify-center text-slate-400 hover:text-slate-700 disabled:opacity-50"
+            >
+              <RefreshCw size={13} className={reprocess.isPending ? "animate-spin" : ""} />
+            </button>
+          )}
           {rawText && (
             <button
               onClick={() => setExpanded((v) => !v)}

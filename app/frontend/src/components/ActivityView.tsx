@@ -36,7 +36,7 @@ function NotificationRow({
   onOpen,
 }: {
   notification: Notification;
-  onOpen: (spaceId: string, itemId: string, entryId?: string) => void;
+  onOpen: (spaceId: string, itemId: string, entryId?: string, notificationId?: string) => void;
 }) {
   const resolve = useResolveNotification();
   const unresolve = useUnresolveNotification();
@@ -64,7 +64,7 @@ function NotificationRow({
       <button
         onClick={() => {
           if (!notification.read_at) markRead.mutate(notification.id);
-          if (clickable) onOpen(spaceId!, itemId!, entryId);
+          if (clickable) onOpen(spaceId!, itemId!, entryId, notification.id);
         }}
         disabled={!clickable}
         className={`min-w-0 flex-1 text-left ${clickable ? "cursor-pointer hover:opacity-80" : "cursor-default"}`}
@@ -106,7 +106,7 @@ function NotificationRow({
 function NotificationsTab({
   onOpen,
 }: {
-  onOpen: (spaceId: string, itemId: string, entryId?: string) => void;
+  onOpen: (spaceId: string, itemId: string, entryId?: string, notificationId?: string) => void;
 }) {
   const { data, isLoading } = useAllNotifications();
 
@@ -263,7 +263,7 @@ export default function ActivityView({
   onOpenDialog,
 }: {
   onBack: () => void;
-  onOpenReminder: (spaceId: string, itemId: string, entryId?: string) => void;
+  onOpenReminder: (spaceId: string, itemId: string, entryId?: string, notificationId?: string) => void;
   onOpenItem: (spaceId: string, itemId: string) => void;
   onOpenDialog: (id: string) => void;
 }) {
@@ -274,7 +274,7 @@ export default function ActivityView({
       <div className="flex items-center gap-1 border-b p-3">
         <button
           onClick={onBack}
-          className="-ml-1 flex h-8 w-8 shrink-0 items-center justify-center text-slate-500 md:hidden"
+          className="-ml-1 flex h-8 w-8 shrink-0 items-center justify-center text-slate-500 lg:hidden"
         >
           <ChevronLeft size={18} />
         </button>

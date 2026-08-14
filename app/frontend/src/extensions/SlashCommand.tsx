@@ -3,42 +3,51 @@ import Suggestion from "@tiptap/suggestion";
 import { ReactRenderer } from "@tiptap/react";
 import SlashMenuList, { type SlashCommandItem, type SlashMenuListHandle } from "../components/SlashMenuList";
 
-function buildItems(onInsertImage: () => void): SlashCommandItem[] {
+function buildItems(onInsertImage: () => void, onCreateReminder: (pos: number) => void): SlashCommandItem[] {
   return [
     {
       title: "Заголовок 1",
+      aliases: ["heading", "h1", "title"],
       run: (editor, range) => editor.chain().focus().deleteRange(range).setNode("heading", { level: 1 }).run(),
     },
     {
       title: "Заголовок 2",
+      aliases: ["heading", "h2"],
       run: (editor, range) => editor.chain().focus().deleteRange(range).setNode("heading", { level: 2 }).run(),
     },
     {
       title: "Заголовок 3",
+      aliases: ["heading", "h3"],
       run: (editor, range) => editor.chain().focus().deleteRange(range).setNode("heading", { level: 3 }).run(),
     },
     {
       title: "Маркированный список",
+      aliases: ["list", "bullet", "ul"],
       run: (editor, range) => editor.chain().focus().deleteRange(range).toggleBulletList().run(),
     },
     {
       title: "Нумерованный список",
+      aliases: ["list", "numbered", "ordered", "ol"],
       run: (editor, range) => editor.chain().focus().deleteRange(range).toggleOrderedList().run(),
     },
     {
       title: "Цитата",
+      aliases: ["quote", "blockquote"],
       run: (editor, range) => editor.chain().focus().deleteRange(range).toggleBlockquote().run(),
     },
     {
       title: "Блок кода",
+      aliases: ["code", "codeblock"],
       run: (editor, range) => editor.chain().focus().deleteRange(range).toggleCodeBlock().run(),
     },
     {
       title: "Разделитель",
+      aliases: ["divider", "hr", "line", "separator"],
       run: (editor, range) => editor.chain().focus().deleteRange(range).setHorizontalRule().run(),
     },
     {
       title: "Отступ",
+      aliases: ["spacer", "space", "gap"],
       // В отличие от нескольких пустых абзацев подряд (которые схлопываются
       // в один при сохранении — Markdown не различает несколько пустых
       // строк и одну), это отдельный блочный узел — можно ставить сколько
@@ -52,9 +61,31 @@ function buildItems(onInsertImage: () => void): SlashCommandItem[] {
     },
     {
       title: "Картинка",
+      aliases: ["image", "photo", "picture", "img"],
       run: (editor, range) => {
         editor.chain().focus().deleteRange(range).run();
         onInsertImage();
+      },
+    },
+    {
+      title: "Напоминание",
+      // Реальный запрос: "/notify — открывается форма, выбираешь дату/
+      // время, можешь написать текст" — тот же приём, что "Картинка"
+      // выше: слэш-команда не вставляет узел сама, а открывает внешний
+      // UI (ReminderModal.tsx через NoteEditor.tsx), который уже умеет
+      // создать привязанное к этой заметке напоминание. aliases — не
+      // полноценная локализация (текст пункта всё равно на русском, её в
+      // приложении просто нет нигде), только слова для поиска: набираешь
+      // /notify, находишь тот же пункт, что и по /напом.
+      aliases: ["notify", "reminder", "remind", "notification", "alarm"],
+      run: (editor, range) => {
+        editor.chain().focus().deleteRange(range).run();
+        // Позиция ПОСЛЕ deleteRange — то самое место, куда позже встанет
+        // якорь-иконка (ReminderAnchor.ts), когда напоминание реально
+        // создастся: "я ставлю не просто так, а как якорь, чтобы вернуться
+        // именно к этой строке" — реальная жалоба, курсор здесь и сейчас
+        // единственный момент, когда мы точно знаем нужную позицию.
+        onCreateReminder(editor.state.selection.from);
       },
     },
   ];
@@ -62,6 +93,7 @@ function buildItems(onInsertImage: () => void): SlashCommandItem[] {
 
 export interface SlashCommandOptions {
   onInsertImage: () => void;
+  onCreateReminder: (pos: number) => void;
 }
 
 export const SlashCommand = Extension.create<SlashCommandOptions>({
@@ -70,18 +102,27 @@ export const SlashCommand = Extension.create<SlashCommandOptions>({
   addOptions() {
     return {
       onInsertImage: () => {},
+      onCreateReminder: () => {},
     };
   },
 
   addProseMirrorPlugins() {
-    const items = buildItems(this.options.onInsertImage);
+    const items = buildItems(this.options.onInsertImage, this.options.onCreateReminder);
 
     return [
       Suggestion<SlashCommandItem, SlashCommandItem>({
         editor: this.editor,
         char: "/",
         startOfLine: false,
-        items: ({ query }) => items.filter((i) => i.title.toLowerCase().includes(query.toLowerCase())).slice(0, 10),
+        items: ({ query }) => {
+          const q = query.toLowerCase();
+          // Реальный найденный баг: aliases добавили в данные пунктов, но
+          // забыли подключить сюда — /notify и все остальные английские
+          // алиасы физически не работали, фильтр смотрел только на title.
+          return items
+            .filter((i) => i.title.toLowerCase().includes(q) || i.aliases?.some((a) => a.includes(q)))
+            .slice(0, 10);
+        },
         command: ({ editor, range, props }) => {
           props.run(editor, range);
         },

@@ -24,6 +24,19 @@ import ActivityView from "../components/ActivityView";
 
 type MobileView = "sidebar" | "list" | "editor";
 
+// Порядок "глубины" мобильного стека — sidebar (корень) → list → editor.
+// Реальная жалоба: переходы между экранами ощущались как обычный fade, а
+// не слайд, свойственный навигации "вглубь"/"назад". View Transitions API
+// сам по себе не знает направления — до вызова withViewTransition
+// проставляем data-атрибут на <html>, index.css выбирает нужные keyframes
+// по нему (см. комментарий там же).
+const MOBILE_VIEW_DEPTH: Record<MobileView, number> = { sidebar: 0, list: 1, editor: 2 };
+
+function setTransitionDirection(from: MobileView, to: MobileView): void {
+  const dir = MOBILE_VIEW_DEPTH[to] >= MOBILE_VIEW_DEPTH[from] ? "forward" : "back";
+  document.documentElement.setAttribute("data-transition-dir", dir);
+}
+
 export default function AppShell() {
   const { data: spaces } = useSpaces();
   const updateAvailable = useVersionCheck();
@@ -46,6 +59,7 @@ export default function AppShell() {
   const [tagId, setTagId] = useState<string | null>(null);
   const [selectedItemId, setSelectedItemIdState] = useState<string | null>(null);
   const [highlightEntryId, setHighlightEntryId] = useState<string | null>(null);
+  const [highlightAnchorId, setHighlightAnchorId] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [viewMode, setViewModeState] = useState<ViewMode>(() => uiStorage.getViewMode());
   const [selectedDialogId, setSelectedDialogId] = useState<string | null>(null);
@@ -170,31 +184,40 @@ export default function AppShell() {
     const dialogParam = searchParams.get("dialog");
     const listParam = searchParams.get("list");
     const screenParam = searchParams.get("screen");
-    const nextMobileView = itemParam || dialogParam ? "editor" : listParam ? "list" : "sidebar";
+    const nextMobileView: MobileView = itemParam || dialogParam ? "editor" : listParam ? "list" : "sidebar";
     diagnosticLog("search_params_sync_start", {
       nextMobileView,
       rootRect: rootRef.current?.getBoundingClientRect().toJSON() ?? null,
     });
-    withViewTransition(() => {
-      // viewMode не часть searchParams (это ось "Заметки/Ассистент/
-      // Активность/Корзина", решение пользователя, не история одной
-      // заметки) — сама по себе кнопка «назад»/popstate её не трогает.
-      // Раньше это означало, что переход "Активность → заметка" или
-      // "диалог → заметка" (см. onOpenItem/openRecentItem) и затем «назад»
-      // возвращал item/dialog в URL правильно, но экран оставался
-      // залипшим на viewMode="notes" — с dialogParam в URL, но без
-      // AssistantChat на экране (реальный баг, найден при проверке этой
-      // же фичи). item/dialog в URL однозначно определяют нужный экран —
-      // остальные (Корзина/Активность) своего item/dialog не имеют,
-      // поэтому их трогать не нужно.
-      if (itemParam) setViewModeState("notes");
-      else if (dialogParam) setViewModeState("assistant");
-      else if (screenParam === "activity") setViewModeState("activity");
-      else if (screenParam === "trash") setViewModeState("trash");
-      setSelectedItemIdState(itemParam);
-      setSelectedDialogId(dialogParam);
-      setMobileView(nextMobileView);
-    });
+    setTransitionDirection(mobileView, nextMobileView);
+    withViewTransition(
+      () => {
+        // viewMode не часть searchParams (это ось "Заметки/Ассистент/
+        // Активность/Корзина", решение пользователя, не история одной
+        // заметки) — сама по себе кнопка «назад»/popstate её не трогает.
+        // Раньше это означало, что переход "Активность → заметка" или
+        // "диалог → заметка" (см. onOpenItem/openRecentItem) и затем
+        // «назад» возвращал item/dialog в URL правильно, но экран
+        // оставался залипшим на viewMode="notes" — с dialogParam в URL,
+        // но без AssistantChat на экране (реальный баг, найден при
+        // проверке этой же фичи). item/dialog в URL однозначно
+        // определяют нужный экран — остальные (Корзина/Активность)
+        // своего item/dialog не имеют, поэтому их трогать не нужно.
+        if (itemParam) setViewModeState("notes");
+        else if (dialogParam) setViewModeState("assistant");
+        else if (screenParam === "activity") setViewModeState("activity");
+        else if (screenParam === "trash") setViewModeState("trash");
+        setSelectedItemIdState(itemParam);
+        setSelectedDialogId(dialogParam);
+        setMobileView(nextMobileView);
+      },
+      // Реальная жалоба: этот переход двигает только мобильный стек
+      // (sidebar/list/editor) — на lg: и шире все три панели видны
+      // одновременно, снимать/анимировать нечего, а направленный слайд
+      // выглядел как "весь интерфейс перерисовывается и едет вбок" без
+      // причины. mobileOnly — см. viewTransition.ts.
+      { mobileOnly: true },
+    );
     if (activeSpaceId) uiStorage.setLastItemId(activeSpaceId, itemParam);
     uiStorage.setLastDialogId(dialogParam);
     // Геометрия ПОСЛЕ перерисовки — сравнить с rootRect выше: если экран
@@ -319,12 +342,16 @@ export default function AppShell() {
     uiStorage.setActiveSelection({ spaceId, folderId });
   }
 
-  function openReminder(spaceId: string, itemId: string, entryId?: string) {
+  function openReminder(spaceId: string, itemId: string, entryId?: string, notificationId?: string) {
     setViewMode("notes");
     setActiveSpaceId(spaceId);
     setActiveFolderId(null);
     setTagId(null);
     setHighlightEntryId(entryId ?? null);
+    // Список — подсветка по entryId (пункт списка). Заметка — по id самого
+    // уведомления (см. ReminderAnchor.ts): якорь в заметке хранит именно
+    // его, отдельный id для якоря не заводили, незачем.
+    setHighlightAnchorId(entryId ? null : (notificationId ?? null));
     setSelectedItemId(itemId, { forcePush: true });
   }
 
@@ -585,6 +612,7 @@ export default function AppShell() {
                     onDeleted={closeItemView}
                     onBack={closeItemView}
                     highlightEntryId={highlightEntryId}
+                    highlightAnchorId={highlightAnchorId}
                   />
                 ) : (
                   <div className="flex h-full items-center justify-center text-slate-400">

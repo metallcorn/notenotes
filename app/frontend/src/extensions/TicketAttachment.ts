@@ -125,6 +125,18 @@ export const TicketAttachment = Node.create({
 
   addStorage() {
     return {
+      // itemId/spaceId заметки, в которой сейчас открыта эта карточка —
+      // не атрибут ноды (билет не "знает" сам себя), NoteEditor.tsx
+      // проставляет их сюда эффектом при каждой смене заметки. Storage,
+      // не проп через .configure(): editor-инстанс переживает переключение
+      // между заметками (см. useEditor в NoteEditor.tsx), а конфиг
+      // расширений — нет, замыкание на старый item_id было бы устаревшим
+      // после первого же переключения. Нужно для кнопки "Напомнить"
+      // (TicketAttachmentCard.tsx) — без item_id уведомление создавалось
+      // без привязки к билету, клик по нему не открывал ничего (реальный
+      // найденный баг).
+      itemId: null as string | null,
+      spaceId: null as string | null,
       markdown: {
         serialize(
           state: { write: (s: string) => void; closeBlock: (node: unknown) => void },

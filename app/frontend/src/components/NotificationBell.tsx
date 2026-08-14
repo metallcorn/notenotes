@@ -7,7 +7,7 @@ export default function NotificationBell({
   onOpenReminder,
 }: {
   updateAvailable: boolean;
-  onOpenReminder: (spaceId: string, itemId: string, entryId?: string) => void;
+  onOpenReminder: (spaceId: string, itemId: string, entryId?: string, notificationId?: string) => void;
 }) {
   const [open, setOpen] = useState(false);
   const { data: notifications } = useNotifications();
@@ -82,7 +82,7 @@ export default function NotificationBell({
                     if (!n.read_at) markRead.mutate(n.id);
                     if (spaceId && itemId) {
                       setOpen(false);
-                      onOpenReminder(spaceId, itemId, entryId);
+                      onOpenReminder(spaceId, itemId, entryId, n.id);
                     }
                   }}
                   className={`block w-full border-b px-3 py-2 text-left text-sm ${n.read_at ? "text-slate-500" : "bg-slate-50 font-medium text-slate-900"}`}

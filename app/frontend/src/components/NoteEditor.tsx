@@ -16,6 +16,7 @@ import { downloadFile, inlineImages, sanitizeFilename, wrapHtmlDocument } from "
 import {
   useAddItemTag,
   useAiTransform,
+  useCreateReminder,
   useCreateTag,
   useDeleteItem,
   useFolders,
@@ -36,13 +37,22 @@ import CodeBlockToolbar from "./CodeBlockToolbar";
 import TableToolbar from "./TableToolbar";
 import Spinner from "./Spinner";
 import ConfirmDialog from "./ConfirmDialog";
+import ReminderModal from "./ReminderModal";
+import NoteAssistantModal from "./NoteAssistantModal";
+import RecordingPanel from "./RecordingPanel";
 import ExportMenu from "./ExportMenu";
 import { ResizableImage } from "../extensions/ResizableImage";
 import { Video } from "../extensions/Video";
+import { Audio } from "../extensions/Audio";
 import { LinkPreview } from "../extensions/LinkPreview";
 import { DocumentAttachment, serializeDocumentAttachment } from "../extensions/DocumentAttachment";
 import { TicketAttachment } from "../extensions/TicketAttachment";
 import { Spacer } from "../extensions/Spacer";
+import { ProcessingPlaceholder } from "../extensions/ProcessingPlaceholder";
+import { InlineLinkFavicon } from "../extensions/InlineLinkFavicon";
+import { DataRecognition } from "../extensions/DataRecognition";
+import { ReminderAnchor } from "../extensions/ReminderAnchor";
+import { ImageOcrResult } from "../extensions/ImageOcrResult";
 import { SlashCommand } from "../extensions/SlashCommand";
 
 // Только когда вставленный текст ЦЕЛИКОМ — голая ссылка (случай "вставил
@@ -63,10 +73,15 @@ export default function NoteEditor({
   itemId,
   onDeleted,
   onBack,
+  highlightAnchorId,
 }: {
   itemId: string;
   onDeleted: () => void;
   onBack: () => void;
+  // Переход из напоминания, поставленного якорем на конкретную строку
+  // (см. ReminderAnchor.ts) — прокрутить и подсветить, тот же приём, что
+  // highlightEntryId у ListEditor.tsx.
+  highlightAnchorId?: string | null;
 }) {
   const { data: item, isError } = useItem(itemId);
   const updateItem = useUpdateItem();
@@ -81,6 +96,7 @@ export default function NoteEditor({
   const { data: spaces } = useSpaces();
   const moveItemSpace = useMoveItemSpace();
   const aiTransform = useAiTransform();
+  const createReminder = useCreateReminder();
 
   const [mode, setMode] = useState<Mode>("wysiwyg");
   const [title, setTitle] = useState("");
@@ -93,10 +109,18 @@ export default function NoteEditor({
   const [pendingSpaceId, setPendingSpaceId] = useState<string | null>(null);
   const [showColorPicker, setShowColorPicker] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [reminderModalOpen, setReminderModalOpen] = useState(false);
+  const [reminderAnchorPos, setReminderAnchorPos] = useState<number | null>(null);
+  const [assistantModalOpen, setAssistantModalOpen] = useState(false);
+  const [assistantRange, setAssistantRange] = useState<{ from: number; to: number } | null>(null);
+  const [assistantSelectionText, setAssistantSelectionText] = useState<string | null>(null);
   const [contentWidth, setContentWidth] = useState<ContentWidth>(() => uiStorage.getContentWidth());
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
+  const [uploadBatch, setUploadBatch] = useState<{ current: number; total: number } | null>(null);
+  const [recordingPanelOpen, setRecordingPanelOpen] = useState(false);
+  const [recordingInsertPos, setRecordingInsertPos] = useState<number | null>(null);
 
   const savedRef = useRef({ title: "", content: "" });
   const pendingRef = useRef<{ id: string; title: string; content: string } | null>(null);
@@ -110,10 +134,16 @@ export default function NoteEditor({
       CodeBlockLowlight.configure({ lowlight }),
       ResizableImage,
       Video,
+      Audio,
       LinkPreview,
       DocumentAttachment,
       TicketAttachment,
       Spacer,
+      ProcessingPlaceholder,
+      InlineLinkFavicon,
+      DataRecognition,
+      ReminderAnchor,
+      ImageOcrResult,
       LinkExtension.configure({ HTMLAttributes: { target: "_blank", rel: "noopener noreferrer" } }),
       Table.configure({ resizable: false }),
       TableRow,
@@ -122,6 +152,10 @@ export default function NoteEditor({
       Markdown.configure({ html: true, transformPastedText: true }),
       SlashCommand.configure({
         onInsertImage: () => imageInputRef.current?.click(),
+        onCreateReminder: (pos: number) => {
+          setReminderAnchorPos(pos);
+          setReminderModalOpen(true);
+        },
       }),
     ],
     content: "",
@@ -169,6 +203,31 @@ export default function NoteEditor({
     loadedItemIdRef.current = item.id;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [item?.id]);
+
+  // TicketAttachmentCard.tsx читает это при клике "Напомнить" — см.
+  // комментарий в TicketAttachment.ts про то, почему storage, а не проп.
+  useEffect(() => {
+    if (!editor) return;
+    editor.storage.ticketAttachment.itemId = item?.id ?? null;
+    editor.storage.ticketAttachment.spaceId = item?.space_id ?? null;
+  }, [editor, item?.id, item?.space_id]);
+
+  // Переход из напоминания, поставленного якорем (ReminderAnchor.ts) —
+  // прокрутить и подсветить, тот же приём, что highlightEntryId у
+  // ListEditor.tsx (highlightedRef, а не просто зависимость от id — иначе
+  // каждый фоновый refetch заметки переигрывал бы подсветку заново, пока
+  // пользователь сидит на странице).
+  const highlightedAnchorRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!editor || !highlightAnchorId || !item) return;
+    if (highlightedAnchorRef.current === highlightAnchorId) return;
+    const el = editor.view.dom.querySelector<HTMLElement>(`[data-reminder-id="${highlightAnchorId}"]`);
+    if (!el) return;
+    highlightedAnchorRef.current = highlightAnchorId;
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
+    el.classList.add("reminder-anchor-highlight");
+    setTimeout(() => el.classList.remove("reminder-anchor-highlight"), 2500);
+  }, [editor, highlightAnchorId, item]);
 
   // Ту же заметку могли обновить в фоне, пока она открыта — например,
   // распознавание PDF/картинки/видео закончилось и плейсхолдер
@@ -274,88 +333,203 @@ export default function NoteEditor({
     }
   }
 
-  async function onPickImage(e: ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    e.target.value = "";
-    if (!file || !item) return;
-    setUploadProgress(0);
-    try {
-      const uploaded = await uploadFile.mutateAsync({ file, onProgress: setUploadProgress });
-      // Плейсхолдер — точная строка, которую backend ищет и заменяет на
-      // готовое описание/OCR (app/vision.py, placeholder_text()); должна
-      // совпадать 1:1, тот же приём, что и у видео-расшифровки.
-      const placeholder = `⏳ Описание изображения ${uploaded.id} обрабатывается…`;
-      if (mode === "wysiwyg" && editor) {
+  // Реальный запрос: "выделил название заведения — хочу, чтобы ассистент
+  // нашёл его в интернете и предложил обновить/обогатить заметку". В
+  // отличие от applyAiAction выше (текстовое преобразование без тулов) —
+  // открывает полноценный мини-чат (NoteAssistantModal.tsx, тулы web_search/
+  // search_base/read_website), а не одноразовый запрос. Диапазон выделения
+  // запоминаем на момент открытия, не читаем заново на момент "применить" —
+  // пока идёт чат, курсор/выделение в редакторе давно могли уйти куда
+  // угодно (пользователь мог продолжать читать заметку).
+  function openAssistant() {
+    if (!editor) return;
+    const { from, to } = editor.state.selection;
+    if (from === to) {
+      setAssistantRange(null);
+      setAssistantSelectionText(null);
+    } else {
+      setAssistantRange({ from, to });
+      setAssistantSelectionText(editor.state.doc.textBetween(from, to, " "));
+    }
+    setAssistantModalOpen(true);
+  }
+
+  function applyFromAssistant(text: string) {
+    if (!editor) return;
+    if (assistantRange) {
+      editor.chain().focus().insertContentAt(assistantRange, text).run();
+    } else {
+      // Не было выделения — не заменяем всю заметку целиком (в отличие от
+      // applyAiAction'а: там это осознанный выбор для summarize/reformat,
+      // здесь результат — НОВАЯ информация, потеря существующего текста
+      // была бы реальной потерей данных), дописываем в конец.
+      const end = editor.state.doc.content.size;
+      editor.chain().focus().insertContentAt(end, "\n\n" + text).run();
+    }
+  }
+
+  // Реальный запрос: "хочу записать встречу/длинную заметку прямо в
+  // редакторе, с диаризацией" — RecordingPanel.tsx открывается отдельной
+  // подпанелью (не блокирует саму заметку, можно продолжать печатать/
+  // вставлять картинки, пока идёт запись). Позицию курсора фиксируем в
+  // момент клика по кнопке-микрофону, не в момент реального начала
+  // записи — пока пользователь смотрит на панель и решает, начинать ли,
+  // курсор мог уйти куда угодно.
+  function openRecorder() {
+    if (!editor) return;
+    setRecordingInsertPos(editor.state.selection.from);
+    setRecordingPanelOpen(true);
+  }
+
+  function onRecordingStarted(uploadId: string) {
+    if (!editor || recordingInsertPos === null) return;
+    // Плейсхолдер — точная строка, которую backend ищет и заменяет на
+    // готовый плеер + сворачиваемую расшифровку (app/note_recording.py,
+    // placeholder_text()); должна совпадать 1:1. Обычный текст, не новый
+    // абзац — вставляется прямо в позицию курсора, а не после неё как у
+    // insertImage, курсор мог стоять посреди уже существующего текста.
+    const placeholder = `⏳ Запись ${uploadId} расшифровывается…`;
+    editor.chain().insertContentAt(recordingInsertPos, placeholder).run();
+  }
+
+  // Одна загруженная картинка — общий путь для обеих кнопок («Картинка» И
+  // «Файл»): реальная жалоба — картинка, выбранная через «Файл» (обычный
+  // системный пикер на телефоне не отличает кнопки), раньше попадала в
+  // generic documentAttachment-карточку вместо изображения. Бэкенд всё
+  // равно ставил vision-OCR в очередь (content_type определяется по
+  // самому файлу, не по кнопке) — а плейсхолдер, на который воркер должен
+  // заменить готовый результат, никогда не вставлялся, поэтому результат
+  // молча терялся (_replace_in_referencing_items не находил, куда
+  // вписать). Единая функция закрывает оба входа сразу.
+  function insertImage(uploaded: { id: string; url: string }) {
+    // Плейсхолдер — точная строка, которую backend ищет и заменяет на
+    // готовое описание/OCR (app/vision.py, placeholder_text()); должна
+    // совпадать 1:1, тот же приём, что и у видео-расшифровки.
+    const placeholder = `⏳ Описание изображения ${uploaded.id} обрабатывается…`;
+    if (mode === "wysiwyg" && editor) {
+      editor
+        .chain()
+        .focus()
+        .setImage({ src: uploaded.url })
+        .insertContent({ type: "paragraph", content: [{ type: "text", text: placeholder }] })
+        .run();
+    } else {
+      setContent((c) => `${c}\n\n![](${uploaded.url})\n\n${placeholder}\n`);
+    }
+  }
+
+  function insertUploadedFile(uploaded: {
+    id: string;
+    url: string;
+    filename: string;
+    content_type: string;
+    pdf_text: string | null;
+    pdf_ocr_queued: boolean;
+    preview_text: string | null;
+  }) {
+    if (uploaded.content_type.startsWith("image/")) {
+      insertImage(uploaded);
+      return;
+    }
+    const isVideo = uploaded.content_type.startsWith("video/");
+    const isAudio = uploaded.content_type.startsWith("audio/");
+    // Плейсхолдер — точная строка, которую backend ищет и заменяет на
+    // готовый результат (app/transcription.py и app/pdf_processing.py,
+    // placeholder_text()) — держать в одном месте на фронте не
+    // получится, но текст должен совпадать 1:1, иначе замена не найдёт,
+    // куда вписать результат.
+    const placeholder = `⏳ Расшифровка ${uploaded.id} обрабатывается…`;
+    const pdfPlaceholder = `⏳ Распознавание PDF ${uploaded.id} обрабатывается…`;
+    // Аудио — сразу готовый плеер, без плейсхолдера: расшифровка для
+    // отдельно загруженных аудиофайлов не подключена (только для видео),
+    // плеер сам по себе и есть превью, ждать нечего.
+    const previewText = uploaded.pdf_text ?? uploaded.preview_text ?? "";
+    if (mode === "wysiwyg" && editor) {
+      if (isVideo) {
         editor
           .chain()
           .focus()
-          .setImage({ src: uploaded.url })
+          .insertContent({ type: "video", attrs: { src: uploaded.url, filename: uploaded.filename } })
           .insertContent({ type: "paragraph", content: [{ type: "text", text: placeholder }] })
           .run();
+      } else if (isAudio) {
+        editor
+          .chain()
+          .focus()
+          .insertContent({ type: "audio", attrs: { src: uploaded.url, filename: uploaded.filename } })
+          .run();
+      } else if (uploaded.pdf_ocr_queued) {
+        // Авто-OCR уже поставлен в очередь на бэкенде — плейсхолдер, не
+        // карточка сразу: backend заменит его целиком на готовую
+        // карточку с текстом, когда распознавание закончится.
+        editor
+          .chain()
+          .focus()
+          .insertContent({ type: "paragraph", content: [{ type: "text", text: pdfPlaceholder }] })
+          .run();
       } else {
-        setContent((c) => `${c}\n\n![](${uploaded.url})\n\n${placeholder}\n`);
+        editor
+          .chain()
+          .focus()
+          .insertContent({
+            type: "documentAttachment",
+            attrs: { url: uploaded.url, filename: uploaded.filename, text: previewText },
+          })
+          .run();
+      }
+    } else if (isVideo) {
+      setContent(
+        (c) =>
+          `${c}\n\n<video src="${uploaded.url}" controls preload="metadata" style="max-width: 100%; max-height: 70vh;"></video>\n\n${placeholder}\n`,
+      );
+    } else if (isAudio) {
+      setContent(
+        (c) => `${c}\n\n<audio src="${uploaded.url}" controls preload="metadata" style="max-width: 100%;"></audio>\n`,
+      );
+    } else if (uploaded.pdf_ocr_queued) {
+      setContent((c) => `${c}\n\n${pdfPlaceholder}\n`);
+    } else {
+      setContent((c) => `${c}\n\n${serializeDocumentAttachment(uploaded.url, uploaded.filename, previewText)}\n`);
+    }
+  }
+
+  // Реальная жалоба: с телефона нельзя было выбрать пачку файлов сразу —
+  // системный пикер даёт выбрать несколько, инпут их принимал бы, но
+  // код брал только files[0]. Грузим и вставляем ПОСЛЕДОВАТЕЛЬНО (не
+  // Promise.all): порядок вставки в заметке должен совпадать с порядком
+  // выбора, и один прогресс-бар на все параллельные загрузки не имел бы
+  // смысла.
+  async function onPickImage(e: ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files ?? []);
+    e.target.value = "";
+    if (!files.length || !item) return;
+    try {
+      for (let i = 0; i < files.length; i++) {
+        setUploadBatch({ current: i + 1, total: files.length });
+        setUploadProgress(0);
+        const uploaded = await uploadFile.mutateAsync({ file: files[i], onProgress: setUploadProgress });
+        insertImage(uploaded);
       }
     } finally {
       setUploadProgress(null);
+      setUploadBatch(null);
     }
   }
 
   async function onPickFile(e: ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
+    const files = Array.from(e.target.files ?? []);
     e.target.value = "";
-    if (!file || !item) return;
-    setUploadProgress(0);
+    if (!files.length || !item) return;
     try {
-      const uploaded = await uploadFile.mutateAsync({ file, onProgress: setUploadProgress });
-      const isVideo = uploaded.content_type.startsWith("video/");
-      // Плейсхолдер — точная строка, которую backend ищет и заменяет на
-      // готовый результат (app/transcription.py и app/pdf_processing.py,
-      // placeholder_text()) — держать в одном месте на фронте не
-      // получится, но текст должен совпадать 1:1, иначе замена не найдёт,
-      // куда вписать результат.
-      const placeholder = `⏳ Расшифровка ${uploaded.id} обрабатывается…`;
-      const pdfPlaceholder = `⏳ Распознавание PDF ${uploaded.id} обрабатывается…`;
-      if (mode === "wysiwyg" && editor) {
-        if (isVideo) {
-          editor
-            .chain()
-            .focus()
-            .insertContent({ type: "video", attrs: { src: uploaded.url, filename: uploaded.filename } })
-            .insertContent({ type: "paragraph", content: [{ type: "text", text: placeholder }] })
-            .run();
-        } else if (uploaded.pdf_ocr_queued) {
-          // Авто-OCR уже поставлен в очередь на бэкенде — плейсхолдер, не
-          // карточка сразу: backend заменит его целиком на готовую
-          // карточку с текстом, когда распознавание закончится.
-          editor
-            .chain()
-            .focus()
-            .insertContent({ type: "paragraph", content: [{ type: "text", text: pdfPlaceholder }] })
-            .run();
-        } else {
-          editor
-            .chain()
-            .focus()
-            .insertContent({
-              type: "documentAttachment",
-              attrs: { url: uploaded.url, filename: uploaded.filename, text: uploaded.pdf_text ?? "" },
-            })
-            .run();
-        }
-      } else if (isVideo) {
-        setContent(
-          (c) =>
-            `${c}\n\n<video src="${uploaded.url}" controls preload="metadata" style="max-width: 100%; max-height: 70vh;"></video>\n\n${placeholder}\n`,
-        );
-      } else if (uploaded.pdf_ocr_queued) {
-        setContent((c) => `${c}\n\n${pdfPlaceholder}\n`);
-      } else {
-        setContent(
-          (c) => `${c}\n\n${serializeDocumentAttachment(uploaded.url, uploaded.filename, uploaded.pdf_text ?? "")}\n`,
-        );
+      for (let i = 0; i < files.length; i++) {
+        setUploadBatch({ current: i + 1, total: files.length });
+        setUploadProgress(0);
+        const uploaded = await uploadFile.mutateAsync({ file: files[i], onProgress: setUploadProgress });
+        insertUploadedFile(uploaded);
       }
     } finally {
       setUploadProgress(null);
+      setUploadBatch(null);
     }
   }
 
@@ -412,7 +586,7 @@ export default function NoteEditor({
         <div className="flex items-center gap-2 p-3 pb-2">
           <button
             onClick={onBack}
-            className="-ml-1 flex h-8 w-8 shrink-0 items-center justify-center text-slate-500 md:hidden"
+            className="-ml-1 flex h-8 w-8 shrink-0 items-center justify-center text-slate-500 lg:hidden"
           >
             <ChevronLeft size={18} />
           </button>
@@ -649,8 +823,8 @@ export default function NoteEditor({
         </div>
       </div>
 
-      <input ref={imageInputRef} type="file" accept="image/*" hidden onChange={onPickImage} />
-      <input ref={fileInputRef} type="file" hidden onChange={onPickFile} />
+      <input ref={imageInputRef} type="file" accept="image/*" multiple hidden onChange={onPickImage} />
+      <input ref={fileInputRef} type="file" multiple hidden onChange={onPickFile} />
 
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
         {mode === "wysiwyg" && (
@@ -658,10 +832,13 @@ export default function NoteEditor({
             editor={editor}
             onInsertImage={() => imageInputRef.current?.click()}
             onInsertFile={() => fileInputRef.current?.click()}
+            onOpenRecorder={openRecorder}
             uploadProgress={uploadProgress}
+            uploadBatch={uploadBatch}
             contentWidth={contentWidth}
             onContentWidthChange={changeContentWidth}
             onAiAction={applyAiAction}
+            onOpenAssistant={openAssistant}
             aiLoading={aiLoading}
           />
         )}
@@ -672,7 +849,42 @@ export default function NoteEditor({
         {showCodeBlockToolbar && editor && <CodeBlockToolbar editor={editor} />}
         {showTableToolbar && editor && <TableToolbar editor={editor} />}
         <div className="flex min-h-0 flex-1 overflow-hidden">
-          <div className="min-h-0 flex-1 overflow-y-auto p-4">
+          <div
+            className="min-h-0 flex-1 overflow-y-auto p-4"
+            onMouseDown={(e) => {
+              // Реальный найденный баг: EditorContent рендерит собственную
+              // обёртку с классом .tiptap, а ВНУТРИ неё — настоящий
+              // редактируемый узел ProseMirror (тоже .tiptap, плюс
+              // .ProseMirror). min-height:100% из index.css применяется к
+              // обоим, но у вложенного узла процентная высота не резолвится
+              // в реальную высоту флекс-контейнера (нет явно заданного
+              // height у родителя — только flex-grow) — вложенный
+              // ProseMirror-узел оказывается высотой ровно с контент (для
+              // пустой заметки — одна строка), а не на всю видимую область.
+              // Клик куда угодно НИЖЕ этой полоски попадает на пустую
+              // обёртку и никогда не доходит до самого редактора — "ничего
+              // не печатается", хотя визуально место выглядит как часть
+              // заметки. Не чиним саму геометрию (пришлось бы перекраивать
+              // всю цепочку flex/скролла), а как в любом блочном редакторе
+              // (Notion, Linear и т.п.) — клик мимо текста ставит курсор в
+              // конец документа.
+              //
+              // Реальный найденный регресс от этого же фикса: BubbleMenu
+              // (кнопка «ИИ» / «Спросить ассистента» при выделении текста)
+              // через tippy.js по умолчанию (appendTo: 'parent') вставляется
+              // ребёнком именно этого контейнера, а не внутрь editor.view.dom.
+              // Без этой проверки клик по кнопке ИИ схлопывал выделение
+              // ДО того, как успевал сработать сам клик — BubbleMenu
+              // реагирует на пустое выделение и тут же прячется. Пока
+              // выделение не пустое, ничего не трогаем — такой клик почти
+              // наверняка по всплывающей панели, а не мимо текста.
+              if (mode !== "wysiwyg" || !editor) return;
+              if (!editor.state.selection.empty) return;
+              if (editor.view.dom.contains(e.target as Node)) return;
+              e.preventDefault();
+              editor.commands.focus("end");
+            }}
+          >
             {/* EditorContent/BubbleMenu держат собственный DOM в обход React
                 (ProseMirror-вью и tippy.js-попап у BubbleMenu) — полное
                 размонтирование этой ветки при переключении режима (было:
@@ -683,7 +895,7 @@ export default function NoteEditor({
             {editor && (
               <BubbleMenu editor={editor} shouldShow={({ state }) => mode === "wysiwyg" && !state.selection.empty}>
                 <div className="rounded border bg-white shadow-lg">
-                  <AiMenu onAction={applyAiAction} loading={aiLoading} />
+                  <AiMenu onAction={applyAiAction} onOpenAssistant={openAssistant} loading={aiLoading} />
                 </div>
               </BubbleMenu>
             )}
@@ -727,6 +939,56 @@ export default function NoteEditor({
             await moveItemSpace.mutateAsync({ id: item.id, space_id: spaceId });
           }}
           onCancel={() => setPendingSpaceId(null)}
+        />
+      )}
+
+      {reminderModalOpen && (
+        <ReminderModal
+          defaultTitle={item.title}
+          onCreate={({ title: t, body, triggerAt }) => {
+            setReminderModalOpen(false);
+            const anchorPos = reminderAnchorPos;
+            createReminder.mutate(
+              { title: t, body, trigger_at: triggerAt.toISOString(), item_id: item.id },
+              {
+                onSuccess: (notification) => {
+                  // Якорь вставляется ПОСЛЕ успешного создания, не сразу
+                  // при открытии формы — если пользователь отменит или
+                  // запрос упадёт, лишней иконки в заметке остаться не
+                  // должно (реальная жалоба была ровно про обратное:
+                  // "не сохранилось" — но раз уж чиним, сразу без риска
+                  // рассинхрона с тем, что реально создалось на бэкенде).
+                  if (editor && anchorPos !== null) {
+                    editor
+                      .chain()
+                      .insertContentAt(anchorPos, {
+                        type: "reminderAnchor",
+                        attrs: { notificationId: notification.id, title: t },
+                      })
+                      .run();
+                  }
+                },
+              },
+            );
+          }}
+          onCancel={() => setReminderModalOpen(false)}
+        />
+      )}
+
+      {assistantModalOpen && (
+        <NoteAssistantModal
+          itemId={item.id}
+          selectionText={assistantSelectionText}
+          onApply={applyFromAssistant}
+          onClose={() => setAssistantModalOpen(false)}
+        />
+      )}
+
+      {recordingPanelOpen && (
+        <RecordingPanel
+          spaceId={item.space_id}
+          onStarted={onRecordingStarted}
+          onClose={() => setRecordingPanelOpen(false)}
         />
       )}
     </div>

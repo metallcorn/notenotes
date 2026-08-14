@@ -20,7 +20,7 @@ export default function DialogList({
   const [deleting, setDeleting] = useState<DialogSummary | null>(null);
 
   async function handleCreate() {
-    const dialog = await createDialog.mutateAsync();
+    const dialog = await createDialog.mutateAsync({});
     onSelect(dialog.id);
   }
 

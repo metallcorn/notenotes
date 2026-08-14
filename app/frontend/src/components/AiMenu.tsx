@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Sparkles } from "lucide-react";
+import { Sparkles, Search } from "lucide-react";
 import Spinner from "./Spinner";
 
 export type AiAction = "summarize" | "reformat" | "rewrite";
@@ -9,11 +9,20 @@ const REWRITE_PRESETS = ["Короче", "Проще", "Формальнее", "
 
 export default function AiMenu({
   onAction,
+  onOpenAssistant,
   loading,
   disabled,
   align = "left",
 }: {
   onAction: (action: AiAction, instruction?: string) => void;
+  // Реальный запрос: "выделил название заведения — хочу, чтобы ассистент
+  // нашёл его и предложил обогатить заметку", не просто переформулировал
+  // существующий текст (для этого уже есть остальные пункты меню). В
+  // отличие от summarize/reformat/rewrite это не текстовое преобразование
+  // (aiTransform, без тулов) — открывает полноценный мини-чат с ассистентом
+  // (NoteAssistantModal.tsx, тулы web_search/search_base и т.п.), поэтому
+  // отдельный колбэк, не ещё один AiAction.
+  onOpenAssistant?: () => void;
   loading: boolean;
   disabled?: boolean;
   align?: "left" | "right";
@@ -83,6 +92,18 @@ export default function AiMenu({
               >
                 Переформатировать
               </button>
+              {onOpenAssistant && (
+                <button
+                  onClick={() => {
+                    setOpen(false);
+                    onOpenAssistant();
+                  }}
+                  className="flex w-full items-center gap-1.5 border-t px-3 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50"
+                >
+                  <Search size={13} className="text-slate-400" />
+                  Спросить ассистента
+                </button>
+              )}
               <div className="border-t px-3 py-1.5">
                 <div className="mb-1 text-xs font-medium uppercase tracking-wide text-slate-400">Переписать</div>
                 <div className="mb-1.5 flex flex-wrap gap-1">

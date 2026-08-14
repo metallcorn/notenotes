@@ -24,10 +24,80 @@
 
 /* Переходы между панелями (мобильный стек сайдбар/список/редактор,
    схлопывание на десктопе) — см. src/lib/viewTransition.ts. Короче
-   дефолтных ~250ms браузера, чтобы не ощущалось медленным на телефоне. */
+   дефолтных ~250ms браузера, чтобы не ощущалось медленным на телефоне.
+
+   Реальная жалоба: дефолт View Transitions API — простой кросс-фейд, не
+   похоже на "скольжение" между экранами. data-transition-dir на <html>
+   (AppShell.tsx, setTransitionDirection) выставляется ПЕРЕД вызовом
+   startViewTransition — "вглубь" (sidebar→list→editor) слайдит новый
+   экран СПРАВА налево, "назад" — слева направо, старый экран уходит в
+   противоположную сторону с лёгким затемнением, а не резко исчезает. */
 ::view-transition-old(root),
 ::view-transition-new(root) {
-  animation-duration: 0.18s;
+  animation-duration: 0.22s;
+  animation-timing-function: ease-out;
+}
+:root[data-transition-dir="forward"]::view-transition-old(root) {
+  animation-name: view-transition-slide-out-left;
+}
+:root[data-transition-dir="forward"]::view-transition-new(root) {
+  animation-name: view-transition-slide-in-right;
+}
+:root[data-transition-dir="back"]::view-transition-old(root) {
+  animation-name: view-transition-slide-out-right;
+}
+:root[data-transition-dir="back"]::view-transition-new(root) {
+  animation-name: view-transition-slide-in-left;
+}
+@keyframes view-transition-slide-in-right {
+  from { transform: translateX(24px); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+@keyframes view-transition-slide-out-left {
+  from { transform: translateX(0); opacity: 1; }
+  to { transform: translateX(-24px); opacity: 0; }
+}
+@keyframes view-transition-slide-in-left {
+  from { transform: translateX(-24px); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+@keyframes view-transition-slide-out-right {
+  from { transform: translateX(0); opacity: 1; }
+  to { transform: translateX(24px); opacity: 0; }
+}
+
+/* Подпанели, выезжающие поверх/сбоку заметки (ассистент, запись аудио) —
+   реальная жалоба: раньше просто появлялись без анимации. Снизу на
+   мобиле (там панель — центрированная модалка), справа на десктопе (там
+   она прижата к правому краю, lg:justify-end). Один класс, направление —
+   через медиа-запрос в самом keyframe (тот же приём, что и с
+   :root[data-transition-dir] выше, но без JS — направление тут не
+   зависит от истории навигации, только от брейкпоинта). */
+@keyframes panel-slide-in {
+  from { transform: translateY(16px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+@media (min-width: 1024px) {
+  @keyframes panel-slide-in {
+    from { transform: translateX(100%); }
+    to { transform: translateX(0); }
+  }
+}
+.panel-slide-in {
+  animation: panel-slide-in 0.22s ease-out;
+}
+
+/* Новое сообщение в чате ассистента — реальная жалоба: реплики просто
+   вставлялись в DOM без анимации. Срабатывает только на РЕАЛЬНО новых
+   DOM-узлах (React не пересоздаёт узлы уже отрисованных сообщений при
+   стабильном key={message.id} — старые не переигрывают анимацию заново
+   при каждом ре-рендере списка). */
+@keyframes message-fade-in {
+  from { transform: translateY(6px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+.message-fade-in {
+  animation: message-fade-in 0.18s ease-out;
 }
 
 .tiptap {
@@ -223,4 +293,60 @@
 .tiptap img[align="right"] {
   float: right;
   margin-left: 1em;
+}
+
+.reminder-anchor {
+  display: inline-block;
+  cursor: default;
+  margin: 0 0.05em;
+}
+
+.reminder-anchor-highlight {
+  background-color: #fef3c7;
+  border-radius: 3px;
+  transition: background-color 0.3s ease;
+}
+
+.recognized-phone-icon {
+  display: inline-block;
+  text-decoration: none;
+  margin-right: 0.15em;
+  cursor: pointer;
+}
+
+.recognized-card {
+  font-variant-numeric: tabular-nums;
+  font-family: ui-monospace, "SF Mono", Consolas, monospace;
+  letter-spacing: 0.05em;
+  background-color: #f1f5f9;
+  padding: 0.05em 0.3em;
+  border-radius: 3px;
+}
+
+.inline-link-favicon {
+  display: inline-block;
+  width: 0.9em;
+  height: 0.9em;
+  vertical-align: -0.15em;
+  margin-right: 0.2em;
+  border-radius: 2px;
+}
+
+/* Плейсхолдер фоновой обработки (OCR/расшифровка/vision) — визуально
+   отличим от обычного текста, пока идёт работа воркера. */
+.processing-placeholder {
+  display: inline-block;
+  padding: 0.125rem 0.5rem;
+  border-radius: 9999px;
+  background-color: #ede9fe;
+  color: #6d28d9;
+  animation: processing-pulse 1.6s ease-in-out infinite;
+}
+@keyframes processing-pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
 }
