@@ -163,3 +163,7 @@ telegram_webhook_secret: "{{ vault_telegram_webhook_secret | default('') }}"
 vapid_private_key: "{{ vault_vapid_private_key | default('') }}"
 vapid_public_key: "{{ vault_vapid_public_key | default('') }}"
 vapid_subject: "{{ vault_vapid_subject | default('mailto:admin@example.com') }}"
+# Инвайт-код регистрации (внешний пентест 2026-08-14: /auth/register был
+# открыт всему интернету). default('') — регистрация закрыта, пока код не
+# задан в vault руками; уже созданных пользователей это не задевает.
+registration_invite_code: "{{ vault_registration_invite_code | default('') }}"

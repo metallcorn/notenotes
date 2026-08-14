@@ -22,6 +22,11 @@ class UserCreate(BaseModel):
     username: str = Field(min_length=3, max_length=64, pattern=USERNAME_PATTERN)
     password: str = Field(min_length=8, max_length=200)
     name: str = Field(min_length=1, max_length=255)
+    # Реальный найденный баг (внешний пентест): регистрация была открыта
+    # всему интернету — противоречит ТЗ §4 ("пользователи добавляются
+    # вручную"). Инвайт-код, не полное отключение эндпоинта — семью всё
+    # ещё можно добавлять, просто не анониму с улицы.
+    invite_code: str = ""
 
     _normalize_username = field_validator("username", mode="before")(_normalize_username)
     _normalize_password = field_validator("password", mode="before")(_normalize_password)

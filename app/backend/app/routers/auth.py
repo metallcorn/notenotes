@@ -1,3 +1,4 @@
+import secrets
 import time
 from collections import defaultdict
 
@@ -30,12 +31,23 @@ _login_attempts: dict[str, list[float]] = defaultdict(list)
 def _client_ip(request: Request) -> str:
     # Caddy — обратный прокси перед backend'ом (docker-сеть edge), без
     # --proxy-headers у uvicorn request.client.host был бы IP-адресом
-    # самого Caddy внутри сети, не реального посетителя. Caddy сам
-    # проставляет X-Forwarded-For по умолчанию, один хоп — берём первый
-    # адрес из списка.
+    # самого Caddy внутри сети, не реального посетителя.
+    #
+    # Реальный найденный баг (внешний пентест): брали ПЕРВЫЙ адрес из
+    # X-Forwarded-For — а Caddy по умолчанию не перезаписывает этот
+    # заголовок, а ДОПИСЫВАЕТ к тому, что уже прислал клиент. Значит
+    # первый адрес — это то, что подставил сам клиент (произвольная
+    # строка, ничем не проверяется), а не факт его реального IP. Атакующий
+    # мог слать свой X-Forwarded-For с рандомным адресом на каждый запрос
+    # и полностью обходить rate-limit по IP. Последний адрес в списке —
+    # тот, что реально дописал Caddy при проксировании (сам TCP-peer,
+    # клиент его подделать не может) — единственный, которому можно
+    # доверять при ровно одном хопе прокси перед backend'ом.
     forwarded = request.headers.get("x-forwarded-for")
     if forwarded:
-        return forwarded.split(",")[0].strip()
+        parts = [p.strip() for p in forwarded.split(",") if p.strip()]
+        if parts:
+            return parts[-1]
     return request.client.host if request.client else "unknown"
 
 
@@ -65,6 +77,14 @@ def _set_session_cookie(response: Response, user_id) -> None:
 
 @router.post("/register", response_model=UserOut, status_code=status.HTTP_201_CREATED)
 async def register(payload: UserCreate, response: Response, db: AsyncSession = Depends(get_db)) -> User:
+    settings = get_settings()
+    # compare_digest — не ==: сравнение кода не должно давать атакующему
+    # даже намёк на то, сколько первых символов угадано, через тайминг.
+    if not settings.registration_invite_code or not secrets.compare_digest(
+        payload.invite_code, settings.registration_invite_code
+    ):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Неверный или отсутствующий инвайт-код")
+
     existing = await db.execute(select(User).where(User.username == payload.username))
     if existing.scalar_one_or_none() is not None:
         raise HTTPException(status.HTTP_409_CONFLICT, "Пользователь с таким логином уже существует")

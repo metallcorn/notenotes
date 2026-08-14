@@ -60,3 +60,8 @@ vault_telegram_webhook_secret: "ЗАМЕНИ"
 vault_vapid_private_key: "ЗАМЕНИ"
 vault_vapid_public_key: "ЗАМЕНИ"
 vault_vapid_subject: "mailto:ЗАМЕНИ@example.com"
+
+# Инвайт-код для регистрации (внешний пентест 2026-08-14: /auth/register
+# был открыт всему интернету). Не задан/пусто — регистрация закрыта
+# полностью. Сообщается лично тому, кого добавляешь — не публикуется.
+vault_registration_invite_code: "ЗАМЕНИ"
