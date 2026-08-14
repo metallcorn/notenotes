@@ -9,6 +9,7 @@ from starlette.requests import Request
 
 from app.autotag import run_worker as run_autotag_worker
 from app.cleanup import run_periodic_sweep
+from app.note_recording import resume_pending as resume_note_recording, run_worker as run_note_recording_worker
 from app.notification_dispatch import run_dispatch_worker as run_notification_dispatch_worker
 from app.pdf_processing import run_worker as run_pdf_worker
 from app.telegram_bot import register_webhook as register_telegram_webhook, run_worker as run_telegram_worker
@@ -48,8 +49,10 @@ async def lifespan(app: FastAPI):
     pdf_task = asyncio.create_task(run_pdf_worker())
     ticket_task = asyncio.create_task(run_ticket_worker())
     notification_dispatch_task = asyncio.create_task(run_notification_dispatch_worker())
+    note_recording_task = asyncio.create_task(run_note_recording_worker())
     await resume_transcription()
     await resume_vision()
+    await resume_note_recording()
     await register_telegram_webhook()
     try:
         yield
@@ -62,9 +65,16 @@ async def lifespan(app: FastAPI):
         pdf_task.cancel()
         ticket_task.cancel()
         notification_dispatch_task.cancel()
+        note_recording_task.cancel()
 
 
-app = FastAPI(title="Notenotes", lifespan=lifespan)
+# docs_url/redoc_url/openapi_url отключены — реальный найденный баг
+# security-аудита: FastAPI по умолчанию отдаёт /docs, /redoc и
+# /openapi.json КОМУ УГОДНО без авторизации — это полная карта API
+# (все эндпоинты, параметры, модели) наружу. Отдельного dev-окружения
+# нет (CLAUDE.md, осознанно) — гасить не для кого, включать обратно
+# временно вручную, если понадобится.
+app = FastAPI(title="Notenotes", lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
 app.include_router(ai_text.router)
 app.include_router(auth.router)
 app.include_router(calendar.router)

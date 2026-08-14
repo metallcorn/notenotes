@@ -13,6 +13,7 @@ import {
   List,
   ListOrdered,
   Maximize2,
+  Mic,
   Minus,
   Quote,
   Redo2,
@@ -59,19 +60,25 @@ export default function EditorToolbar({
   editor,
   onInsertImage,
   onInsertFile,
+  onOpenRecorder,
   uploadProgress,
+  uploadBatch,
   contentWidth,
   onContentWidthChange,
   onAiAction,
+  onOpenAssistant,
   aiLoading,
 }: {
   editor: Editor | null;
   onInsertImage: () => void;
   onInsertFile: () => void;
+  onOpenRecorder?: () => void;
   uploadProgress: number | null;
+  uploadBatch: { current: number; total: number } | null;
   contentWidth: ContentWidth;
   onContentWidthChange: (width: ContentWidth) => void;
   onAiAction: (action: AiAction, instruction?: string) => void;
+  onOpenAssistant?: () => void;
   aiLoading: boolean;
 }) {
   if (!editor) return null;
@@ -79,7 +86,7 @@ export default function EditorToolbar({
 
   return (
     <div className="flex flex-nowrap items-center gap-0.5 overflow-x-auto border-b bg-slate-50 px-2 py-1">
-      <AiMenu onAction={onAiAction} loading={aiLoading} />
+      <AiMenu onAction={onAiAction} onOpenAssistant={onOpenAssistant} loading={aiLoading} />
       <span className="mx-1 h-4 w-px shrink-0 bg-slate-300" />
       <ToolbarButton
         title="Заголовок 1"
@@ -177,7 +184,17 @@ export default function EditorToolbar({
       <ToolbarButton title="Файл" disabled={uploading} onClick={onInsertFile}>
         {uploading ? <Spinner size={16} /> : <FileUp size={16} />}
       </ToolbarButton>
-      {uploading && <span className="shrink-0 text-xs tabular-nums text-slate-500">{uploadProgress}%</span>}
+      {onOpenRecorder && (
+        <ToolbarButton title="Записать аудио" onClick={onOpenRecorder}>
+          <Mic size={16} />
+        </ToolbarButton>
+      )}
+      {uploading && (
+        <span className="shrink-0 text-xs tabular-nums text-slate-500">
+          {uploadBatch && uploadBatch.total > 1 ? `${uploadBatch.current}/${uploadBatch.total} · ` : ""}
+          {uploadProgress}%
+        </span>
+      )}
       <span className="mx-1 h-4 w-px shrink-0 bg-slate-300" />
       <ToolbarButton title="Отменить" disabled={!editor.can().undo()} onClick={() => editor.chain().focus().undo().run()}>
         <Undo2 size={16} />

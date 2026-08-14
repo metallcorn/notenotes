@@ -34,23 +34,33 @@ class DeepgramClient:
         except (KeyError, IndexError):
             return ""
 
-    async def transcribe_with_speakers(self, audio: bytes, content_type: str) -> str:
-        """Для видео (app/transcription.py) — с диаризацией: если говорит
-        несколько человек, результат размечен по репликам "Спикер N: …", а
-        не одним сплошным куском текста. utterances=true — Deepgram сам
-        режет на реплики по паузам/сменам говорящего, вручную группировать
-        по словам не нужно. Таймаут больше, чем у transcribe(): видео
-        дольше короткой голосовой реплики."""
-        async with httpx.AsyncClient(timeout=180) as client:
+    async def transcribe_with_speakers(self, audio: bytes, content_type: str, language: str | None = "ru") -> str:
+        """Для видео (app/transcription.py) и записи прямо в заметке
+        (app/note_recording.py) — с диаризацией: если говорит несколько
+        человек, результат размечен по репликам "Спикер N: …", а не одним
+        сплошным куском текста. utterances=true — Deepgram сам режет на
+        реплики по паузам/сменам говорящего, вручную группировать по
+        словам не нужно.
+
+        language=None — detect_language вместо жёсткого "ru": запись
+        встречи может быть не на русском, в отличие от остального
+        приложения (по умолчанию русскоязычного), где фиксированный язык
+        обоснован. Таймаут 600, не 180 — часовая-другая встреча
+        обрабатывается Deepgram дольше короткого видео."""
+        params = {
+            "model": "nova-2",
+            "smart_format": "true",
+            "diarize": "true",
+            "utterances": "true",
+        }
+        if language:
+            params["language"] = language
+        else:
+            params["detect_language"] = "true"
+        async with httpx.AsyncClient(timeout=600) as client:
             resp = await client.post(
                 DEEPGRAM_API_URL,
-                params={
-                    "model": "nova-2",
-                    "smart_format": "true",
-                    "diarize": "true",
-                    "utterances": "true",
-                    "language": "ru",
-                },
+                params=params,
                 headers={"Authorization": f"Token {self._api_key}", "Content-Type": content_type},
                 content=audio,
             )
