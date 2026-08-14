@@ -1,6 +1,7 @@
 import secrets
 import time
 from collections import defaultdict
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy import select
@@ -9,11 +10,20 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import get_settings
 from app.db import get_db
 from app.deps import get_current_user
-from app.models import Space, SpaceMember, User
-from app.schemas.auth import UserCreate, UserLogin, UserOut, UserUpdate
+from app.models import InviteCode, Space, SpaceMember, User
+from app.schemas.auth import InviteCodeOut, UserCreate, UserLogin, UserOut, UserUpdate
 from app.security import create_session_token, hash_password, verify_password
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
+
+# Инвайт-код регистрации — создаётся существующим пользователем в
+# настройках (POST /invite-codes), не единый секрет в vault: реальный
+# запрос "хочу сам выдавать код, а не просить владельца лезть в vault
+# каждый раз". Без похожих на 0/O/1/I/L символов — легче продиктовать
+# вслух/переслать не перепутав.
+_INVITE_CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
+_INVITE_CODE_LENGTH = 8
+_INVITE_CODE_TTL_DAYS = 7
 
 # Реальный найденный баг security-аудита: /login не сопротивлялся перебору
 # пароля вообще — 6 заведомо неверных попыток подряд ушли без единой
@@ -77,13 +87,17 @@ def _set_session_cookie(response: Response, user_id) -> None:
 
 @router.post("/register", response_model=UserOut, status_code=status.HTTP_201_CREATED)
 async def register(payload: UserCreate, response: Response, db: AsyncSession = Depends(get_db)) -> User:
-    settings = get_settings()
-    # compare_digest — не ==: сравнение кода не должно давать атакующему
-    # даже намёк на то, сколько первых символов угадано, через тайминг.
-    if not settings.registration_invite_code or not secrets.compare_digest(
-        payload.invite_code, settings.registration_invite_code
-    ):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Неверный или отсутствующий инвайт-код")
+    now = datetime.now(timezone.utc)
+    invite: InviteCode | None = None
+    code = payload.invite_code.strip()
+    if code:
+        result = await db.execute(select(InviteCode).where(InviteCode.code == code))
+        invite = result.scalar_one_or_none()
+    # Не различаем "код не найден"/"уже использован"/"истёк" в ответе —
+    # снаружи это не должно быть отличимо, иначе перебор кодов утекал бы
+    # чуть больше информации, чем нужно.
+    if invite is None or invite.used_at is not None or invite.expires_at < now:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Неверный, использованный или истёкший инвайт-код")
 
     existing = await db.execute(select(User).where(User.username == payload.username))
     if existing.scalar_one_or_none() is not None:
@@ -92,6 +106,9 @@ async def register(payload: UserCreate, response: Response, db: AsyncSession = D
     user = User(username=payload.username, password_hash=hash_password(payload.password), name=payload.name)
     db.add(user)
     await db.flush()
+
+    invite.used_at = now
+    invite.used_by_id = user.id
 
     personal_space = Space(name="Личное", owner_id=user.id)
     db.add(personal_space)
@@ -103,6 +120,28 @@ async def register(payload: UserCreate, response: Response, db: AsyncSession = D
 
     _set_session_cookie(response, user.id)
     return user
+
+
+@router.post("/invite-codes", response_model=InviteCodeOut, status_code=status.HTTP_201_CREATED)
+async def create_invite_code(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)) -> InviteCode:
+    code = "".join(secrets.choice(_INVITE_CODE_ALPHABET) for _ in range(_INVITE_CODE_LENGTH))
+    invite = InviteCode(
+        code=code,
+        created_by_id=user.id,
+        expires_at=datetime.now(timezone.utc) + timedelta(days=_INVITE_CODE_TTL_DAYS),
+    )
+    db.add(invite)
+    await db.commit()
+    await db.refresh(invite)
+    return invite
+
+
+@router.get("/invite-codes", response_model=list[InviteCodeOut])
+async def list_invite_codes(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)) -> list[InviteCode]:
+    result = await db.execute(
+        select(InviteCode).where(InviteCode.created_by_id == user.id).order_by(InviteCode.created_at.desc())
+    )
+    return list(result.scalars().all())
 
 
 @router.post("/login", response_model=UserOut)

@@ -5,6 +5,7 @@ import type {
   Dialog,
   DialogSummary,
   Folder,
+  InviteCode,
   Item,
   ItemVersion,
   LinkPreviewData,
@@ -38,9 +39,27 @@ export function useLogin() {
 export function useRegister() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (payload: { username: string; password: string; name: string }) =>
+    mutationFn: (payload: { username: string; password: string; name: string; invite_code: string }) =>
       api.post<User>("/auth/register", payload),
     onSuccess: (user) => qc.setQueryData(["me"], user),
+  });
+}
+
+// Инвайт-коды регистрации — создаёт существующий пользователь в настройках
+// (реальный запрос: сам выдаёт код тому, кого добавляет, вместо единого
+// секрета в vault). Одноразовые, живут 7 дней.
+export function useCreateInviteCode() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.post<InviteCode>("/auth/invite-codes"),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["invite-codes"] }),
+  });
+}
+
+export function useInviteCodes() {
+  return useQuery<InviteCode[]>({
+    queryKey: ["invite-codes"],
+    queryFn: () => api.get<InviteCode[]>("/auth/invite-codes"),
   });
 }
 

@@ -1,8 +1,10 @@
 import { useEffect, useState } from "react";
-import { Plus, Send, Trash2, X } from "lucide-react";
+import { Check, Copy, Plus, Send, Trash2, X } from "lucide-react";
 import {
   useAddMemory,
+  useCreateInviteCode,
   useDeleteMemory,
+  useInviteCodes,
   useMe,
   useMemories,
   useSkills,
@@ -46,11 +48,14 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
   const { data: telegramStatus } = useTelegramStatus();
   const telegramLinkCode = useTelegramLinkCode();
   const telegramUnlink = useTelegramUnlink();
+  const { data: inviteCodes } = useInviteCodes();
+  const createInviteCode = useCreateInviteCode();
 
   const [instructions, setInstructions] = useState(me?.custom_instructions ?? "");
   const [saved, setSaved] = useState(false);
   const [customVoiceId, setCustomVoiceId] = useState("");
   const [telegramDeepLink, setTelegramDeepLink] = useState<string | null>(null);
+  const [copiedCodeId, setCopiedCodeId] = useState<string | null>(null);
   const [mediaCacheLimitMb, setMediaCacheLimitMbState] = useState(DEFAULT_MEDIA_CACHE_LIMIT_MB);
   const [mediaCacheSaved, setMediaCacheSaved] = useState(false);
   const [newMemoryText, setNewMemoryText] = useState("");
@@ -329,6 +334,62 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
             )}
             {telegramLinkCode.isError && (
               <div className="mt-1 text-xs text-red-600">Telegram-бот пока не настроен на сервере.</div>
+            )}
+          </div>
+
+          <div className="mb-6">
+            <div className="mb-1 text-sm font-medium text-slate-900">Инвайт-коды</div>
+            <div className="mb-2 text-xs text-slate-400">
+              Регистрация закрыта — новый человек может создать аккаунт только по коду. Создайте код и сообщите его
+              лично тому, кого добавляете. Код одноразовый, действует 7 дней.
+            </div>
+            <button
+              onClick={() => createInviteCode.mutate()}
+              disabled={createInviteCode.isPending}
+              className="flex items-center gap-2 rounded bg-slate-900 px-3 py-1.5 text-sm text-white disabled:opacity-50"
+            >
+              {createInviteCode.isPending && <Spinner size={14} className="text-white" />}
+              Создать код
+            </button>
+            {inviteCodes && inviteCodes.length > 0 && (
+              <div className="mt-2 space-y-1">
+                {inviteCodes.map((c) => {
+                  const expired = !c.used_at && new Date(c.expires_at).getTime() < Date.now();
+                  return (
+                    <div key={c.id} className="flex items-center justify-between gap-2 rounded border px-3 py-1.5 text-sm">
+                      <span className={`font-mono ${c.used_at || expired ? "text-slate-400 line-through" : "text-slate-900"}`}>
+                        {c.code}
+                      </span>
+                      {c.used_at ? (
+                        <span className="text-xs text-slate-400">использован</span>
+                      ) : expired ? (
+                        <span className="text-xs text-slate-400">истёк</span>
+                      ) : (
+                        <button
+                          onClick={() => {
+                            navigator.clipboard.writeText(c.code).then(() => {
+                              setCopiedCodeId(c.id);
+                              setTimeout(() => setCopiedCodeId((v) => (v === c.id ? null : v)), 1500);
+                            });
+                          }}
+                          title="Скопировать"
+                          className="flex items-center gap-1 text-xs text-slate-500 hover:text-slate-900"
+                        >
+                          {copiedCodeId === c.id ? (
+                            <>
+                              <Check size={12} /> Скопировано
+                            </>
+                          ) : (
+                            <>
+                              <Copy size={12} /> Копировать
+                            </>
+                          )}
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
             )}
           </div>
 

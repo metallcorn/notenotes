@@ -54,6 +54,16 @@ class UserOut(BaseModel):
     llm_provider: str = ""
 
 
+class InviteCodeOut(BaseModel):
+    model_config = {"from_attributes": True}
+
+    id: uuid.UUID
+    code: str
+    created_at: datetime
+    expires_at: datetime
+    used_at: datetime | None
+
+
 class UserUpdate(BaseModel):
     # Все поля опциональны — PATCH меняет только то, что передано, не
     # затирает остальные, если фронтенд обновляет их порознь.

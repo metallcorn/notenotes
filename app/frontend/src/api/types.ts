@@ -10,6 +10,14 @@ export interface User {
   llm_provider: string;
 }
 
+export interface InviteCode {
+  id: string;
+  code: string;
+  created_at: string;
+  expires_at: string;
+  used_at: string | null;
+}
+
 export interface Skill {
   name: string;
   label: string;

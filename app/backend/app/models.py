@@ -40,6 +40,30 @@ class User(Base):
     llm_provider: Mapped[str] = mapped_column(String(32), default="", server_default="")
 
 
+class InviteCode(Base):
+    """Инвайт-код регистрации — создаётся существующим пользователем в
+    настройках (реальный запрос: "хочу сам выдавать код тому, кого
+    добавляю", вместо единого секрета в vault, который надо было бы
+    просить у меня каждый раз). Одноразовый: used_at проставляется в
+    момент успешной регистрации, повторно использовать нельзя."""
+
+    __tablename__ = "invite_codes"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    code: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    created_by_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    # Ограниченный срок жизни — если код успели где-то засветить, не
+    # остаётся годным навсегда (реальный найденный баг открытой
+    # регистрации был именно про "то, что не ограничено по времени,
+    # рано или поздно найдут").
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    used_by_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+
+
 class Space(Base):
     __tablename__ = "spaces"
 

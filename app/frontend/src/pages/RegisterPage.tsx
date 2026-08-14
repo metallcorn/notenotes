@@ -9,6 +9,7 @@ export default function RegisterPage() {
   const [name, setName] = useState("");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [inviteCode, setInviteCode] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const register = useRegister();
@@ -22,8 +23,14 @@ export default function RegisterPage() {
     const nameValue = String(data.get("name") ?? "").trim();
     const usernameValue = String(data.get("username") ?? "").trim();
     const passwordValue = String(data.get("password") ?? "").trim();
+    const inviteCodeValue = String(data.get("invite_code") ?? "").trim();
     try {
-      await register.mutateAsync({ name: nameValue, username: usernameValue, password: passwordValue });
+      await register.mutateAsync({
+        name: nameValue,
+        username: usernameValue,
+        password: passwordValue,
+        invite_code: inviteCodeValue,
+      });
       navigate("/");
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Не удалось зарегистрироваться");
@@ -85,6 +92,21 @@ export default function RegisterPage() {
               {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
             </button>
           </div>
+        </div>
+        <div className="space-y-1">
+          <label className="text-sm text-slate-600">Инвайт-код</label>
+          <input
+            type="text"
+            name="invite_code"
+            required
+            autoComplete="off"
+            autoCapitalize="characters"
+            spellCheck={false}
+            placeholder="Получи у того, кто уже пользуется"
+            value={inviteCode}
+            onChange={(e) => setInviteCode(e.target.value)}
+            className="w-full rounded border px-3 py-2 text-sm uppercase"
+          />
         </div>
         <button
           type="submit"
