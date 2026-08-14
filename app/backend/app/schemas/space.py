@@ -38,3 +38,23 @@ class SpaceOut(BaseModel):
 class VaultUnlockInfoOut(BaseModel):
     vault_salt: str
     vault_verifier: str
+
+
+class VaultRotateItemIn(BaseModel):
+    id: uuid.UUID
+    vault: dict
+
+
+class VaultRotatePasswordIn(BaseModel):
+    """Смена пароля сейфа — клиент уже расшифровал всё старым ключом и
+    зашифровал новым (сервер не может это сделать сам, у него никогда не
+    было ни одного из ключей). Файлы к этому моменту уже перешифрованы и
+    лежат во временных .new-копиях рядом с оригиналами (PUT /uploads/{id}) —
+    здесь только id тех, что нужно подтвердить. Всё применяется одной
+    транзакцией (routers/spaces.py) — либо целиком, либо старый пароль
+    остаётся рабочим и ничего не теряется."""
+
+    new_salt: str
+    new_verifier: str
+    items: list[VaultRotateItemIn]
+    upload_ids: list[uuid.UUID] = []

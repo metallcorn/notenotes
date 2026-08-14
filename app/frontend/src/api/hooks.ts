@@ -2,8 +2,16 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { api } from "./client";
 import type { EncryptedField } from "../lib/vaultCrypto";
-import { decryptField, decryptFileBytes, encryptField, encryptFileBlob } from "../lib/vaultCrypto";
-import { getVaultKey, useVaultUnlocked } from "../lib/vaultSession";
+import {
+  createVerifier,
+  decryptField,
+  decryptFileBytes,
+  deriveKey,
+  encryptField,
+  encryptFileBlob,
+  generateSalt,
+} from "../lib/vaultCrypto";
+import { getVaultKey, unlockVault, useVaultUnlocked } from "../lib/vaultSession";
 import type {
   AssistantMemoryFact,
   Dialog,
@@ -529,6 +537,94 @@ export function useMigrateItemToVault() {
     onSuccess: (item) => {
       qc.setQueryData(["item", item.id], item);
       qc.invalidateQueries({ queryKey: ["items"] });
+    },
+  });
+}
+
+// Смена пароля сейфа — двухфазная (см. VaultRotatePasswordIn на бэкенде):
+// сначала перешифровываем и стейджим файлы (PUT .../staged, идемпотентно,
+// можно повторить безопасно), потом ОДНИМ атомарным вызовом фиксируем
+// новую соль/verifier + все заметки сразу. Если что-то упадёт ДО этого
+// последнего вызова — старый пароль остаётся рабочим, ничего не потеряно.
+export function useRotateVaultPassword() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      spaceId,
+      oldKey,
+      newPassword,
+    }: {
+      spaceId: string;
+      oldKey: CryptoKey;
+      newPassword: string;
+    }) => {
+      const newSalt = generateSalt();
+      const newKey = await deriveKey(newPassword, newSalt);
+      const newVerifier = await createVerifier(newKey);
+
+      const items = await api.get<Item[]>(`/items?space_id=${spaceId}`);
+      const decrypted = await Promise.all(
+        items
+          .filter((item) => item.vault)
+          .map(async (item) => ({
+            id: item.id,
+            title: item.vault!.title ? await decryptField(oldKey, item.vault!.title) : item.title,
+            content: item.vault!.content ? await decryptField(oldKey, item.vault!.content) : item.content,
+          })),
+      );
+
+      // Уникальные id вложенных файлов по всем расшифрованным заметкам —
+      // один и тот же файл может быть в нескольких, перешифровываем один раз.
+      const uploadIds = new Set<string>();
+      for (const d of decrypted) {
+        for (const url of d.content.match(UPLOAD_URL_RE) ?? []) {
+          const id = url.match(/[0-9a-f-]{36}/i)?.[0];
+          if (id) uploadIds.add(id);
+        }
+      }
+      for (const id of uploadIds) {
+        const res = await fetch(`/api/uploads/${id}`, { credentials: "include" });
+        if (!res.ok) continue;
+        const contentType = res.headers.get("content-type") || "application/octet-stream";
+        const rawBytes = await decryptFileBytes(oldKey, await res.arrayBuffer());
+        const reencrypted = await encryptFileBlob(newKey, rawBytes, contentType);
+        const form = new FormData();
+        form.append("file", reencrypted, "encrypted");
+        const staged = await fetch(`/api/uploads/${id}/staged`, {
+          method: "PUT",
+          credentials: "include",
+          body: form,
+        });
+        if (!staged.ok) throw new Error(`Не удалось перешифровать файл ${id}`);
+      }
+
+      // content не переписывается — файлы заменяются на месте, id те же.
+      const newItems = await Promise.all(
+        decrypted.map(async (d) => ({
+          id: d.id,
+          vault: { title: await encryptField(newKey, d.title), content: await encryptField(newKey, d.content) },
+        })),
+      );
+
+      await api.post(`/spaces/${spaceId}/vault-rotate-password`, {
+        new_salt: newSalt,
+        // Как и vault_verifier при создании сейфа (CreateSpaceButton.tsx) —
+        // сервер хранит его строкой (schemas/space.py), а не структурой.
+        new_verifier: JSON.stringify(newVerifier),
+        items: newItems,
+        upload_ids: Array.from(uploadIds),
+      });
+
+      unlockVault(spaceId, newKey);
+    },
+    onSuccess: (_result, vars) => {
+      qc.invalidateQueries({ queryKey: ["items", vars.spaceId] });
+      qc.invalidateQueries({ queryKey: ["item"] });
+      // staleTime: Infinity у useVaultUnlockInfo — без явной инвалидации
+      // старые соль/verifier остались бы в кэше и следующая попытка
+      // разблокировки (например, после перезагрузки страницы) сверяла бы
+      // новый пароль со старым verifier.
+      qc.invalidateQueries({ queryKey: ["vault-unlock-info", vars.spaceId] });
     },
   });
 }

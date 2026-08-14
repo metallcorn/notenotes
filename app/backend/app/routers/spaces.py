@@ -1,4 +1,6 @@
+import os
 import uuid
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect, status
 from sqlalchemy import select
@@ -8,8 +10,9 @@ from app import realtime
 from app.core.config import get_settings
 from app.db import get_db
 from app.deps import ensure_space_access, get_current_user
-from app.models import Space, SpaceMember, User
-from app.schemas.space import SpaceCreate, SpaceOut, SpaceUpdate, VaultUnlockInfoOut
+from app.models import Item, Space, SpaceMember, Upload, User
+from app.routers.uploads import _staged_upload_path, _upload_path
+from app.schemas.space import SpaceCreate, SpaceOut, SpaceUpdate, VaultRotatePasswordIn, VaultUnlockInfoOut
 from app.security import decode_session_token
 
 router = APIRouter(prefix="/api/spaces", tags=["spaces"])
@@ -79,6 +82,59 @@ async def update_space(
     space.name = payload.name
     await db.commit()
     await db.refresh(space)
+    return space
+
+
+@router.post("/{space_id}/vault-rotate-password", response_model=SpaceOut)
+async def rotate_vault_password(
+    space_id: uuid.UUID,
+    payload: VaultRotatePasswordIn,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> Space:
+    """Смена пароля сейфа. Клиент уже расшифровал всё старым ключом и
+    зашифровал новым (сервер ни разу не видел ни одного из ключей) — см.
+    VaultRotatePasswordIn и stage_upload_replacement (routers/uploads.py:
+    первая фаза, файлы уже лежат перешифрованными во временных .new-копиях).
+    Здесь — вторая, коммитящая фаза: ОДНА транзакция сразу на все заметки
+    и саму соль/verifier спейса — либо применяется всё разом, либо старый
+    пароль остаётся рабочим и ничего не рассогласовано. Физическая подмена
+    файлов — только ПОСЛЕ успешного commit."""
+    await ensure_space_access(db, space_id, user.id)
+    space = await db.get(Space, space_id)
+    if space is None or not space.is_vault:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Сейф не найден")
+
+    staged_paths: list[tuple[uuid.UUID, Path]] = []
+    for upload_id in payload.upload_ids:
+        upload = await db.get(Upload, upload_id)
+        if upload is None or upload.space_id != space_id:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Файл {upload_id} не найден в этом сейфе")
+        staged = _staged_upload_path(upload_id)
+        if not staged.is_file():
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST, f"Перешифрованная копия файла {upload_id} не найдена — повторите"
+            )
+        staged_paths.append((upload_id, staged))
+
+    for entry in payload.items:
+        item = await db.get(Item, entry.id)
+        if item is None or item.space_id != space_id or item.material_type != "note":
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Заметка {entry.id} не найдена в этом сейфе")
+        item.properties = {**item.properties, "vault": entry.vault}
+
+    space.vault_salt = payload.new_salt
+    space.vault_verifier = payload.new_verifier
+    await db.commit()
+
+    # Физическая подмена — уже ПОСЛЕ commit: смена пароля к этому моменту
+    # уже подтверждена и необратима, сбой здесь (крайне маловероятная
+    # локальная ФС-ошибка) не должен откатывать её обратно.
+    for upload_id, staged in staged_paths:
+        os.replace(staged, _upload_path(upload_id))
+
+    await db.refresh(space)
+    await realtime.notify_space(space_id, "items")
     return space
 
 

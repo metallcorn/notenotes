@@ -63,6 +63,15 @@ def _thumbnail_path(upload_id: uuid.UUID) -> Path:
     return Path(get_settings().upload_dir) / f"{upload_id}.thumb.png"
 
 
+def _staged_upload_path(upload_id: uuid.UUID) -> Path:
+    # Смена пароля сейфа (routers/spaces.py::rotate_vault_password) — файл
+    # перешифровывается сюда, а не поверх оригинала: реальный файл должен
+    # остаться читаемым СТАРЫМ ключом, пока вся операция (все заметки +
+    # сама соль/verifier спейса) не подтверждена одной транзакцией.
+    # os.replace() поверх оригинала происходит только там, ПОСЛЕ commit.
+    return Path(get_settings().upload_dir) / f"{upload_id}.new"
+
+
 def _extract_docx_text(path: Path) -> str | None:
     import docx
 
@@ -474,6 +483,35 @@ def _safe_to_inline(content_type: str) -> bool:
         or content_type.startswith("video/")
         or content_type in ("application/pdf", "text/plain")
     )
+
+
+@router.put("/{upload_id}/staged", status_code=status.HTTP_204_NO_CONTENT)
+async def stage_upload_replacement(
+    upload_id: uuid.UUID, file: UploadFile, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+) -> None:
+    """Первая фаза смены пароля сейфа — файл перешифрован клиентом новым
+    ключом и лежит здесь ВРЕМЕННОЙ копией, оригинал не тронут. Реальная
+    подмена — только внутри rotate_vault_password (routers/spaces.py),
+    после того как её транзакция (все заметки + новая соль/verifier)
+    успешно закоммитилась. Если пользователь закроет вкладку до этого —
+    орфанная .new-копия просто останется лежать, ничего не сломав (не
+    более грязно, чем любой другой прерванный аплоад)."""
+    upload = await db.get(Upload, upload_id)
+    if upload is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Файл не найден")
+    await ensure_space_access(db, upload.space_id, user.id)
+    if not await is_vault_space(db, upload.space_id):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Перешифровка доступна только для файлов в сейфе")
+
+    dest = _staged_upload_path(upload_id)
+    total = 0
+    with dest.open("wb") as out:
+        while chunk := await file.read(_STREAM_CHUNK_BYTES):
+            total += len(chunk)
+            if total > MAX_UPLOAD_BYTES:
+                dest.unlink(missing_ok=True)
+                raise HTTPException(status.HTTP_400_BAD_REQUEST, "Файл больше 300 МБ")
+            out.write(chunk)
 
 
 @router.get("/{upload_id}")
