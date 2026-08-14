@@ -9,7 +9,7 @@ from app.core.config import get_settings
 from app.db import get_db
 from app.deps import ensure_space_access, get_current_user
 from app.models import Space, SpaceMember, User
-from app.schemas.space import SpaceCreate, SpaceOut, SpaceUpdate
+from app.schemas.space import SpaceCreate, SpaceOut, SpaceUpdate, VaultUnlockInfoOut
 from app.security import decode_session_token
 
 router = APIRouter(prefix="/api/spaces", tags=["spaces"])
@@ -27,12 +27,38 @@ async def list_spaces(user: User = Depends(get_current_user), db: AsyncSession =
 async def create_space(
     payload: SpaceCreate, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
 ) -> Space:
-    space = Space(name=payload.name, owner_id=user.id)
+    # Сейф — соль и verifier обязаны идти вместе с is_vault=true, и
+    # только тогда; сервер не умеет и не пытается проверить их
+    # осмысленность (нет ключа), только форму запроса.
+    if payload.is_vault:
+        if not payload.vault_salt or not payload.vault_verifier:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Для сейфа нужны vault_salt и vault_verifier")
+    elif payload.vault_salt or payload.vault_verifier:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "vault_salt/vault_verifier без is_vault не имеют смысла")
+
+    space = Space(
+        name=payload.name,
+        owner_id=user.id,
+        is_vault=payload.is_vault,
+        vault_salt=payload.vault_salt,
+        vault_verifier=payload.vault_verifier,
+    )
     db.add(space)
     await db.flush()
     db.add(SpaceMember(space_id=space.id, user_id=user.id))
     await db.commit()
     await db.refresh(space)
+    return space
+
+
+@router.get("/{space_id}/vault-unlock-info", response_model=VaultUnlockInfoOut)
+async def get_vault_unlock_info(
+    space_id: uuid.UUID, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+) -> Space:
+    await ensure_space_access(db, space_id, user.id)
+    space = await db.get(Space, space_id)
+    if space is None or not space.is_vault:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Сейф не найден")
     return space
 
 

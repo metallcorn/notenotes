@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app import realtime
 from app.core.config import get_settings
 from app.db import get_db
-from app.deps import ensure_space_access, get_current_user
+from app.deps import ensure_space_access, get_current_user, is_vault_space
 from app.llm.base import EmptyLLMResponseError, Message, ToolCall
 from app.llm.factory import get_llm_client
 from app.models import AssistantMemory, Item, Space, SpaceMember, User
@@ -487,7 +487,7 @@ async def _default_space_id(db: AsyncSession, user_id: uuid.UUID) -> uuid.UUID:
         await db.execute(
             select(Space.id)
             .join(SpaceMember, SpaceMember.space_id == Space.id)
-            .where(SpaceMember.user_id == user_id)
+            .where(SpaceMember.user_id == user_id, Space.is_vault.is_(False))
             .order_by(Space.created_at)
             .limit(1)
         )
@@ -829,6 +829,11 @@ async def create_dialog(
         if scoped_item is None or scoped_item.deleted_at is not None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Заметка не найдена")
         await ensure_space_access(db, scoped_item.space_id, user.id)
+        # Сейф — ассистент туда не заходит вообще, даже в урезанном
+        # scoped-режиме (тот же принцип, что у остального доступа тулов:
+        # сервер физически не видит содержимое, обсуждать нечего).
+        if await is_vault_space(db, scoped_item.space_id):
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Заметка не найдена")
         space_id = scoped_item.space_id
         properties["scoped_item_id"] = str(scoped_item.id)
         if payload.selection.strip():
@@ -836,6 +841,8 @@ async def create_dialog(
         title = payload.title or f"Ассистент: {scoped_item.title}"
     elif payload.space_id is not None:
         await ensure_space_access(db, payload.space_id, user.id)
+        if await is_vault_space(db, payload.space_id):
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Спейс не найден")
         space_id = payload.space_id
     else:
         space_id = await _default_space_id(db, user.id)

@@ -1,4 +1,5 @@
 import { useEditor, EditorContent, BubbleMenu } from "@tiptap/react";
+import type { EditorView } from "@tiptap/pm/view";
 import StarterKit from "@tiptap/starter-kit";
 import LinkExtension from "@tiptap/extension-link";
 import CodeBlockLowlight from "@tiptap/extension-code-block-lowlight";
@@ -8,10 +9,11 @@ import TableCell from "@tiptap/extension-table-cell";
 import TableHeader from "@tiptap/extension-table-header";
 import { createLowlight, common } from "lowlight";
 import { Markdown } from "tiptap-markdown";
-import { Suspense, lazy, useEffect, useRef, useState } from "react";
+import { Suspense, lazy, useEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent } from "react";
 import { ChevronLeft, Code2, Eye, History, Palette, Pin, PinOff, Sparkles, Tag as TagIcon, Trash2 } from "lucide-react";
 import { uiStorage, type ContentWidth } from "../lib/storage";
+import { getVaultKey } from "../lib/vaultSession";
 import { downloadFile, inlineImages, sanitizeFilename, wrapHtmlDocument } from "../lib/export";
 import {
   useAddItemTag,
@@ -21,6 +23,7 @@ import {
   useDeleteItem,
   useFolders,
   useItem,
+  useMigrateItemToVault,
   useMoveItemSpace,
   useRemoveItemTag,
   useSpaces,
@@ -87,6 +90,11 @@ export default function NoteEditor({
   const updateItem = useUpdateItem();
   const deleteItem = useDeleteItem(item?.space_id);
   const uploadFile = useUploadFile(item?.space_id);
+  // OCR/расшифровка видео никогда не запускаются для сейфа (бэкенд не
+  // видит plaintext) — плейсхолдер "обрабатывается…" никогда не заменился
+  // бы, застряв в заметке навсегда. insertImage/insertUploadedFile ниже
+  // используют этот флаг, чтобы его не вставлять.
+  const isVaultNote = !!(item && getVaultKey(item.space_id));
   const { data: allTags } = useTags();
   const addTag = useAddItemTag(itemId);
   const removeTag = useRemoveItemTag(itemId);
@@ -95,6 +103,7 @@ export default function NoteEditor({
   const { data: folders } = useFolders(item?.space_id);
   const { data: spaces } = useSpaces();
   const moveItemSpace = useMoveItemSpace();
+  const migrateItemToVault = useMigrateItemToVault();
   const aiTransform = useAiTransform();
   const createReminder = useCreateReminder();
 
@@ -128,8 +137,22 @@ export default function NoteEditor({
   const imageInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const editor = useEditor({
-    extensions: [
+  // Реальный найденный баг (пойман через отчёт ErrorBoundary — "can't
+  // access property destroy, o is null" внутри ReactNodeViewRenderer):
+  // инлайновый литерал массива создавал НОВУЮ ссылку при каждом рендере
+  // NoteEditor, а useEditor (без deps) на каждый такой рендер вызывает
+  // editor.setOptions(...) заново (сравнение по ссылке в @tiptap/react,
+  // не по содержимому) — при частых внешних ре-рендерах (например,
+  // разблокировка сейфа в другом месте дерева, которая триггерит
+  // ре-рендер всего AppShell) это иногда попадало в момент, когда
+  // React-NodeView (TicketAttachment/DocumentAttachment/...) ещё не
+  // домонтировался или уже размонтировался — и .destroy() дёргался на
+  // null. useMemo с пустыми deps даёт стабильную ссылку: все замыкания
+  // внутри (imageInputRef, setReminderAnchorPos, setReminderModalOpen)
+  // сами по себе стабильны между рендерами (ref и сеттеры useState),
+  // так что пустой deps-массив тут безопасен.
+  const editorExtensions = useMemo(
+    () => [
       StarterKit.configure({ codeBlock: false }),
       CodeBlockLowlight.configure({ lowlight }),
       ResizableImage,
@@ -158,16 +181,24 @@ export default function NoteEditor({
         },
       }),
     ],
-    content: "",
-    // Прямой editorProps.handlePaste, а не addPasteRules() у самого узла:
-    // у tiptap-markdown включён transformPastedText, который перехватывает
-    // вставку текста своим собственным handlePaste ДО обычного механизма
-    // paste rules — если положиться на paste rules, превращение ссылки в
-    // карточку могло бы вообще не сработать в зависимости от порядка
-    // плагинов. editorProps на самом EditorView вызывается раньше любых
-    // плагинных handlePaste, так что порядок гарантирован.
-    editorProps: {
-      handlePaste: (view, event) => {
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
+
+  // Тот же приём и та же причина, что у editorExtensions выше: editorProps,
+  // в отличие от extensions, не разбирается в @tiptap/react особым
+  // образом при сравнении — сравнивается по ссылке (compareOptions), а
+  // инлайновый объект каждый рендер новый.
+  const editorProps = useMemo(
+    () => ({
+      // Прямой editorProps.handlePaste, а не addPasteRules() у самого узла:
+      // у tiptap-markdown включён transformPastedText, который перехватывает
+      // вставку текста своим собственным handlePaste ДО обычного механизма
+      // paste rules — если положиться на paste rules, превращение ссылки в
+      // карточку могло бы вообще не сработать в зависимости от порядка
+      // плагинов. editorProps на самом EditorView вызывается раньше любых
+      // плагинных handlePaste, так что порядок гарантирован.
+      handlePaste: (view: EditorView, event: ClipboardEvent) => {
         if (event.clipboardData?.files?.length) return false;
         const text = event.clipboardData?.getData("text/plain")?.trim();
         if (!text || !BARE_URL_RE.test(text)) return false;
@@ -176,7 +207,14 @@ export default function NoteEditor({
         view.dispatch(state.tr.replaceSelectionWith(node));
         return true;
       },
-    },
+    }),
+    [],
+  );
+
+  const editor = useEditor({
+    extensions: editorExtensions,
+    content: "",
+    editorProps,
     onUpdate: ({ editor }) => setContent(editor.storage.markdown.getMarkdown()),
   });
 
@@ -392,6 +430,26 @@ export default function NoteEditor({
     editor.chain().insertContentAt(recordingInsertPos, placeholder).run();
   }
 
+  // Сейф: сразу после загрузки content ещё указывает прямо на
+  // /api/uploads/{id} — те же байты, что только что зашифровал
+  // useUploadFile. Расшифровка URL в blob: (decryptUploadUrlsInContent,
+  // api/hooks.ts) срабатывает только при СЛЕДУЮЩЕЙ загрузке заметки с
+  // сервера, а не для узла, только что вставленного в текущий, ещё не
+  // сохранённый документ — без этого патча пользователь увидел бы
+  // сломанную картинку/видео сразу после аплоада вместо своего файла.
+  // Патчим напрямую DOM только что вставленного узла — сам атрибут src в
+  // документе ProseMirror (и то, что попадёт в сохранённый markdown)
+  // остаётся неизменным (/api/uploads/{id}), меняется только то, что
+  // физически показывает браузер прямо сейчас.
+  function patchLocalPreview(tag: "img" | "video" | "audio", uploadUrl: string, file: File) {
+    if (!editor) return;
+    const previewUrl = URL.createObjectURL(file);
+    requestAnimationFrame(() => {
+      const el = editor.view.dom.querySelector(`${tag}[src="${uploadUrl}"]`);
+      if (el) el.setAttribute("src", previewUrl);
+    });
+  }
+
   // Одна загруженная картинка — общий путь для обеих кнопок («Картинка» И
   // «Файл»): реальная жалоба — картинка, выбранная через «Файл» (обычный
   // системный пикер на телефоне не отличает кнопки), раньше попадала в
@@ -401,34 +459,37 @@ export default function NoteEditor({
   // заменить готовый результат, никогда не вставлялся, поэтому результат
   // молча терялся (_replace_in_referencing_items не находил, куда
   // вписать). Единая функция закрывает оба входа сразу.
-  function insertImage(uploaded: { id: string; url: string }) {
+  function insertImage(uploaded: { id: string; url: string }, sourceFile?: File) {
     // Плейсхолдер — точная строка, которую backend ищет и заменяет на
     // готовое описание/OCR (app/vision.py, placeholder_text()); должна
-    // совпадать 1:1, тот же приём, что и у видео-расшифровки.
+    // совпадать 1:1, тот же приём, что и у видео-расшифровки. В сейфе
+    // OCR никогда не запускается (бэкенд не видит plaintext) — плейсхолдер
+    // никто не заменит, вставлять его там нельзя, застрянет навсегда.
     const placeholder = `⏳ Описание изображения ${uploaded.id} обрабатывается…`;
     if (mode === "wysiwyg" && editor) {
-      editor
-        .chain()
-        .focus()
-        .setImage({ src: uploaded.url })
-        .insertContent({ type: "paragraph", content: [{ type: "text", text: placeholder }] })
-        .run();
+      const chain = editor.chain().focus().setImage({ src: uploaded.url });
+      if (!isVaultNote) chain.insertContent({ type: "paragraph", content: [{ type: "text", text: placeholder }] });
+      chain.run();
     } else {
-      setContent((c) => `${c}\n\n![](${uploaded.url})\n\n${placeholder}\n`);
+      setContent((c) => `${c}\n\n![](${uploaded.url})\n\n${isVaultNote ? "" : placeholder + "\n"}`);
     }
+    if (isVaultNote && sourceFile) patchLocalPreview("img", uploaded.url, sourceFile);
   }
 
-  function insertUploadedFile(uploaded: {
-    id: string;
-    url: string;
-    filename: string;
-    content_type: string;
-    pdf_text: string | null;
-    pdf_ocr_queued: boolean;
-    preview_text: string | null;
-  }) {
+  function insertUploadedFile(
+    uploaded: {
+      id: string;
+      url: string;
+      filename: string;
+      content_type: string;
+      pdf_text: string | null;
+      pdf_ocr_queued: boolean;
+      preview_text: string | null;
+    },
+    sourceFile?: File,
+  ) {
     if (uploaded.content_type.startsWith("image/")) {
-      insertImage(uploaded);
+      insertImage(uploaded, sourceFile);
       return;
     }
     const isVideo = uploaded.content_type.startsWith("video/");
@@ -437,7 +498,8 @@ export default function NoteEditor({
     // готовый результат (app/transcription.py и app/pdf_processing.py,
     // placeholder_text()) — держать в одном месте на фронте не
     // получится, но текст должен совпадать 1:1, иначе замена не найдёт,
-    // куда вписать результат.
+    // куда вписать результат. В сейфе расшифровка видео не запускается
+    // (uploads.py) — как и с картинкой, плейсхолдер вставлять незачем.
     const placeholder = `⏳ Расшифровка ${uploaded.id} обрабатывается…`;
     const pdfPlaceholder = `⏳ Распознавание PDF ${uploaded.id} обрабатывается…`;
     // Аудио — сразу готовый плеер, без плейсхолдера: расшифровка для
@@ -446,18 +508,20 @@ export default function NoteEditor({
     const previewText = uploaded.pdf_text ?? uploaded.preview_text ?? "";
     if (mode === "wysiwyg" && editor) {
       if (isVideo) {
-        editor
+        const chain = editor
           .chain()
           .focus()
-          .insertContent({ type: "video", attrs: { src: uploaded.url, filename: uploaded.filename } })
-          .insertContent({ type: "paragraph", content: [{ type: "text", text: placeholder }] })
-          .run();
+          .insertContent({ type: "video", attrs: { src: uploaded.url, filename: uploaded.filename } });
+        if (!isVaultNote) chain.insertContent({ type: "paragraph", content: [{ type: "text", text: placeholder }] });
+        chain.run();
+        if (isVaultNote && sourceFile) patchLocalPreview("video", uploaded.url, sourceFile);
       } else if (isAudio) {
         editor
           .chain()
           .focus()
           .insertContent({ type: "audio", attrs: { src: uploaded.url, filename: uploaded.filename } })
           .run();
+        if (isVaultNote && sourceFile) patchLocalPreview("audio", uploaded.url, sourceFile);
       } else if (uploaded.pdf_ocr_queued) {
         // Авто-OCR уже поставлен в очередь на бэкенде — плейсхолдер, не
         // карточка сразу: backend заменит его целиком на готовую
@@ -480,7 +544,7 @@ export default function NoteEditor({
     } else if (isVideo) {
       setContent(
         (c) =>
-          `${c}\n\n<video src="${uploaded.url}" controls preload="metadata" style="max-width: 100%; max-height: 70vh;"></video>\n\n${placeholder}\n`,
+          `${c}\n\n<video src="${uploaded.url}" controls preload="metadata" style="max-width: 100%; max-height: 70vh;"></video>\n\n${isVaultNote ? "" : placeholder + "\n"}`,
       );
     } else if (isAudio) {
       setContent(
@@ -508,7 +572,7 @@ export default function NoteEditor({
         setUploadBatch({ current: i + 1, total: files.length });
         setUploadProgress(0);
         const uploaded = await uploadFile.mutateAsync({ file: files[i], onProgress: setUploadProgress });
-        insertImage(uploaded);
+        insertImage(uploaded, files[i]);
       }
     } finally {
       setUploadProgress(null);
@@ -525,7 +589,7 @@ export default function NoteEditor({
         setUploadBatch({ current: i + 1, total: files.length });
         setUploadProgress(0);
         const uploaded = await uploadFile.mutateAsync({ file: files[i], onProgress: setUploadProgress });
-        insertUploadedFile(uploaded);
+        insertUploadedFile(uploaded, files[i]);
       }
     } finally {
       setUploadProgress(null);
@@ -719,22 +783,33 @@ export default function NoteEditor({
             ))}
           </select>
 
-          {(spaces ?? []).length > 1 && (
-            <select
-              value={item.space_id}
-              onChange={(e) => {
-                if (e.target.value !== item.space_id) setPendingSpaceId(e.target.value);
-              }}
-              title="Перенести в другой спейс"
-              className="rounded border px-1.5 py-1 text-xs text-slate-600"
-            >
-              {(spaces ?? []).map((space) => (
-                <option key={space.id} value={space.id}>
-                  {space.name}
-                </option>
-              ))}
-            </select>
-          )}
+          {/* Перенос ИЗ сейфа обычным move не поддерживается (нужна расшифровка
+              на клиенте перед сохранением plaintext — вне скоупа) — селектор
+              для сейфовой заметки прячем целиком. Перенос В сейф — поддержан
+              (migrateItemToVault ниже, шифрует перед move), но только для
+              заметок (не списков/билетов) и только в УЖЕ разблокированный
+              сейф — просить пароль сейфа посреди переноса не делаем, сейф
+              нужно открыть заранее в сайдбаре. */}
+          {!isVaultNote &&
+            (spaces ?? []).filter((s) => !s.is_vault || (item.material_type === "note" && getVaultKey(s.id)))
+              .length > 1 && (
+              <select
+                value={item.space_id}
+                onChange={(e) => {
+                  if (e.target.value !== item.space_id) setPendingSpaceId(e.target.value);
+                }}
+                title="Перенести в другой спейс"
+                className="rounded border px-1.5 py-1 text-xs text-slate-600"
+              >
+                {(spaces ?? [])
+                  .filter((s) => !s.is_vault || (item.material_type === "note" && getVaultKey(s.id)))
+                  .map((space) => (
+                    <option key={space.id} value={space.id}>
+                      {space.is_vault ? `🔒 ${space.name}` : space.name}
+                    </option>
+                  ))}
+              </select>
+            )}
 
           <div className="relative">
             <button
@@ -832,7 +907,7 @@ export default function NoteEditor({
             editor={editor}
             onInsertImage={() => imageInputRef.current?.click()}
             onInsertFile={() => fileInputRef.current?.click()}
-            onOpenRecorder={openRecorder}
+            onOpenRecorder={isVaultNote ? undefined : openRecorder}
             uploadProgress={uploadProgress}
             uploadBatch={uploadBatch}
             contentWidth={contentWidth}
@@ -929,18 +1004,39 @@ export default function NoteEditor({
         />
       )}
 
-      {pendingSpaceId && (
-        <ConfirmDialog
-          title={`Перенести заметку в спейс «${(spaces ?? []).find((s) => s.id === pendingSpaceId)?.name ?? ""}»? Папка сбросится, файлы внутри заметки останутся доступны.`}
-          confirmLabel="Перенести"
-          onConfirm={async () => {
-            const spaceId = pendingSpaceId;
-            setPendingSpaceId(null);
-            await moveItemSpace.mutateAsync({ id: item.id, space_id: spaceId });
-          }}
-          onCancel={() => setPendingSpaceId(null)}
-        />
-      )}
+      {pendingSpaceId &&
+        (() => {
+          const targetSpace = (spaces ?? []).find((s) => s.id === pendingSpaceId);
+          const toVault = !!targetSpace?.is_vault;
+          return (
+            <ConfirmDialog
+              title={
+                toVault
+                  ? `Перенести заметку в сейф «${targetSpace?.name ?? ""}»? Текст и вложенные файлы будут зашифрованы, папка сбросится.`
+                  : `Перенести заметку в спейс «${targetSpace?.name ?? ""}»? Папка сбросится, файлы внутри заметки останутся доступны.`
+              }
+              confirmLabel="Перенести"
+              onConfirm={async () => {
+                const spaceId = pendingSpaceId;
+                setPendingSpaceId(null);
+                if (toVault) {
+                  // Миграция шифрует item.content с сервера, не live-состояние
+                  // редактора — несохранённые правки потерялись бы, а
+                  // следующий автосейв мог бы затереть уже зашифрованную
+                  // заметку обратно plaintext'ом. Сначала досохраняем.
+                  if (title !== savedRef.current.title || content !== savedRef.current.content) {
+                    await updateItem.mutateAsync({ id: item.id, title, content });
+                    savedRef.current = { title, content };
+                  }
+                  await migrateItemToVault.mutateAsync({ item: { ...item, title, content }, targetSpaceId: spaceId });
+                } else {
+                  await moveItemSpace.mutateAsync({ id: item.id, space_id: spaceId });
+                }
+              }}
+              onCancel={() => setPendingSpaceId(null)}
+            />
+          );
+        })()}
 
       {reminderModalOpen && (
         <ReminderModal

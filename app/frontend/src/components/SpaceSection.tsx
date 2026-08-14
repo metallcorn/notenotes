@@ -1,9 +1,11 @@
 import { useState } from "react";
-import { Pencil } from "lucide-react";
+import { Lock, Pencil } from "lucide-react";
 import type { Space } from "../api/types";
 import { useUpdateSpace } from "../api/hooks";
+import { useVaultUnlocked } from "../lib/vaultSession";
 import FolderTree from "./FolderTree";
 import PromptDialog from "./PromptDialog";
+import VaultUnlockOverlay from "./VaultUnlockOverlay";
 
 export default function SpaceSection({
   space,
@@ -22,6 +24,7 @@ export default function SpaceSection({
 }) {
   const updateSpace = useUpdateSpace();
   const [renaming, setRenaming] = useState(false);
+  const unlocked = useVaultUnlocked(space.is_vault ? space.id : undefined);
 
   return (
     <div className="mb-3">
@@ -35,6 +38,9 @@ export default function SpaceSection({
           >
             &#9656;
           </span>
+          {space.is_vault && (
+            <Lock size={12} className={`shrink-0 ${unlocked ? "text-amber-500" : "text-slate-400"}`} />
+          )}
           <span className="truncate">{space.name}</span>
         </button>
         <button
@@ -45,7 +51,12 @@ export default function SpaceSection({
           <Pencil size={12} />
         </button>
       </div>
-      {!collapsed && (
+      {!collapsed && space.is_vault && !unlocked && (
+        <div className="ml-3">
+          <VaultUnlockOverlay spaceId={space.id} spaceName={space.name} compact />
+        </div>
+      )}
+      {!collapsed && (!space.is_vault || unlocked) && (
         <div className="ml-3">
           <FolderTree
             spaceId={space.id}

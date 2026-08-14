@@ -1,5 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
 import { api } from "./client";
+import type { EncryptedField } from "../lib/vaultCrypto";
+import { decryptField, decryptFileBytes, encryptField, encryptFileBlob } from "../lib/vaultCrypto";
+import { getVaultKey, useVaultUnlocked } from "../lib/vaultSession";
 import type {
   AssistantMemoryFact,
   Dialog,
@@ -16,6 +20,7 @@ import type {
   Tag,
   UploadResult,
   User,
+  VaultUnlockInfo,
 } from "./types";
 
 // --- auth --------------------------------------------------------------
@@ -137,8 +142,18 @@ export function useSpaces() {
 export function useCreateSpace() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (name: string) => api.post<Space>("/spaces", { name }),
+    mutationFn: (payload: { name: string; is_vault?: boolean; vault_salt?: string; vault_verifier?: string }) =>
+      api.post<Space>("/spaces", payload),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["spaces"] }),
+  });
+}
+
+export function useVaultUnlockInfo(spaceId: string | undefined) {
+  return useQuery<VaultUnlockInfo>({
+    queryKey: ["vault-unlock-info", spaceId],
+    queryFn: () => api.get<VaultUnlockInfo>(`/spaces/${spaceId}/vault-unlock-info`),
+    enabled: !!spaceId,
+    staleTime: Infinity,
   });
 }
 
@@ -235,9 +250,74 @@ export function useDeleteTag() {
 }
 
 // --- items --------------------------------------------------------------
+//
+// Сейф (ТЗ §16.2): сервер хранит только шифротекст (title/content —
+// заглушка "🔒 Зашифровано", реальный текст в item.vault). Расшифровка/
+// шифрование происходят прозрачно здесь — NoteEditor.tsx и остальные
+// компоненты получают/отправляют обычный plaintext, как будто шифрования
+// нет вовсе (см. план — "единственный способ не переписывать самый
+// большой файл в проекте под крипто-логику").
+
+const VAULT_PLACEHOLDER = "🔒 Зашифровано";
+
+// Вложения (картинки/видео/аудио/документы) встраиваются в content прямыми
+// ссылками на /api/uploads/{id} — сам URL не секрет (непрозрачный id), а
+// вот БАЙТЫ по этому URL для сейфа зашифрованы на диске (useUploadFile
+// ниже). Вместо того чтобы переписывать каждое TipTap-расширение
+// (Image/Video/Audio/DocumentAttachment) под расшифровку конкретного узла
+// — подменяем такие ссылки на расшифрованные blob:-URL ПРЯМО В ТЕКСТЕ
+// content, до того как он попадёт в редактор: редактор и все карточки
+// вложений остаются полностью не в курсе шифрования, ссылка просто уже
+// готова к показу (тот же принцип прозрачности, что и у title/content).
+const UPLOAD_URL_RE = /\/api\/uploads\/[0-9a-f-]{36}/gi;
+const decryptedBlobUrlCache = new Map<string, string>();
+
+async function decryptUploadUrlsInContent(content: string, key: CryptoKey): Promise<string> {
+  const urls = Array.from(new Set(content.match(UPLOAD_URL_RE) ?? []));
+  if (urls.length === 0) return content;
+  const replacements = await Promise.all(
+    urls.map(async (url): Promise<[string, string]> => {
+      const cached = decryptedBlobUrlCache.get(url);
+      if (cached) return [url, cached];
+      try {
+        // url — уже полный путь вида "/api/uploads/{id}" (как он лежит в
+        // content), не относительный кусок для api.get — обычный fetch, не
+        // client.ts-обёртка.
+        const res = await fetch(url, { credentials: "include" });
+        if (!res.ok) return [url, url];
+        const contentType = res.headers.get("content-type") || "application/octet-stream";
+        const encrypted = await res.arrayBuffer();
+        const bytes = await decryptFileBytes(key, encrypted);
+        const blobUrl = URL.createObjectURL(new Blob([bytes], { type: contentType }));
+        decryptedBlobUrlCache.set(url, blobUrl);
+        return [url, blobUrl];
+      } catch {
+        return [url, url];
+      }
+    }),
+  );
+  let result = content;
+  for (const [url, blobUrl] of replacements) {
+    result = result.split(url).join(blobUrl);
+  }
+  return result;
+}
+
+async function decryptItemVault(item: Item): Promise<Item> {
+  if (!item.vault) return item;
+  const key = getVaultKey(item.space_id);
+  if (!key) return item;
+  const vault = item.vault;
+  const [title, rawContent] = await Promise.all([
+    vault.title ? decryptField(key, vault.title) : Promise.resolve(item.title),
+    vault.content ? decryptField(key, vault.content) : Promise.resolve(item.content),
+  ]);
+  const content = await decryptUploadUrlsInContent(rawContent, key);
+  return { ...item, title, content };
+}
 
 export function useItems(spaceId: string | undefined, folderId?: string | null, tagId?: string | null) {
-  return useQuery<Item[]>({
+  const raw = useQuery<Item[]>({
     queryKey: ["items", spaceId ?? null, folderId ?? null, tagId ?? null],
     queryFn: () => {
       const params = new URLSearchParams();
@@ -250,10 +330,31 @@ export function useItems(spaceId: string | undefined, folderId?: string | null, 
     },
     enabled: !!spaceId || !!tagId,
   });
+  // useSyncExternalStore-подписка на разблокировку — без неё список так и
+  // остался бы с заглушками после ввода пароля, до следующего невязанного
+  // ре-рендера.
+  const unlocked = useVaultUnlocked(spaceId);
+  const [data, setData] = useState<Item[] | undefined>(undefined);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (!raw.data) {
+        setData(undefined);
+        return;
+      }
+      const resolved = await Promise.all(raw.data.map(decryptItemVault));
+      if (!cancelled) setData(resolved);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [raw.data, unlocked]);
+  return { ...raw, data };
 }
 
 // Кросс-спейсовая лента "Недавнее" для ActivityView — /items/recent, не
 // /items (тот требует spaceId или tagId, тут явно "все спейсы сразу").
+// Сейф исключён на сервере (routers/items.py) — расшифровывать тут нечего.
 export function useRecentItems() {
   return useQuery<Item[]>({
     queryKey: ["items", "recent"],
@@ -262,18 +363,54 @@ export function useRecentItems() {
 }
 
 export function useItem(id: string | undefined) {
-  return useQuery<Item>({
+  const raw = useQuery<Item>({
     queryKey: ["item", id],
     queryFn: () => api.get<Item>(`/items/${id}`),
     enabled: !!id,
   });
+  const unlocked = useVaultUnlocked(raw.data?.space_id);
+  const [data, setData] = useState<Item | undefined>(undefined);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (!raw.data) {
+        setData(undefined);
+        return;
+      }
+      const resolved = await decryptItemVault(raw.data);
+      if (!cancelled) setData(resolved);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [raw.data, unlocked]);
+  return { ...raw, data };
 }
 
 export function useCreateItem() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (payload: { space_id: string; folder_id?: string | null; title?: string; content?: string }) =>
-      api.post<Item>("/items", payload),
+    mutationFn: async (payload: {
+      space_id: string;
+      folder_id?: string | null;
+      title?: string;
+      content?: string;
+    }) => {
+      const key = getVaultKey(payload.space_id);
+      if (!key) return api.post<Item>("/items", payload);
+      const vault: { title?: EncryptedField; content?: EncryptedField } = {};
+      const body: typeof payload & { vault?: typeof vault } = { ...payload };
+      if (payload.title !== undefined) {
+        vault.title = await encryptField(key, payload.title);
+        body.title = VAULT_PLACEHOLDER;
+      }
+      if (payload.content !== undefined) {
+        vault.content = await encryptField(key, payload.content);
+        body.content = VAULT_PLACEHOLDER;
+      }
+      body.vault = vault;
+      return api.post<Item>("/items", body);
+    },
     onSuccess: (item) => qc.invalidateQueries({ queryKey: ["items", item.space_id] }),
   });
 }
@@ -281,7 +418,7 @@ export function useCreateItem() {
 export function useUpdateItem() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({
+    mutationFn: async ({
       id,
       ...payload
     }: {
@@ -292,7 +429,28 @@ export function useUpdateItem() {
       icon?: string | null;
       color?: string | null;
       pinned?: boolean;
-    }) => api.patch<Item>(`/items/${id}`, payload),
+    }) => {
+      const cached = qc.getQueryData<Item>(["item", id]);
+      const key = cached ? getVaultKey(cached.space_id) : undefined;
+      if (!key || (payload.title === undefined && payload.content === undefined)) {
+        return api.patch<Item>(`/items/${id}`, payload);
+      }
+      // Незашифрованное поле (например, только title меняется) сохраняет
+      // старый шифротекст, а не теряет его — иначе сохранение одного поля
+      // стёрло бы шифротекст другого.
+      const vault: { title?: EncryptedField; content?: EncryptedField } = { ...cached?.vault };
+      const body: typeof payload & { vault?: typeof vault } = { ...payload };
+      if (payload.title !== undefined) {
+        vault.title = await encryptField(key, payload.title);
+        body.title = VAULT_PLACEHOLDER;
+      }
+      if (payload.content !== undefined) {
+        vault.content = await encryptField(key, payload.content);
+        body.content = VAULT_PLACEHOLDER;
+      }
+      body.vault = vault;
+      return api.patch<Item>(`/items/${id}`, body);
+    },
     onSuccess: (item) => {
       qc.setQueryData(["item", item.id], item);
       qc.invalidateQueries({ queryKey: ["items", item.space_id] });
@@ -310,6 +468,66 @@ export function useMoveItemSpace() {
       // Широко, а не по конкретному spaceId: перенос задевает СРАЗУ два
       // спейса (старый теряет заметку, новый приобретает) — префиксное
       // совпадение ["items"] инвалидирует списки обоих разом.
+      qc.invalidateQueries({ queryKey: ["items"] });
+    },
+  });
+}
+
+// Перенос заметки (с плейнтекстом, из обычного спейса) в сейф — в отличие
+// от обычного move, требует полного шифрования на клиенте ДО самого
+// переноса (backend отклоняет move в сейф без properties.vault, см.
+// routers/items.py). Только заметки — списки/билеты не шифруются вообще
+// (properties устроены иначе, чем title/content), эта же проверка
+// повторена на бэкенде.
+export function useMigrateItemToVault() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ item, targetSpaceId }: { item: Item; targetSpaceId: string }) => {
+      const key = getVaultKey(targetSpaceId);
+      if (!key) throw new Error("Сейф заблокирован");
+
+      // 1. Вложенные файлы — перезаливаем уже зашифрованными в целевой
+      // сейф, ссылки в content переписываем на новые id. Старые id
+      // запоминаем, чтобы после успешного переноса удалить их
+      // НЕзашифрованные оригиналы (не ждать 24ч грейс-период cleanup.py —
+      // документ с перс. данными не должен лежать plaintext лишние часы).
+      const uploadUrls = Array.from(new Set(item.content.match(UPLOAD_URL_RE) ?? []));
+      let content = item.content;
+      const oldUploadIds: string[] = [];
+      for (const url of uploadUrls) {
+        const res = await fetch(url, { credentials: "include" });
+        if (!res.ok) continue;
+        const contentType = res.headers.get("content-type") || "application/octet-stream";
+        const bytes = await res.arrayBuffer();
+        const encrypted = await encryptFileBlob(key, bytes, contentType);
+        const form = new FormData();
+        form.append("file", encrypted, "encrypted");
+        const uploaded = await api.uploadWithProgress<UploadResult>(`/uploads?space_id=${targetSpaceId}`, form);
+        content = content.split(url).join(uploaded.url);
+        const oldId = url.match(/\/api\/uploads\/([0-9a-f-]{36})/i)?.[1];
+        if (oldId) oldUploadIds.push(oldId);
+      }
+
+      // 2. Шифруем итоговые title/content ключом ЦЕЛЕВОГО сейфа.
+      const vault = { title: await encryptField(key, item.title), content: await encryptField(key, content) };
+
+      // 3. Сохраняем зашифрованную версию, пока заметка ЕЩЁ в старом
+      // спейсе (PATCH не проверяет is_vault — можно сохранить туда
+      // properties.vault до move) — это и есть "доказательство шифрования",
+      // которое move ниже потребует.
+      await api.patch<Item>(`/items/${item.id}`, { title: VAULT_PLACEHOLDER, content: VAULT_PLACEHOLDER, vault });
+
+      // 4. Сам перенос.
+      const moved = await api.post<Item>(`/items/${item.id}/move`, { space_id: targetSpaceId });
+
+      // 5. Чистим исходники — best-effort, не блокируем успех переноса,
+      // если что-то из старых файлов уже недоступно.
+      await Promise.all(oldUploadIds.map((id) => api.delete<void>(`/uploads/${id}`).catch(() => {})));
+
+      return moved;
+    },
+    onSuccess: (item) => {
+      qc.setQueryData(["item", item.id], item);
       qc.invalidateQueries({ queryKey: ["items"] });
     },
   });
@@ -584,8 +802,21 @@ export function useSearch(q: string) {
 export function useUploadFile(spaceId: string | undefined) {
   return useMutation({
     mutationFn: async ({ file, onProgress }: { file: File; onProgress?: (pct: number) => void }) => {
+      const key = spaceId ? getVaultKey(spaceId) : undefined;
       const form = new FormData();
-      form.append("file", file);
+      if (!key) {
+        form.append("file", file);
+      } else {
+        // Байты и имя шифруются на клиенте (ТЗ §16.2) — сервер получает
+        // непрозрачный блоб под родовым именем ("encrypted", как и задаёт
+        // сам Blob ниже) и настоящий MIME-тип файла (не секрет сам по
+        // себе, в отличие от имени — "паспорт_скан.jpg" уже утечка, а
+        // "image/jpeg" — нет), чтобы существующая раздача (Content-Type,
+        // inline/attachment) продолжала работать не задумываясь о сейфе.
+        const bytes = await file.arrayBuffer();
+        const encrypted = await encryptFileBlob(key, bytes, file.type || "application/octet-stream");
+        form.append("file", encrypted, "encrypted");
+      }
       return api.uploadWithProgress<UploadResult>(`/uploads?space_id=${spaceId}`, form, onProgress);
     },
   });

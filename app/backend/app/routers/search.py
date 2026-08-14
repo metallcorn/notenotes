@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_db
 from app.deps import get_current_user
-from app.models import Item, SpaceMember, User
+from app.models import Item, Space, SpaceMember, User
 from app.routers.items import _serialize
 from app.schemas.item import ItemOut
 from app.transliterate import transliteration_variant
@@ -99,11 +99,16 @@ async def search_items(
     query = (
         select(Item)
         .join(SpaceMember, SpaceMember.space_id == Item.space_id)
+        .join(Space, Space.id == Item.space_id)
         .where(
             SpaceMember.user_id == user_id,
             Item.material_type.in_(material_types),
             Item.deleted_at.is_(None),
             document.op("@@")(tsquery),
+            # Сейф — сервер хранит только шифротекст, искать в нём нечего
+            # (не "не положено", а физически бессмысленно). Фильтр
+            # действует ДАЖЕ если space_id ниже явно указывает на сейф.
+            Space.is_vault.is_(False),
         )
         .order_by(rank.desc())
         .limit(limit)

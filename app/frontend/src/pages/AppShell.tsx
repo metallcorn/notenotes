@@ -12,6 +12,8 @@ import CreateSpaceButton from "../components/CreateSpaceButton";
 import SpaceSection from "../components/SpaceSection";
 import TagList from "../components/TagList";
 import NoteList from "../components/NoteList";
+import VaultUnlockOverlay from "../components/VaultUnlockOverlay";
+import { useVaultUnlocked } from "../lib/vaultSession";
 import ItemView from "../components/ItemView";
 import SearchBar from "../components/SearchBar";
 import SearchResults from "../components/SearchResults";
@@ -52,6 +54,16 @@ export default function AppShell() {
   const [activeSpaceId, setActiveSpaceId] = useState<string | undefined>(undefined);
   useSpaceSync(activeSpaceId);
   useNotificationSync();
+  const activeSpace = spaces?.find((s) => s.id === activeSpaceId);
+  // Реальный найденный баг (React error #311 — "calling Hooks
+  // conditionally"): `!!x && !useVaultUnlocked(...)` — && коротко замыкает,
+  // хук вызывается ТОЛЬКО когда x истинно. Количество вызванных хуков в
+  // компоненте между рендерами менялось ровно в момент переключения
+  // активного спейса на сейф/с сейфа — краш всего дерева. Хук должен
+  // вызываться безусловно на каждый рендер, финальный булев результат —
+  // уже отдельным выражением.
+  const activeVaultUnlocked = useVaultUnlocked(activeSpace?.is_vault ? activeSpaceId : undefined);
+  const activeVaultLocked = !!activeSpace?.is_vault && !activeVaultUnlocked;
   useEffect(() => {
     if (activeSpaceId) uiStorage.setLastSpaceId(activeSpaceId);
   }, [activeSpaceId]);
@@ -567,6 +579,8 @@ export default function AppShell() {
                   <div className="min-h-0 flex-1 overflow-y-auto">
                     {query.trim() ? (
                       <SearchResults query={query} selectedId={selectedItemId} onSelect={setSelectedItemId} />
+                    ) : activeSpaceId && activeVaultLocked && activeSpace ? (
+                      <VaultUnlockOverlay spaceId={activeSpace.id} spaceName={activeSpace.name} />
                     ) : activeSpaceId ? (
                       <NoteList
                         spaceId={activeSpaceId}
@@ -574,6 +588,7 @@ export default function AppShell() {
                         tagId={tagId}
                         selectedId={selectedItemId}
                         onSelect={setSelectedItemId}
+                        isVault={!!activeSpace?.is_vault}
                       />
                     ) : (
                       <div className="p-3 text-sm text-slate-400">Нет доступных спейсов</div>

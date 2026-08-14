@@ -31,6 +31,12 @@ export interface Space {
   name: string;
   owner_id: string;
   created_at: string;
+  is_vault: boolean;
+}
+
+export interface VaultUnlockInfo {
+  vault_salt: string;
+  vault_verifier: string;
 }
 
 export interface Folder {
@@ -66,6 +72,11 @@ export interface Item {
   color: string | null;
   pinned: boolean;
   deleted_at: string | null;
+  // Сейф (ТЗ §16.2): для сейфовых заметок title/content на сервере — заглушка
+  // "🔒 Зашифровано", реальный текст — здесь, зашифрован (см. vaultCrypto.ts).
+  // Прозрачно расшифровывается/зашифровывается в api/hooks.ts, компоненты
+  // редактирования этого поля не видят.
+  vault?: { title?: { iv: string; ciphertext: string }; content?: { iv: string; ciphertext: string } } | null;
 }
 
 export interface ToolCall {

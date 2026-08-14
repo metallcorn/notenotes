@@ -7,7 +7,7 @@ from typing import Any
 
 from fastapi import HTTPException
 
-from app.deps import ensure_space_access
+from app.deps import ensure_space_access, is_vault_space
 from app.llm.base import ToolDefinition
 from app.models import Folder, Item, Space
 from app.routers.items import create_item_row
@@ -55,6 +55,8 @@ async def _resolve_folder(ctx: ToolContext, folder_id_raw: Any) -> tuple[uuid.UU
         await ensure_space_access(ctx.db, folder.space_id, ctx.user_id)
     except HTTPException:
         raise ToolError("Папка не найдена") from None
+    if await is_vault_space(ctx.db, folder.space_id):
+        raise ToolError("Папка не найдена")
     return folder_id, folder.space_id
 
 
@@ -74,6 +76,8 @@ async def _get_list_item(ctx: ToolContext, list_id_raw: Any) -> Item:
         await ensure_space_access(ctx.db, item.space_id, ctx.user_id)
     except HTTPException:
         raise ToolError("Список не найден") from None
+    if await is_vault_space(ctx.db, item.space_id):
+        raise ToolError("Список не найден")
     return item
 
 

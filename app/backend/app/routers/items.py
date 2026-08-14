@@ -9,8 +9,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app import realtime
 from app.autotag import enqueue_autotag, suggest_tags_now
 from app.db import get_db
-from app.deps import ensure_space_access, get_current_user
-from app.models import Folder, Item, ItemTag, ItemVersion, SpaceMember, Tag, Upload, User
+from app.deps import ensure_space_access, get_current_user, is_vault_space
+from app.models import Folder, Item, ItemTag, ItemVersion, Space, SpaceMember, Tag, Upload, User
 from app.schemas.item import ItemCreate, ItemMoveSpace, ItemOut, ItemUpdate, ItemVersionOut
 from app.schemas.tag import ItemTagOut
 
@@ -54,6 +54,7 @@ async def _serialize(db: AsyncSession, item: Item, user_id: uuid.UUID) -> ItemOu
         color=item.properties.get("color"),
         pinned=bool(item.properties.get("pinned", False)),
         deleted_at=item.deleted_at,
+        vault=item.properties.get("vault"),
     )
 
 
@@ -123,10 +124,15 @@ async def list_items(
         query = (
             select(Item)
             .join(SpaceMember, SpaceMember.space_id == Item.space_id)
+            .join(Space, Space.id == Item.space_id)
             .where(
                 SpaceMember.user_id == user.id,
                 Item.material_type.in_(("note", "list", "ticket")),
                 Item.deleted_at.is_(None),
+                # Кросс-спейсовый список (по тегу, не по конкретному спейсу)
+                # — та же логика, что в search.py/list_all_items: сейф не
+                # должен засветиться там, куда пользователь не заходил явно.
+                Space.is_vault.is_(False),
             )
         )
     else:
@@ -165,6 +171,7 @@ async def create_item(
         material_type="note",
         title=payload.title,
         content=payload.content,
+        properties={"vault": payload.vault} if payload.vault else None,
     )
     return await _serialize(db, item, user.id)
 
@@ -181,10 +188,14 @@ async def list_recent_items(
     query = (
         select(Item)
         .join(SpaceMember, SpaceMember.space_id == Item.space_id)
+        .join(Space, Space.id == Item.space_id)
         .where(
             SpaceMember.user_id == user.id,
             Item.material_type.in_(("note", "list", "ticket")),
             Item.deleted_at.is_(None),
+            # Тот же принцип, что у поиска и list_all_items — сейф не
+            # должен светиться в кросс-спейсовой ленте.
+            Space.is_vault.is_(False),
         )
         .order_by(Item.updated_at.desc())
         .limit(limit)
@@ -228,7 +239,7 @@ async def update_item(
                 raise HTTPException(status.HTTP_400_BAD_REQUEST, "Папка вне этого спейса")
         item.folder_id = payload.folder_id
 
-    if fields & {"icon", "color", "pinned"}:
+    if fields & {"icon", "color", "pinned", "vault"}:
         # Косметика заметки живёт в properties (JSONB) — не заводить под неё
         # типизированные колонки. Переприсваиваем весь dict, а не мутируем
         # in-place: иначе SQLAlchemy не увидит изменение JSONB-колонки.
@@ -245,6 +256,11 @@ async def update_item(
                 properties.pop("color", None)
         if "pinned" in fields:
             properties["pinned"] = bool(payload.pinned)
+        if "vault" in fields:
+            if payload.vault:
+                properties["vault"] = payload.vault
+            else:
+                properties.pop("vault", None)
         item.properties = properties
 
     await db.commit()
@@ -289,6 +305,28 @@ async def move_item_space(
     # Доступ к ЦЕЛЕВОМУ спейсу — без этого можно было бы закинуть заметку
     # в чужой спейс, куда пользователь не приглашён.
     await ensure_space_access(db, payload.space_id, user.id)
+
+    # Обычный move меняет только space_id — title/content остаются как
+    # есть. Перенос ИЗ сейфа наружу так и остаётся не реализован (нужна
+    # расшифровка на клиенте перед сохранением plaintext — вне скоупа).
+    # Перенос В сейф — реализован на фронте (NoteEditor.tsx): клиент
+    # СНАЧАЛА шифрует title/content (и перезаливает вложенные файлы уже
+    # зашифрованными в целевой сейф) через обычный PATCH, и только потом
+    # зовёт move. Здесь — только страховка: без реально проставленного
+    # properties.vault перенос в сейф отклоняем, чтобы баг на фронте не
+    # мог протащить plaintext в сейф в обход шифрования. Списки/билеты — не
+    # шифруются вообще (properties устроены иначе, чем title/content),
+    # для них перенос в сейф закрыт независимо от properties.vault.
+    if await is_vault_space(db, item.space_id):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Перенос из сейфа недоступен")
+    if await is_vault_space(db, payload.space_id):
+        if item.material_type != "note":
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "В сейф можно переносить только заметки")
+        if not item.properties.get("vault"):
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                "Заметка не зашифрована для сейфа — сначала сохраните её с зашифрованным содержимым",
+            )
 
     old_space_id = item.space_id
     item.space_id = payload.space_id

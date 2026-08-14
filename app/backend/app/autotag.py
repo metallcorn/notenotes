@@ -90,6 +90,12 @@ async def _process(item_id: uuid.UUID) -> None:
         item = await db.get(Item, item_id)
         if item is None or item.material_type != "note" or item.deleted_at is not None:
             return
+        # Сейф — title/content зашифрованы на клиенте, бэкенд видит только
+        # непрозрачный blob. Классифицировать нечего и незачем.
+        from app.deps import is_vault_space
+
+        if await is_vault_space(db, item.space_id):
+            return
 
         existing = (await db.execute(select(Tag.name).where(Tag.user_id == item.author_id))).scalars().all()
 

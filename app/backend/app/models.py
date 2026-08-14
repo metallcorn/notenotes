@@ -71,6 +71,25 @@ class Space(Base):
     name: Mapped[str] = mapped_column(String(255))
     owner_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    # Сейф (ТЗ §16.2, Фаза 4 раньше срока) — E2E-шифрование на клиенте,
+    # бэкенд НИКОГДА не видит plaintext title/content этого спейса (только
+    # непрозрачные blob'ы в properties.vault каждого item). Поэтому ИИ,
+    # полнотекстовый поиск, OCR, авто-теги для него принципиально
+    # невозможны — не ограничение, а прямое следствие того, что сервер не
+    # может прочитать то, что не может расшифровать. vault_salt — не
+    # секрет (нужна, чтобы на клиенте заново вывести тот же ключ из
+    # пароля). vault_verifier — известная строка, зашифрованная ключом
+    # сейфа при создании: клиент при разблокировке пробует её
+    # расшифровать кандидатным ключом — AES-GCM сам обнаружит неверный
+    # пароль по несовпадению тега аутентичности, без единого обращения к
+    # серверу для проверки. Оба поля осмысленны только вместе с
+    # is_vault=true и заполняются один раз при создании — эндпоинт не
+    # даёт превратить обычный спейс в сейф и обратно (миграция
+    # существующего plaintext-контента — отдельная, более рискованная
+    # задача, сознательно не в этой версии).
+    is_vault: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    vault_salt: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    vault_verifier: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 class SpaceMember(Base):

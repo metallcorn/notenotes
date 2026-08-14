@@ -11,6 +11,11 @@ class ItemCreate(BaseModel):
     folder_id: uuid.UUID | None = None
     title: str = Field(default="", max_length=500)
     content: str = ""
+    # Сейф (ТЗ §16.2): title/content для сейфовых заметок — уже заглушка
+    # "🔒 Зашифровано", реальный шифротекст (IV+ciphertext на поле) кладётся
+    # сюда клиентом. Сервер не заглядывает внутрь — просто хранит blob в
+    # properties.vault (см. _serialize/create_item ниже).
+    vault: dict | None = None
 
 
 class ItemUpdate(BaseModel):
@@ -24,6 +29,7 @@ class ItemUpdate(BaseModel):
     icon: str | None = Field(default=None, max_length=16)
     color: str | None = Field(default=None, max_length=32)
     pinned: bool | None = None
+    vault: dict | None = None
 
 
 class ItemMoveSpace(BaseModel):
@@ -47,6 +53,7 @@ class ItemOut(BaseModel):
     color: str | None = None
     pinned: bool = False
     deleted_at: datetime | None = None
+    vault: dict | None = None
 
 
 class ItemVersionOut(BaseModel):

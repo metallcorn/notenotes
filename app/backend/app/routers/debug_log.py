@@ -21,7 +21,12 @@ MAX_EVENT_LEN = 100
 # данные, на том же 40-ГБ шифрованном томе. Потолок на размер payload'а +
 # rate-limit по IP закрывают storage-DoS, не трогая саму опциональность
 # авторизации (она осталась намеренно — см. комментарий в _optional_user).
-MAX_DATA_BYTES = 2000
+# Реальный найденный баг: 2000 байт душили ИМЕННО отчёты об ошибках
+# (ErrorBoundary.tsx шлёт message + stack.slice(0,2000) +
+# componentStack.slice(0,2000) — уже больше лимита сама по себе, до
+# остальных полей diagnosticLog) — самый ценный вид события молча
+# отбрасывался 413-м, пока обычные диагностические пинги проходили.
+MAX_DATA_BYTES = 6000
 _RATE_WINDOW_SECONDS = 60
 _RATE_MAX_REQUESTS = 30
 _recent_requests: dict[str, list[float]] = defaultdict(list)

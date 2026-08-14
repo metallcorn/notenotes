@@ -8,7 +8,7 @@ from fastapi import HTTPException
 from sqlalchemy import func, select
 
 from app import realtime
-from app.deps import ensure_space_access
+from app.deps import ensure_space_access, is_vault_space
 from app.llm.base import ToolDefinition
 from app.models import Folder, Item, ItemTag, ItemVersion, Space, SpaceMember, Tag
 from app.note_formatting import linkify_notes_content
@@ -40,6 +40,11 @@ async def _resolve_folder(ctx: ToolContext, folder_id_raw: Any) -> tuple[uuid.UU
         await ensure_space_access(ctx.db, folder.space_id, ctx.user_id)
     except HTTPException:
         raise ToolError("Папка не найдена") from None
+    # Сейф — ассистент не должен даже знать о его существовании (тот же
+    # ответ, что для реально недоступной папки), не только не читать
+    # содержимое: сервер физически не может ничего прочитать в сейфе.
+    if await is_vault_space(ctx.db, folder.space_id):
+        raise ToolError("Папка не найдена")
     return folder_id, folder.space_id
 
 
@@ -56,6 +61,8 @@ async def _get_item_cross_space(ctx: ToolContext, item_id_raw: Any) -> Item:
         await ensure_space_access(ctx.db, item.space_id, ctx.user_id)
     except HTTPException:
         raise ToolError("Заметка не найдена") from None
+    if await is_vault_space(ctx.db, item.space_id):
+        raise ToolError("Заметка не найдена")
     return item
 
 
@@ -297,7 +304,7 @@ async def list_folders(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]
         select(Folder, Space.name)
         .join(Space, Space.id == Folder.space_id)
         .join(SpaceMember, SpaceMember.space_id == Folder.space_id)
-        .where(SpaceMember.user_id == ctx.user_id)
+        .where(SpaceMember.user_id == ctx.user_id, Space.is_vault.is_(False))
     )
     return {
         "folders": [
@@ -436,6 +443,7 @@ async def list_items_by_tag(ctx: ToolContext, args: dict[str, Any]) -> dict[str,
             ItemTag.user_id == ctx.user_id,
             Item.material_type.in_(("note", "list", "ticket")),
             Item.deleted_at.is_(None),
+            Space.is_vault.is_(False),
         )
         .order_by(Item.updated_at.desc())
     )
@@ -470,6 +478,10 @@ async def list_all_items(ctx: ToolContext, args: dict[str, Any]) -> dict[str, An
             SpaceMember.user_id == ctx.user_id,
             Item.material_type.in_(("note", "list", "ticket")),
             Item.deleted_at.is_(None),
+            # Сейф не должен даже засветиться в перечислении — не только
+            # содержимое скрыто, сам факт его существования ассистенту
+            # знать незачем.
+            Space.is_vault.is_(False),
         )
         .order_by(Item.updated_at.desc())
         .limit(200)

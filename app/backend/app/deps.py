@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.db import get_db
-from app.models import SpaceMember, User
+from app.models import Space, SpaceMember, User
 
 DbSession = AsyncSession
 
@@ -36,3 +36,15 @@ async def ensure_space_access(db: AsyncSession, space_id: uuid.UUID, user_id: uu
     )
     if result.scalar_one_or_none() is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Спейс не найден")
+
+
+async def is_vault_space(db: AsyncSession, space_id: uuid.UUID) -> bool:
+    """Сейф (Space.is_vault) — бэкенд никогда не видит plaintext его
+    заметок (E2E-шифрование на клиенте), поэтому вся обработка, которой
+    нужен читаемый текст (OCR, авто-теги, распознавание билетов/PDF,
+    расшифровка речи, поиск, тулы ассистента), должна пропускать его
+    контент — не потому что "не положено", а потому что сервер физически
+    не может ничего в нём прочитать. Единая точка проверки, чтобы не
+    дублировать запрос в каждом из этих мест."""
+    result = await db.execute(select(Space.is_vault).where(Space.id == space_id))
+    return bool(result.scalar_one_or_none())

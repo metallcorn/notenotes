@@ -140,12 +140,18 @@ export default function NoteList({
   tagId,
   selectedId,
   onSelect,
+  isVault = false,
 }: {
   spaceId: string;
   folderId: string | null;
   tagId: string | null;
   selectedId: string | null;
   onSelect: (id: string) => void;
+  // Списки в сейфе пока не поддерживаются (см. routers/lists.py) — их
+  // пункты хранятся в properties.entries, не в title/content, шифровать
+  // их — отдельная, ещё не сделанная работа. Прячем кнопку, а не просто
+  // блокируем на сервере — иначе выглядело бы как баг, а не как решение.
+  isVault?: boolean;
 }) {
   const effectiveFolderId = tagId ? null : folderId;
   // По тегу — кросс-спейсово (тег не привязан к одному спейсу, заметки под
@@ -195,14 +201,16 @@ export default function NoteList({
           </button>
           <NoteTemplateMenu onSelect={createNote} disabled={createItem.isPending} align="top" />
         </div>
-        <button
-          onClick={createNewList}
-          disabled={createList.isPending}
-          className="flex flex-1 items-center justify-center gap-2 rounded border border-slate-900 px-3 py-1.5 text-sm font-medium text-slate-900 disabled:opacity-50"
-        >
-          {createList.isPending && <Spinner />}
-          {createList.isPending ? "Создаём…" : "+ Список"}
-        </button>
+        {!isVault && (
+          <button
+            onClick={createNewList}
+            disabled={createList.isPending}
+            className="flex flex-1 items-center justify-center gap-2 rounded border border-slate-900 px-3 py-1.5 text-sm font-medium text-slate-900 disabled:opacity-50"
+          >
+            {createList.isPending && <Spinner />}
+            {createList.isPending ? "Создаём…" : "+ Список"}
+          </button>
+        )}
       </div>
       <ul className="min-h-0 flex-1 overflow-y-auto pb-20 md:pb-0">
         {isLoading && (
@@ -228,14 +236,16 @@ export default function NoteList({
         ))}
       </ul>
       <div className="fixed bottom-20 right-4 z-40 flex flex-col items-end gap-2 md:hidden">
-        <button
-          onClick={createNewList}
-          disabled={createList.isPending}
-          title="Новый список"
-          className="flex h-11 w-11 items-center justify-center rounded-full bg-white text-slate-900 shadow-lg ring-1 ring-slate-200 disabled:opacity-50"
-        >
-          {createList.isPending ? <Spinner size={18} /> : <ListChecks size={18} />}
-        </button>
+        {!isVault && (
+          <button
+            onClick={createNewList}
+            disabled={createList.isPending}
+            title="Новый список"
+            className="flex h-11 w-11 items-center justify-center rounded-full bg-white text-slate-900 shadow-lg ring-1 ring-slate-200 disabled:opacity-50"
+          >
+            {createList.isPending ? <Spinner size={18} /> : <ListChecks size={18} />}
+          </button>
+        )}
         <div className="relative">
           <button
             onClick={() => createNote()}

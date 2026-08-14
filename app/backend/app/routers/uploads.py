@@ -10,7 +10,7 @@ from starlette.responses import FileResponse
 
 from app.core.config import get_settings
 from app.db import get_db
-from app.deps import ensure_space_access, get_current_user
+from app.deps import ensure_space_access, get_current_user, is_vault_space
 from app.models import Upload, User
 from app.schemas.upload import UploadOut
 from app.pdf_processing import AUTO_OCR_MAX_PDF_BYTES
@@ -214,16 +214,27 @@ async def create_upload(
         await db.rollback()
         raise
 
+    # Сейф — сервер не видит plaintext (клиент шлёт уже зашифрованные
+    # байты и родовое имя файла), поэтому вся обработка ниже (текстовый
+    # слой PDF, превью, thumbnail, очередь OCR/расшифровки) для него
+    # бессмысленна и пропускается целиком: сервер физически не может
+    # прочитать то, что не может расшифровать.
+    is_vault = await is_vault_space(db, space_id)
     is_pdf = content_type == "application/pdf"
-    # Текстовый слой PDF — сразу, синхронно, локально (PyMuPDF, без сети),
-    # независимо от настройки автообработки: это бесплатно и мгновенно,
-    # не то же самое, что дорогой постраничный OCR ниже.
-    pdf_bytes = dest.read_bytes() if is_pdf else None
-    pdf_text = extract_pdf_text(pdf_bytes) if pdf_bytes is not None else None
-    has_thumbnail = _generate_pdf_thumbnail(upload.id, pdf_bytes) if pdf_bytes is not None else False
-    preview_text = None if is_pdf else _extract_text_preview(dest, content_type, upload.filename)
+    pdf_text: str | None = None
+    has_thumbnail = False
+    preview_text: str | None = None
 
-    auto = user.auto_process_uploads
+    if not is_vault:
+        # Текстовый слой PDF — сразу, синхронно, локально (PyMuPDF, без сети),
+        # независимо от настройки автообработки: это бесплатно и мгновенно,
+        # не то же самое, что дорогой постраничный OCR ниже.
+        pdf_bytes = dest.read_bytes() if is_pdf else None
+        pdf_text = extract_pdf_text(pdf_bytes) if pdf_bytes is not None else None
+        has_thumbnail = _generate_pdf_thumbnail(upload.id, pdf_bytes) if pdf_bytes is not None else False
+        preview_text = None if is_pdf else _extract_text_preview(dest, content_type, upload.filename)
+
+    auto = user.auto_process_uploads and not is_vault
     pdf_ocr_queued = False
     if auto and (content_type.startswith("video/") or content_type.startswith("image/")):
         upload.transcription_status = "pending"
@@ -287,6 +298,12 @@ async def start_recording(
     if not payload.content_type.startswith("audio/"):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "content_type записи должен быть audio/*")
     await ensure_space_access(db, payload.space_id, user.id)
+    # Сама суть записи — расшифровка речи через Deepgram, которому нужен
+    # реальный звук на сервере; в сейфе сервер в принципе ничего не может
+    # прочитать, так что фича здесь не имеет смысла (не молча деградировать
+    # до "просто плеер без расшифровки" — явно отказать).
+    if await is_vault_space(db, payload.space_id):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Запись с расшифровкой недоступна в сейфе")
     upload = Upload(
         space_id=payload.space_id,
         author_id=user.id,
@@ -380,6 +397,8 @@ async def reprocess_upload(
     if upload is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Файл не найден")
     await ensure_space_access(db, upload.space_id, user.id)
+    if await is_vault_space(db, upload.space_id):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Распознавание недоступно в сейфе")
 
     is_pdf = upload.content_type == "application/pdf"
     if not (upload.content_type.startswith("video/") or upload.content_type.startswith("image/") or is_pdf):
@@ -492,6 +511,27 @@ async def get_upload(
     return FileResponse(
         path, media_type=upload.content_type, filename=upload.filename, content_disposition_type=disposition
     )
+
+
+@router.delete("/{upload_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_upload(
+    upload_id: uuid.UUID, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+) -> None:
+    """Явное удаление файла — сейчас нужен переносу заметки в сейф
+    (NoteEditor.tsx): исходный НЕзашифрованный файл должен исчезнуть с
+    диска сразу после того, как зашифрованная копия уже сохранена в
+    сейфе, а не через 24ч грейс-период автосвипа (cleanup.py) — документ
+    с перс. данными не должен лежать plaintext'ом лишние часы. Не
+    проверяем, ссылается ли на файл ещё какая-то заметка (как cleanup.py
+    делает для общего случая) — здесь вызывающий точно знает, что делает."""
+    upload = await db.get(Upload, upload_id)
+    if upload is None:
+        return
+    await ensure_space_access(db, upload.space_id, user.id)
+    _upload_path(upload_id).unlink(missing_ok=True)
+    _thumbnail_path(upload_id).unlink(missing_ok=True)
+    await db.delete(upload)
+    await db.commit()
 
 
 @router.get("/{upload_id}/thumbnail")

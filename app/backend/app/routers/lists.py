@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.db import get_db
-from app.deps import ensure_space_access, get_current_user
+from app.deps import ensure_space_access, get_current_user, is_vault_space
 from app.models import Folder, Item, User
 from app.routers.items import create_item_row
 from app.schemas.list_item import ListCreate, ListEntryCreate, ListEntryOut, ListEntryUpdate, ListOut
@@ -69,6 +69,13 @@ async def create_list(
     payload: ListCreate, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
 ) -> ListOut:
     await ensure_space_access(db, payload.space_id, user.id)
+    if await is_vault_space(db, payload.space_id):
+        # Списки (в отличие от заметок) пока не шифруются на клиенте — их
+        # пункты живут в properties.entries, а не в title/content, и
+        # шифрование entries-массива это отдельная, ещё не сделанная работа
+        # (см. plan). Честнее отказать, чем молча положить plaintext PII на
+        # сервер внутри "сейфа".
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Списки в сейфе пока не поддерживаются")
     if payload.folder_id is not None:
         folder = await db.get(Folder, payload.folder_id)
         if folder is None or folder.space_id != payload.space_id:
