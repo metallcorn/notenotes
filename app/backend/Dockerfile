@@ -24,7 +24,14 @@ RUN useradd --no-create-home --uid 10001 --shell /usr/sbin/nologin sandbox
 # самодостаточное wheel-колесо (без внешней .so, в отличие от pyzbar/zbar,
 # который был здесь раньше и не умел Aztec — формат, в который почти все
 # авиабилеты кодируют посадочный талон), системный пакет не нужен вовсе.
-RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg && rm -rf /var/lib/apt/lists/*
+# tesseract-ocr(-osd) — только для определения ориентации фото/скана перед
+# OCR/vision-LLM (app/rotation.py) — механический анализ формы символов
+# (Tesseract OSD), не полноценное распознавание текста, поэтому языковые
+# пакеты (rus/eng) не нужны, хватает osd.traineddata. Реальный найденный
+# случай: перевёрнутая на 90° страница скана — vision-модель читает текст
+# криво и путает содержимое (например, регион в штампе), а Tesseract OSD
+# определяет угол поворота локально и бесплатно ещё до отправки в LLM.
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg tesseract-ocr tesseract-ocr-osd && rm -rf /var/lib/apt/lists/*
 COPY app/backend/requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 COPY app/backend/app ./app

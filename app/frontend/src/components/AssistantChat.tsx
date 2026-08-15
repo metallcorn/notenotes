@@ -190,8 +190,13 @@ function CreatedItemLinks({
   results: DialogMessage[];
   onOpenItem: (id: string, materialType: "note" | "list") => void;
 }) {
+  // update_note/append_to_note — не только create_note/create_list: реальная
+  // жалоба — после того как ассистент ОБНОВИЛ уже существующую заметку
+  // (например, дописал фото в неё по просьбе пользователя), кнопки "Открыть"
+  // не было вовсе, только сам текст ответа — единственный способ перейти к
+  // заметке. Форма результата тула та же ({id, title}), фильтр просто шире.
   const links = message.tool_calls
-    .filter((tc) => tc.name === "create_note" || tc.name === "create_list")
+    .filter((tc) => ["create_note", "create_list", "update_note", "append_to_note"].includes(tc.name))
     .map((tc) => {
       const result = results.find((r) => r.tool_call_id === tc.id);
       if (!result) return null;

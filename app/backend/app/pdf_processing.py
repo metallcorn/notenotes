@@ -71,13 +71,53 @@ def serialize_document_attachment(url: str, filename: str, text: str) -> str:
     return f"<div data-doc-attachment {' '.join(parts)}></div>"
 
 
+def _extract_page_text_with_tables(page: "pymupdf.Page") -> str:
+    """Реальная жалоба: обычный page.get_text() читает таблицу построчно
+    слева направо как плоский текст — колонки разъезжаются, реальная
+    табличная структура (расценки, характеристики) теряется полностью.
+    PyMuPDF умеет находить таблицы отдельно (find_tables(), по линиям
+    разметки/выравниванию колонок) и отдавать их уже готовым Markdown —
+    локально, без единого обращения к LLM. Не полагаемся на угадывание:
+    достаём таблицы отдельно, вырезаем их текст из обычного потока (иначе
+    продублировался бы дважды — один раз как таблица, второй раз как
+    плоский текст блоков, из которых она состоит), и вставляем markdown
+    таблицы туда же по вертикали, где они были на странице."""
+    try:
+        tables = list(page.find_tables().tables)
+    except Exception:
+        tables = []
+    if not tables:
+        return page.get_text()
+
+    table_rects = [pymupdf.Rect(t.bbox) for t in tables]
+    pieces: list[tuple[float, str]] = []
+
+    for block in page.get_text("blocks"):
+        rect = pymupdf.Rect(block[:4])
+        text = block[4].strip()
+        if not text or any(rect.intersects(tr) for tr in table_rects):
+            continue
+        pieces.append((rect.y0, text))
+
+    for table, rect in zip(tables, table_rects):
+        try:
+            md = table.to_markdown()
+        except Exception:
+            continue
+        if md.strip():
+            pieces.append((rect.y0, md.strip()))
+
+    pieces.sort(key=lambda p: p[0])
+    return "\n\n".join(p[1] for p in pieces)
+
+
 def extract_text(pdf_bytes: bytes) -> str:
     """Синхронно и локально (PyMuPDF, без внешнего API) — вытаскивает
     текстовый слой, если он есть. Пустая строка — в PDF нет текста (скан),
     вызывающий код сам решает, что делать (не пытаемся угадывать OCR)."""
     try:
         with pymupdf.open(stream=pdf_bytes, filetype="pdf") as doc:
-            text = "\n\n".join(page.get_text() for page in doc)
+            text = "\n\n".join(_extract_page_text_with_tables(page) for page in doc)
     except Exception:
         logger.exception("Не удалось прочитать PDF")
         return ""

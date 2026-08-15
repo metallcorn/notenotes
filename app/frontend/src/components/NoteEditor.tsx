@@ -207,6 +207,49 @@ export default function NoteEditor({
         view.dispatch(state.tr.replaceSelectionWith(node));
         return true;
       },
+      // Реальная жалоба: "печатаю, жму Enter несколько раз для отступа —
+      // визуально вижу пустые строки, но при сохранении/перезагрузке всё
+      // пропадает". Причина — лишний ПУСТОЙ абзац в конце документа не
+      // меняет сериализованный markdown-текст ни на символ, поэтому
+      // onUpdate честно срабатывает, но getMarkdown() возвращает ту же
+      // строку — React даже не видит изменения state. Перехват через
+      // addKeyboardShortcuts() у расширений (пробовал дважды, разными
+      // способами) ненадёжен из-за приоритета keymap-плагинов между
+      // расширениями в @tiptap/core — реально не срабатывал на практике.
+      // handleKeyDown прямо на EditorView, тот же приём, что уже
+      // используется для handlePaste выше — единственный, который
+      // подтверждённо сработал при живой проверке (жёсткий перенос
+      // реально сохранился в содержимом заметки).
+      //
+      // Жёсткий перенос строки (hardBreak) вместо разбиения на новый
+      // абзац — это НАСТОЯЩИЙ символ в markdown (сериализуется как "\" +
+      // перенос строки, tiptap-markdown), не пустая декорация, поэтому не
+      // пропадает и не схлопывается, сколько раз подряд Enter ни жми.
+      //
+      // Реальный найденный регресс первой версии этого фикса: перехват
+      // Enter здесь происходит РАНЬШЕ, чем его успевает увидеть плагин
+      // Suggestion у SlashCommand.ts (/-меню) — Enter, которым
+      // пользователь подтверждает выбор пункта меню ("/отступ" → Enter),
+      // вместо этого превращался в перенос строки, а меню просто
+      // переставало на Enter/клик реагировать. Проверка textBefore ниже
+      // — тот же триггер-паттерн, что у Suggestion (char: "/", без
+      // пробела после) — пропускаем перехват, пока слэш-команда набирается.
+      handleKeyDown: (view: EditorView, event: KeyboardEvent) => {
+        if (event.key !== "Enter" || event.shiftKey || event.ctrlKey || event.metaKey || event.altKey) {
+          return false;
+        }
+        const { state } = view;
+        const { $from, empty } = state.selection;
+        if (!empty || $from.depth !== 1 || $from.parent.type.name !== "paragraph") {
+          return false;
+        }
+        const textBefore = $from.parent.textBetween(0, $from.parentOffset, undefined, "￼");
+        if (/\/\S*$/.test(textBefore)) return false;
+        const hardBreak = state.schema.nodes.hardBreak;
+        if (!hardBreak) return false;
+        view.dispatch(state.tr.replaceSelectionWith(hardBreak.create(), false).scrollIntoView());
+        return true;
+      },
     }),
     [],
   );
