@@ -77,6 +77,9 @@ export interface Item {
   // Прозрачно расшифровывается/зашифровывается в api/hooks.ts, компоненты
   // редактирования этого поля не видят.
   vault?: { title?: { iv: string; ciphertext: string }; content?: { iv: string; ciphertext: string } } | null;
+  // Найденные LLM адреса (app/autotag.py) — extensions/DetectedAddressLinks.ts
+  // ищет "text" дословно в документе и подсвечивает ссылкой на карту.
+  detected_addresses: { text: string; query: string }[];
 }
 
 export interface ToolCall {
@@ -174,4 +177,14 @@ export interface Notification {
   created_at: string;
   trigger_at: string | null;
   resolved_at: string | null;
+}
+
+// Дата/событие, найденное LLM внутри заметки (app/autotag.py) — пассивная
+// запись без доставки (не Notification): только для ActivityView.
+export interface DetectedEvent {
+  item_id: string;
+  space_id: string;
+  item_title: string;
+  event_title: string;
+  event_at: string;
 }

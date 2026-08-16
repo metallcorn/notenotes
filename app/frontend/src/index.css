@@ -295,6 +295,13 @@
   margin-left: 1em;
 }
 
+/* extensions/HideImageProcessingPlaceholder.ts — плейсхолдер-текст остаётся
+   в документе (backend ищет и заменяет его 1:1), но не показывается: пока
+   обработка идёт, статус уже виден оверлеем на самой картинке. */
+.image-processing-placeholder-hidden {
+  display: none;
+}
+
 .reminder-anchor {
   display: inline-block;
   cursor: default;
@@ -308,6 +315,13 @@
 }
 
 .recognized-phone-icon {
+  display: inline-block;
+  text-decoration: none;
+  margin-right: 0.15em;
+  cursor: pointer;
+}
+
+.recognized-address-icon {
   display: inline-block;
   text-decoration: none;
   margin-right: 0.15em;

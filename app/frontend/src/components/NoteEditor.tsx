@@ -51,9 +51,11 @@ import { LinkPreview } from "../extensions/LinkPreview";
 import { DocumentAttachment, serializeDocumentAttachment } from "../extensions/DocumentAttachment";
 import { TicketAttachment } from "../extensions/TicketAttachment";
 import { Spacer } from "../extensions/Spacer";
+import { HideImageProcessingPlaceholder } from "../extensions/HideImageProcessingPlaceholder";
 import { ProcessingPlaceholder } from "../extensions/ProcessingPlaceholder";
 import { InlineLinkFavicon } from "../extensions/InlineLinkFavicon";
 import { DataRecognition } from "../extensions/DataRecognition";
+import { DetectedAddressLinks } from "../extensions/DetectedAddressLinks";
 import { ReminderAnchor } from "../extensions/ReminderAnchor";
 import { ImageOcrResult } from "../extensions/ImageOcrResult";
 import { SlashCommand } from "../extensions/SlashCommand";
@@ -163,8 +165,10 @@ export default function NoteEditor({
       TicketAttachment,
       Spacer,
       ProcessingPlaceholder,
+      HideImageProcessingPlaceholder,
       InlineLinkFavicon,
       DataRecognition,
+      DetectedAddressLinks,
       ReminderAnchor,
       ImageOcrResult,
       LinkExtension.configure({ HTMLAttributes: { target: "_blank", rel: "noopener noreferrer" } }),
@@ -293,6 +297,18 @@ export default function NoteEditor({
     editor.storage.ticketAttachment.spaceId = item?.space_id ?? null;
   }, [editor, item?.id, item?.space_id]);
 
+  // Найденные LLM адреса (app/autotag.py) — тот же storage-приём, что у
+  // ticketAttachment выше. В отличие от него, decorations() читает это
+  // значение на каждый рендер вью, а не по клику — простого обновления
+  // storage недостаточно, ProseMirror не знает, что нужно пересчитать
+  // декорации, пока не увидит транзакцию; пустая tr — стандартный приём
+  // "перерисовать вью по внешнему изменению состояния".
+  useEffect(() => {
+    if (!editor) return;
+    editor.storage.detectedAddressLinks.addresses = item?.detected_addresses ?? [];
+    editor.view.dispatch(editor.state.tr);
+  }, [editor, item?.detected_addresses]);
+
   // Переход из напоминания, поставленного якорем (ReminderAnchor.ts) —
   // прокрутить и подсветить, тот же приём, что highlightEntryId у
   // ListEditor.tsx (highlightedRef, а не просто зависимость от id — иначе
@@ -318,8 +334,24 @@ export default function NoteEditor({
   // иначе следующий автосейв тут же затёр бы фоновый результат обратно
   // устаревшим текстом (реально пойманный баг: карточка так и оставалась
   // плейсхолдером навсегда).
+  //
+  // Реальный найденный баг (мобильная загрузка нескольких фото подряд):
+  // hasPendingLocalEdit защищает только от затирания уже НАБРАННОГО текста
+  // — но при пакетной загрузке (onPickImage) картинки вставляются
+  // командами editor.chain()...run() между await'ами сетевой загрузки.
+  // Если распознавание ПЕРВОЙ картинки успевает завершиться и прилетает
+  // WS-уведомление, пока editor только что синхронно вставил ВТОРУЮ (но
+  // React ещё не перерендерил content-state), это окно между вставкой в
+  // ProseMirror и обновлением content успевало проскочить проверку —
+  // setContent(item.content) с сервера подменял собой весь документ и
+  // безвозвратно стирал только что вставленную, ещё не сохранённую
+  // картинку. uploadBatch — явный флаг "идёт пакетная загрузка", не
+  // зависящий от таймингов React-рендера — откладываем подхват фонового
+  // результата до её завершения (см. onPickImage/onPickFile: там же
+  // refetchItem() досогласовывает пропущенное по её окончании).
   useEffect(() => {
     if (!item || item.id !== loadedItemIdRef.current) return;
+    if (uploadBatch) return;
     if (item.content === savedRef.current.content) return;
     const hasPendingLocalEdit = content !== savedRef.current.content || title !== savedRef.current.title;
     if (hasPendingLocalEdit) return;
@@ -327,7 +359,7 @@ export default function NoteEditor({
     savedRef.current = { ...savedRef.current, content: item.content };
     editor?.commands.setContent(item.content || "");
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [item?.content]);
+  }, [item?.content, uploadBatch]);
 
   // Автосохранение с дебаунсом. Каждое изменение title/content создаёт
   // на бэкенде запись в item_versions — поэтому не сохраняем на каждый
@@ -502,24 +534,42 @@ export default function NoteEditor({
   // заменить готовый результат, никогда не вставлялся, поэтому результат
   // молча терялся (_replace_in_referencing_items не находил, куда
   // вписать). Единая функция закрывает оба входа сразу.
-  function insertImage(uploaded: { id: string; url: string }, sourceFile?: File) {
+  // Реальный найденный баг (несколько фото подряд с телефона): вставка
+  // через editor.chain().focus().setImage(...).insertContent(...).run()
+  // опиралась на ТЕКУЩЕЕ выделение — а между фото в пачке есть await
+  // сетевой загрузки, и на телефоне за это время меняется фокус страницы
+  // (нативный пикер файла поверх вкладки). Живой случай подтверждён по
+  // истории версий заметки: первое же автосохранение уже не содержало
+  // картинки — только текст плейсхолдера, то есть setImage() внутри
+  // чейна тихо не сработал (проглочен, insertContent с плейсхолдером
+  // после него — уже нет). Фикс — явная позиция вставки, не зависящая от
+  // live-выделения: insertContentAt(pos, [...]) одним вызовом, картинка
+  // и плейсхолдер как единый content-массив (не два раздельных чейн-шага,
+  // где один может выполниться без другого). Функция возвращает позицию
+  // ПОСЛЕ вставленного — следующий файл в пачке продолжает оттуда же, а
+  // не заново от live-selection.
+  function insertImageAt(pos: number, uploaded: { id: string; url: string }, sourceFile?: File): number {
     // Плейсхолдер — точная строка, которую backend ищет и заменяет на
     // готовое описание/OCR (app/vision.py, placeholder_text()); должна
     // совпадать 1:1, тот же приём, что и у видео-расшифровки. В сейфе
     // OCR никогда не запускается (бэкенд не видит plaintext) — плейсхолдер
     // никто не заменит, вставлять его там нельзя, застрянет навсегда.
     const placeholder = `⏳ Описание изображения ${uploaded.id} обрабатывается…`;
+    let nextPos = pos;
     if (mode === "wysiwyg" && editor) {
-      const chain = editor.chain().focus().setImage({ src: uploaded.url });
-      if (!isVaultNote) chain.insertContent({ type: "paragraph", content: [{ type: "text", text: placeholder }] });
-      chain.run();
+      const content: Record<string, unknown>[] = [{ type: "image", attrs: { src: uploaded.url } }];
+      if (!isVaultNote) content.push({ type: "paragraph", content: [{ type: "text", text: placeholder }] });
+      editor.chain().focus().insertContentAt(pos, content).run();
+      nextPos = editor.state.selection.to;
     } else {
       setContent((c) => `${c}\n\n![](${uploaded.url})\n\n${isVaultNote ? "" : placeholder + "\n"}`);
     }
     if (isVaultNote && sourceFile) patchLocalPreview("img", uploaded.url, sourceFile);
+    return nextPos;
   }
 
-  function insertUploadedFile(
+  function insertUploadedFileAt(
+    pos: number,
     uploaded: {
       id: string;
       url: string;
@@ -530,10 +580,9 @@ export default function NoteEditor({
       preview_text: string | null;
     },
     sourceFile?: File,
-  ) {
+  ): number {
     if (uploaded.content_type.startsWith("image/")) {
-      insertImage(uploaded, sourceFile);
-      return;
+      return insertImageAt(pos, uploaded, sourceFile);
     }
     const isVideo = uploaded.content_type.startsWith("video/");
     const isAudio = uploaded.content_type.startsWith("audio/");
@@ -549,21 +598,21 @@ export default function NoteEditor({
     // отдельно загруженных аудиофайлов не подключена (только для видео),
     // плеер сам по себе и есть превью, ждать нечего.
     const previewText = uploaded.pdf_text ?? uploaded.preview_text ?? "";
+    let nextPos = pos;
     if (mode === "wysiwyg" && editor) {
       if (isVideo) {
-        const chain = editor
-          .chain()
-          .focus()
-          .insertContent({ type: "video", attrs: { src: uploaded.url, filename: uploaded.filename } });
-        if (!isVaultNote) chain.insertContent({ type: "paragraph", content: [{ type: "text", text: placeholder }] });
-        chain.run();
+        const content: Record<string, unknown>[] = [{ type: "video", attrs: { src: uploaded.url, filename: uploaded.filename } }];
+        if (!isVaultNote) content.push({ type: "paragraph", content: [{ type: "text", text: placeholder }] });
+        editor.chain().focus().insertContentAt(pos, content).run();
+        nextPos = editor.state.selection.to;
         if (isVaultNote && sourceFile) patchLocalPreview("video", uploaded.url, sourceFile);
       } else if (isAudio) {
         editor
           .chain()
           .focus()
-          .insertContent({ type: "audio", attrs: { src: uploaded.url, filename: uploaded.filename } })
+          .insertContentAt(pos, { type: "audio", attrs: { src: uploaded.url, filename: uploaded.filename } })
           .run();
+        nextPos = editor.state.selection.to;
         if (isVaultNote && sourceFile) patchLocalPreview("audio", uploaded.url, sourceFile);
       } else if (uploaded.pdf_ocr_queued) {
         // Авто-OCR уже поставлен в очередь на бэкенде — плейсхолдер, не
@@ -572,17 +621,19 @@ export default function NoteEditor({
         editor
           .chain()
           .focus()
-          .insertContent({ type: "paragraph", content: [{ type: "text", text: pdfPlaceholder }] })
+          .insertContentAt(pos, { type: "paragraph", content: [{ type: "text", text: pdfPlaceholder }] })
           .run();
+        nextPos = editor.state.selection.to;
       } else {
         editor
           .chain()
           .focus()
-          .insertContent({
+          .insertContentAt(pos, {
             type: "documentAttachment",
             attrs: { url: uploaded.url, filename: uploaded.filename, text: previewText },
           })
           .run();
+        nextPos = editor.state.selection.to;
       }
     } else if (isVideo) {
       setContent(
@@ -598,6 +649,7 @@ export default function NoteEditor({
     } else {
       setContent((c) => `${c}\n\n${serializeDocumentAttachment(uploaded.url, uploaded.filename, previewText)}\n`);
     }
+    return nextPos;
   }
 
   // Реальная жалоба: с телефона нельзя было выбрать пачку файлов сразу —
@@ -605,17 +657,20 @@ export default function NoteEditor({
   // код брал только files[0]. Грузим и вставляем ПОСЛЕДОВАТЕЛЬНО (не
   // Promise.all): порядок вставки в заметке должен совпадать с порядком
   // выбора, и один прогресс-бар на все параллельные загрузки не имел бы
-  // смысла.
+  // смысла. Позиция вставки — явная переменная (см. insertImageAt выше),
+  // а не live editor.chain().focus(): между файлами есть await сетевой
+  // загрузки, за это время фокус/выделение редактора ненадёжны.
   async function onPickImage(e: ChangeEvent<HTMLInputElement>) {
     const files = Array.from(e.target.files ?? []);
     e.target.value = "";
     if (!files.length || !item) return;
+    let pos = editor?.state.selection.to ?? 0;
     try {
       for (let i = 0; i < files.length; i++) {
         setUploadBatch({ current: i + 1, total: files.length });
         setUploadProgress(0);
         const uploaded = await uploadFile.mutateAsync({ file: files[i], onProgress: setUploadProgress });
-        insertImage(uploaded, files[i]);
+        pos = insertImageAt(pos, uploaded, files[i]);
       }
     } finally {
       setUploadProgress(null);
@@ -627,12 +682,13 @@ export default function NoteEditor({
     const files = Array.from(e.target.files ?? []);
     e.target.value = "";
     if (!files.length || !item) return;
+    let pos = editor?.state.selection.to ?? 0;
     try {
       for (let i = 0; i < files.length; i++) {
         setUploadBatch({ current: i + 1, total: files.length });
         setUploadProgress(0);
         const uploaded = await uploadFile.mutateAsync({ file: files[i], onProgress: setUploadProgress });
-        insertUploadedFile(uploaded, files[i]);
+        pos = insertUploadedFileAt(pos, uploaded, files[i]);
       }
     } finally {
       setUploadProgress(null);

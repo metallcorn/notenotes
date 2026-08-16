@@ -4,18 +4,20 @@ import asyncio
 import json
 import logging
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 
 import zxingcpp
 from PIL import Image
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import realtime
 from app.core.config import get_settings
 from app.db import async_session
 from app.llm.base import Message
 from app.llm.factory import get_llm_client
-from app.models import Item, Upload
+from app.models import Item, Notification, Upload
 from app.vision import _replace_in_referencing_items
 from app.vision import placeholder_text as image_placeholder_text
 from app.vision import serialize_image_ocr_result
@@ -158,6 +160,17 @@ _SEARCH_SYNONYMS: dict[str, str] = {
     "event": "билет на мероприятие",
 }
 
+# Те же подписи, что TICKET_LABELS в TicketAttachmentCard.tsx (кнопка
+# "Напомнить") — автоматическое уведомление ниже должно звучать так же,
+# как уже сделанное вручную.
+_TICKET_LABELS: dict[str, str] = {
+    "train": "ЖД-билет",
+    "flight": "Авиабилет",
+    "bus": "Автобусный билет",
+    "event": "Билет на мероприятие",
+    "other": "Билет",
+}
+
 
 def _serialize_ticket_card(url: str, filename: str, data: dict, raw_text: str, code: str | None) -> str:
     parts = [f'data-url="{_esc(url)}"']
@@ -198,6 +211,54 @@ _REPLACE_RETRY_ATTEMPTS = 5
 _REPLACE_RETRY_DELAY_SECONDS = 2.0
 
 
+async def _add_event_notification(db: AsyncSession, item: Item, properties: dict, title: str | None) -> None:
+    """Реальная жалоба: билет с датой сегодня/завтра распознавался и лежал
+    в заметке, но пользователь узнавал о нём, только если сам догадывался
+    зайти и посмотреть — колокольчик молчал, пока кто-то вручную не нажмёт
+    "Напомнить" на карточке. Сразу при распознавании ставим уведомление на
+    момент начала (datetime_start) — тем же путём, что и ручная кнопка
+    (тот же Notification, тот же дальнейший dispatcher/Telegram/push), без
+    отдельного "утреннего" сигнала (осознанно, по решению пользователя)."""
+    raw_start = properties.get("datetime_start")
+    if not raw_start:
+        return
+    try:
+        trigger_at = datetime.fromisoformat(str(raw_start))
+    except ValueError:
+        return
+    if trigger_at.tzinfo is None:
+        trigger_at = trigger_at.replace(tzinfo=timezone.utc)
+
+    # Защита от дубля при повторном распознавании (кнопка "Распознать
+    # снова" на карточке билета) — без неё пользователь получил бы второе
+    # напоминание на то же самое событие.
+    existing = await db.execute(
+        select(Notification.id).where(
+            Notification.type == "ticket_event",
+            Notification.payload["item_id"].astext == str(item.id),
+        )
+    )
+    if existing.first() is not None:
+        return
+
+    ticket_type = properties.get("ticket_type") or "other"
+    label = _TICKET_LABELS.get(ticket_type, _TICKET_LABELS["other"])
+    location_from = properties.get("location_from") or ""
+    location_to = properties.get("location_to") or ""
+    body = f"{location_from}{' → ' if location_from and location_to else ''}{location_to}"
+
+    db.add(
+        Notification(
+            user_id=item.user_id,
+            type="ticket_event",
+            title=f"{label}: {title or item.title or label}",
+            body=body,
+            payload={"item_id": str(item.id), "space_id": str(item.space_id), "material_type": "ticket"},
+            trigger_at=trigger_at,
+        )
+    )
+
+
 async def _finalize_ticket_item(upload_id: uuid.UUID, old: str, new: str, properties: dict, title: str | None) -> None:
     # Как vision._replace_in_referencing_items (тот же retry — плейсхолдер
     # может ещё не долететь до сервера дебаунсом автосохранения), но
@@ -224,6 +285,7 @@ async def _finalize_ticket_item(upload_id: uuid.UUID, old: str, new: str, proper
                     # ничего не говорил о содержимом.
                     if title and (not item.title or item.title == "Фото"):
                         item.title = title
+                    await _add_event_notification(db, item, properties, title)
                     touched_spaces.add(item.space_id)
             if touched_spaces:
                 await db.commit()

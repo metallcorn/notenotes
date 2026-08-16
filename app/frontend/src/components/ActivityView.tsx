@@ -1,19 +1,64 @@
 import { useMemo, useState } from "react";
-import { Bell, BellOff, CalendarClock, Check, ChevronLeft, ListChecks, MessageSquare, Sparkles, StickyNote, X } from "lucide-react";
+import {
+  Bell,
+  BellOff,
+  Calendar,
+  CalendarClock,
+  Check,
+  ChevronLeft,
+  ListChecks,
+  MessageSquare,
+  Sparkles,
+  StickyNote,
+  X,
+} from "lucide-react";
 import {
   useAllNotifications,
   useDeleteNotification,
+  useDetectedEvents,
   useDialogs,
+  useDismissDetectedEvent,
   useMarkNotificationRead,
   useRecentItems,
   useResolveNotification,
   useSpaces,
   useUnresolveNotification,
 } from "../api/hooks";
-import type { Notification } from "../api/types";
+import type { DetectedEvent, Notification } from "../api/types";
 import Spinner from "./Spinner";
 
 type Tab = "notifications" | "recent";
+
+// Реальная жалоба: события с датой (билеты/напоминания) сегодня терялись
+// среди остальных активных — список сортирован по trigger_at, но найти
+// "что у меня сегодня" всё равно приходилось визуальным сканированием.
+// Первая версия делала это переключателем-фильтром (клик, чтобы увидеть) —
+// отклонено: "также как активные/выполненные — отдельным разделом, без
+// лишних нажатий". "Сегодня" — такой же всегда видимый раздел, вынесенный
+// из "Активных", а не режим просмотра.
+function isToday(triggerAt: string | null): boolean {
+  if (!triggerAt) return false;
+  const t = new Date(triggerAt);
+  const now = new Date();
+  return t.getFullYear() === now.getFullYear() && t.getMonth() === now.getMonth() && t.getDate() === now.getDate();
+}
+
+// Фильтр горизонта для "Активных" (уже без сегодняшних — те в своём
+// разделе). Просроченное и без даты не прячем ни при каком горизонте —
+// сужение окна должно скрывать только далёкое будущее, а не то, что и так
+// требует внимания.
+type Horizon = "all" | "3days" | "week";
+
+const HORIZON_LABELS: Record<Horizon, string> = { all: "Все", "3days": "3 дня", week: "Неделя" };
+
+function matchesHorizon(horizon: Horizon, triggerAt: string | null): boolean {
+  if (horizon === "all" || !triggerAt) return true;
+  const t = new Date(triggerAt).getTime();
+  const now = Date.now();
+  if (t <= now) return true;
+  const days = horizon === "3days" ? 3 : 7;
+  return t < now + days * 24 * 3600_000;
+}
 
 function formatWhen(value: string): string {
   return new Date(value).toLocaleString("ru-RU", {
@@ -103,32 +148,109 @@ function NotificationRow({
   );
 }
 
+// Дата/событие, найденное LLM внутри заметки (app/autotag.py) — пассивная
+// запись, без resolve/read (нет доставки, нет "выполнено"). Единственное
+// действие — открыть заметку или убрать ложное срабатывание.
+function DetectedEventRow({
+  event,
+  onOpen,
+}: {
+  event: DetectedEvent;
+  onOpen: (spaceId: string, itemId: string, entryId?: string, notificationId?: string) => void;
+}) {
+  const dismiss = useDismissDetectedEvent();
+
+  return (
+    <div className="flex items-start gap-2 border-b bg-violet-50/40 px-4 py-3">
+      <Calendar size={14} className="mt-0.5 shrink-0 text-violet-400" />
+      <button
+        onClick={() => onOpen(event.space_id, event.item_id)}
+        className="min-w-0 flex-1 cursor-pointer text-left hover:opacity-80"
+      >
+        <div className="truncate text-sm text-slate-700">{event.event_title}</div>
+        <div className="mt-0.5 flex items-center gap-1 truncate text-xs text-slate-400">
+          <CalendarClock size={11} />
+          {formatWhen(event.event_at)} · {event.item_title}
+        </div>
+      </button>
+      <button
+        title="Не событие — убрать"
+        onClick={() =>
+          dismiss.mutate({ itemId: event.item_id, eventAt: event.event_at, eventTitle: event.event_title })
+        }
+        disabled={dismiss.isPending}
+        className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-slate-400 hover:bg-red-50 hover:text-red-600 disabled:opacity-50"
+      >
+        <X size={14} />
+      </button>
+    </div>
+  );
+}
+
+// Объединённая "лента" для разделов Сегодня/Активные — напоминания и
+// найденные в заметках события сортируются и группируются вместе (одна и
+// та же ось времени), но остаются разными сущностями с разным набором
+// действий (см. NotificationRow/DetectedEventRow выше).
+type ActivityEntry =
+  | { kind: "notification"; at: string | null; notification: Notification }
+  | { kind: "event"; at: string; event: DetectedEvent };
+
+function ActivityEntryRow({
+  entry,
+  onOpen,
+}: {
+  entry: ActivityEntry;
+  onOpen: (spaceId: string, itemId: string, entryId?: string, notificationId?: string) => void;
+}) {
+  if (entry.kind === "event") {
+    return <DetectedEventRow event={entry.event} onOpen={onOpen} />;
+  }
+  return <NotificationRow notification={entry.notification} onOpen={onOpen} />;
+}
+
+function activityEntryKey(entry: ActivityEntry): string {
+  return entry.kind === "event" ? `event-${entry.event.item_id}-${entry.event.event_at}` : entry.notification.id;
+}
+
 function NotificationsTab({
   onOpen,
 }: {
   onOpen: (spaceId: string, itemId: string, entryId?: string, notificationId?: string) => void;
 }) {
-  const { data, isLoading } = useAllNotifications();
+  const { data, isLoading: notificationsLoading } = useAllNotifications();
+  const { data: eventsData, isLoading: eventsLoading } = useDetectedEvents();
+  const [horizon, setHorizon] = useState<Horizon>("all");
 
   // Активные — НЕ по времени (прошедшее trigger_at ≠ решено), а по
   // resolved_at: ничего, кроме самого пользователя (или resolve_reminder
-  // ассистента), не переводит напоминание в выполненные.
-  const { active, resolved } = useMemo(() => {
-    const all = data ?? [];
-    const active = all
-      .filter((n) => !n.resolved_at)
-      .sort((a, b) => {
-        const at = a.trigger_at ? new Date(a.trigger_at).getTime() : -Infinity;
-        const bt = b.trigger_at ? new Date(b.trigger_at).getTime() : -Infinity;
-        return at - bt;
-      });
-    const resolved = all
+  // ассистента), не переводит напоминание в выполненные. "Сегодня" —
+  // подмножество активных, вынесенное в свой раздел (см. isToday выше).
+  // Найденные в заметках события (useDetectedEvents) подмешиваются в ту же
+  // ленту той же осью времени — нет "выполнено", поэтому в "Выполненные"
+  // не попадают вовсе.
+  const { today, active, resolved } = useMemo(() => {
+    const notifs = data ?? [];
+    const events = eventsData ?? [];
+    const entries: ActivityEntry[] = [
+      ...notifs.filter((n) => !n.resolved_at).map((n): ActivityEntry => ({ kind: "notification", at: n.trigger_at, notification: n })),
+      ...events.map((e): ActivityEntry => ({ kind: "event", at: e.event_at, event: e })),
+    ];
+    const byAt = (a: ActivityEntry, b: ActivityEntry) => {
+      const at = a.at ? new Date(a.at).getTime() : -Infinity;
+      const bt = b.at ? new Date(b.at).getTime() : -Infinity;
+      return at - bt;
+    };
+    const today = entries.filter((e) => isToday(e.at)).sort(byAt);
+    const active = entries.filter((e) => !isToday(e.at)).sort(byAt);
+    const resolved = notifs
       .filter((n) => n.resolved_at)
       .sort((a, b) => new Date(b.resolved_at!).getTime() - new Date(a.resolved_at!).getTime());
-    return { active, resolved };
-  }, [data]);
+    return { today, active, resolved };
+  }, [data, eventsData]);
 
-  if (isLoading) {
+  const filteredActive = useMemo(() => active.filter((e) => matchesHorizon(horizon, e.at)), [active, horizon]);
+
+  if (notificationsLoading || eventsLoading) {
     return (
       <div className="flex items-center gap-2 p-4 text-sm text-slate-400">
         <Spinner /> Загрузка…
@@ -136,7 +258,7 @@ function NotificationsTab({
     );
   }
 
-  if (active.length === 0 && resolved.length === 0) {
+  if (today.length === 0 && active.length === 0 && resolved.length === 0) {
     return (
       <div className="flex flex-col items-center gap-2 p-8 text-center text-sm text-slate-400">
         <BellOff size={24} />
@@ -147,13 +269,34 @@ function NotificationsTab({
 
   return (
     <div>
-      {active.length > 0 && (
+      {today.length > 0 && (
         <>
           <div className="bg-slate-50 px-4 py-1.5 text-xs font-medium uppercase tracking-wide text-slate-400">
-            Активные
+            Сегодня
           </div>
-          {active.map((n) => (
-            <NotificationRow key={n.id} notification={n} onOpen={onOpen} />
+          {today.map((e) => (
+            <ActivityEntryRow key={activityEntryKey(e)} entry={e} onOpen={onOpen} />
+          ))}
+        </>
+      )}
+      {active.length > 0 && (
+        <>
+          <div className="flex items-center gap-1.5 bg-slate-50 px-4 py-1.5">
+            <span className="mr-0.5 text-xs font-medium uppercase tracking-wide text-slate-400">Активные</span>
+            {(Object.keys(HORIZON_LABELS) as Horizon[]).map((h) => (
+              <button
+                key={h}
+                onClick={() => setHorizon(h)}
+                className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${
+                  horizon === h ? "bg-slate-900 text-white" : "bg-slate-200 text-slate-600 hover:bg-slate-300"
+                }`}
+              >
+                {HORIZON_LABELS[h]}
+              </button>
+            ))}
+          </div>
+          {filteredActive.map((e) => (
+            <ActivityEntryRow key={activityEntryKey(e)} entry={e} onOpen={onOpen} />
           ))}
         </>
       )}

@@ -54,6 +54,30 @@ class ItemOut(BaseModel):
     pinned: bool = False
     deleted_at: datetime | None = None
     vault: dict | None = None
+    # Найденные LLM физические адреса (app/autotag.py) — для клика-на-карту
+    # прямо в тексте заметки (extensions/DetectedAddressLinks.ts). Только для
+    # ТЕКУЩЕЙ открытой заметки, не кросс-спейсовый список — в отличие от
+    # detected_events (своя лента в ActivityView), сюда отдельный эндпоинт
+    # не нужен.
+    detected_addresses: list[dict] = []
+
+
+class DetectedEventDismissIn(BaseModel):
+    event_at: str
+    event_title: str
+
+
+class DetectedEventOut(BaseModel):
+    """Одно найденное событие (app/autotag.py, properties.detected_events)
+    — плоская пара "заметка + дата", а не сам Item: у одной заметки может
+    быть несколько дат, ActivityView должен уметь показать их отдельными
+    строками."""
+
+    item_id: uuid.UUID
+    space_id: uuid.UUID
+    item_title: str
+    event_title: str
+    event_at: str
 
 
 class ItemVersionOut(BaseModel):

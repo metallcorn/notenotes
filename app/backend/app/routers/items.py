@@ -11,7 +11,15 @@ from app.autotag import enqueue_autotag, suggest_tags_now
 from app.db import get_db
 from app.deps import ensure_space_access, get_current_user, is_vault_space
 from app.models import Folder, Item, ItemTag, ItemVersion, Space, SpaceMember, Tag, Upload, User
-from app.schemas.item import ItemCreate, ItemMoveSpace, ItemOut, ItemUpdate, ItemVersionOut
+from app.schemas.item import (
+    DetectedEventDismissIn,
+    DetectedEventOut,
+    ItemCreate,
+    ItemMoveSpace,
+    ItemOut,
+    ItemUpdate,
+    ItemVersionOut,
+)
 from app.schemas.tag import ItemTagOut
 
 router = APIRouter(prefix="/api/items", tags=["items"])
@@ -55,6 +63,7 @@ async def _serialize(db: AsyncSession, item: Item, user_id: uuid.UUID) -> ItemOu
         pinned=bool(item.properties.get("pinned", False)),
         deleted_at=item.deleted_at,
         vault=item.properties.get("vault"),
+        detected_addresses=item.properties.get("detected_addresses") or [],
     )
 
 
@@ -202,6 +211,86 @@ async def list_recent_items(
     )
     items = (await db.execute(query)).scalars().all()
     return [await _serialize(db, item, user.id) for item in items]
+
+
+@router.get("/detected-events", response_model=list[DetectedEventOut])
+async def list_detected_events(
+    user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+) -> list[DetectedEventOut]:
+    """Даты/события, найденные LLM в заметках (app/autotag.py) — пассивные,
+    БЕЗ Notification: никуда не рассылаются (Telegram/push/колокольчик), их
+    единственное назначение — попасться на глаза в ActivityView. Регистрируется
+    ДО /{item_id} по той же причине, что /recent выше."""
+    query = (
+        select(Item)
+        .join(SpaceMember, SpaceMember.space_id == Item.space_id)
+        .join(Space, Space.id == Item.space_id)
+        .where(
+            SpaceMember.user_id == user.id,
+            Item.material_type == "note",
+            Item.deleted_at.is_(None),
+            Space.is_vault.is_(False),
+            Item.properties.has_key("detected_events"),
+        )
+    )
+    items = (await db.execute(query)).scalars().all()
+    # Реальная жалоба: LLM-инструкция "не включай явно прошедшие даты"
+    # (autotag.py) соблюдается не всегда — модель верно распознаёт
+    # событие, но не всегда сама фильтрует давно прошедшее (например,
+    # дату из заметки годичной давности). Не полагаемся на то, что модель
+    # сама отсеет — фильтруем детерминированно на дату, как и остальные
+    # такие разрывы в проекте (тот же принцип, что transliterate.py).
+    today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    out: list[DetectedEventOut] = []
+    for item in items:
+        for event in item.properties.get("detected_events") or []:
+            at = event.get("at")
+            title = event.get("title")
+            if not at or not title:
+                continue
+            try:
+                at_dt = datetime.fromisoformat(at)
+            except ValueError:
+                continue
+            if at_dt.tzinfo is None:
+                at_dt = at_dt.replace(tzinfo=timezone.utc)
+            if at_dt < today_start:
+                continue
+            out.append(
+                DetectedEventOut(
+                    item_id=item.id,
+                    space_id=item.space_id,
+                    item_title=item.title or "Без названия",
+                    event_title=title,
+                    event_at=at,
+                )
+            )
+    return out
+
+
+@router.post("/{item_id}/detected-events/dismiss", status_code=status.HTTP_204_NO_CONTENT)
+async def dismiss_detected_event(
+    item_id: uuid.UUID,
+    payload: DetectedEventDismissIn,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    """Ложное срабатывание LLM-детектора дат (app/autotag.py) — тот же
+    принцип, что у авто-тегов (ТЗ §8.2, CLAUDE.md): предлагает, не
+    перекладывает молча, пользователь может убрать. Переклассификация при
+    следующем сохранении заметки может вернуть то же событие снова, если
+    формулировка в тексте не изменилась — это ожидаемо, не баг."""
+    item = await _get_accessible_item(db, user, item_id)
+    events = item.properties.get("detected_events") or []
+    remaining = [e for e in events if not (e.get("at") == payload.event_at and e.get("title") == payload.event_title)]
+    if len(remaining) != len(events):
+        item.properties = (
+            {**item.properties, "detected_events": remaining}
+            if remaining
+            else {k: v for k, v in item.properties.items() if k != "detected_events"}
+        )
+        await db.commit()
+        await realtime.notify_space(item.space_id, "items")
 
 
 @router.get("/{item_id}", response_model=ItemOut)

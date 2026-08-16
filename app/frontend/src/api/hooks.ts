@@ -14,6 +14,7 @@ import {
 import { getVaultKey, unlockVault, useVaultUnlocked } from "../lib/vaultSession";
 import type {
   AssistantMemoryFact,
+  DetectedEvent,
   Dialog,
   DialogSummary,
   Folder,
@@ -367,6 +368,26 @@ export function useRecentItems() {
   return useQuery<Item[]>({
     queryKey: ["items", "recent"],
     queryFn: () => api.get<Item[]>("/items/recent"),
+  });
+}
+
+// Даты/события, найденные LLM внутри заметок (app/autotag.py) — для
+// ActivityView, пассивные, без доставки (см. DetectedEvent в types.ts).
+export function useDetectedEvents() {
+  return useQuery<DetectedEvent[]>({
+    queryKey: ["items", "detected-events"],
+    queryFn: () => api.get<DetectedEvent[]>("/items/detected-events"),
+  });
+}
+
+// Убрать ложное срабатывание детектора дат — тот же принцип, что удаление
+// авто-тега (ТЗ §8.2): предлагает, не перекладывает молча.
+export function useDismissDetectedEvent() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ itemId, eventAt, eventTitle }: { itemId: string; eventAt: string; eventTitle: string }) =>
+      api.post(`/items/${itemId}/detected-events/dismiss`, { event_at: eventAt, event_title: eventTitle }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["items", "detected-events"] }),
   });
 }
 

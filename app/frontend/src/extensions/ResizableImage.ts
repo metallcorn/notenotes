@@ -1,4 +1,6 @@
 import ImageExtension from "@tiptap/extension-image";
+import { ReactNodeViewRenderer } from "@tiptap/react";
+import ResizableImageView from "../components/ResizableImageView";
 
 /**
  * @tiptap/extension-image без доп. атрибутов сериализуется в чистый
@@ -56,5 +58,12 @@ export const ResizableImage = ImageExtension.extend({
         parse: {},
       },
     };
+  },
+
+  // NodeView, не голый renderHTML — нужен оверлей "распознаём…" прямо
+  // поверх превью, пока фоновая обработка (vision.py) не заменит соседний
+  // плейсхолдер-параграф на готовый результат (см. ResizableImageView.tsx).
+  addNodeView() {
+    return ReactNodeViewRenderer(ResizableImageView);
   },
 });
