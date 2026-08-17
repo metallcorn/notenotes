@@ -36,6 +36,7 @@ from app.routers import (
     tags,
     telegram,
     uploads,
+    url_checks,
     voice,
 )
 
@@ -95,6 +96,7 @@ app.include_router(memories.router)
 app.include_router(skills.router)
 app.include_router(telegram.router)
 app.include_router(link_preview.router)
+app.include_router(url_checks.router)
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 

@@ -66,6 +66,8 @@ SKILL_CATALOG: dict[str, dict[str, Any]] = {
     "resolve_reminder": {"label": "Отметка напоминаний", "description": "Отмечает напоминание выполненным", "toggleable": False},
     "run_python": {"label": "Python-вычисления", "description": "Точные вычисления в изолированной песочнице", "toggleable": True},
     "read_website": {"label": "Чтение сайтов по ссылке", "description": "Скачивает и читает содержимое страницы по присланной ссылке", "toggleable": True},
+    "test_url_request": {"label": "Проверка ссылки", "description": "Делает тестовый запрос по ссылке, чтобы предложить поля для виджета", "toggleable": True},
+    "insert_url_check_block": {"label": "Виджет «Проверить по ссылке»", "description": "Добавляет в заметку карточку с данными по ссылке и кнопкой «Обновить»", "toggleable": True},
     "show_note_images": {
         "label": "Картинки в чате",
         "description": "Показывает найденную в заметках картинку прямо в ответе, если она по теме",
@@ -81,7 +83,7 @@ PROMPT_ONLY_SKILLS = {"show_note_images"}
 
 
 def _build_registry() -> dict[str, tuple[ToolDefinition, ToolHandler]]:
-    from app.tools import calendar_event, lists, maps, memory, notes, python_sandbox, read_website, reminders, search_base, ui, web_search
+    from app.tools import calendar_event, lists, maps, memory, notes, python_sandbox, read_website, reminders, search_base, ui, url_check, web_search
 
     registry: dict[str, tuple[ToolDefinition, ToolHandler]] = {
         search_base.DEFINITION.name: (search_base.DEFINITION, search_base.handle),
@@ -93,6 +95,8 @@ def _build_registry() -> dict[str, tuple[ToolDefinition, ToolHandler]]:
         maps.CREATE_MAPS_LINK.name: (maps.CREATE_MAPS_LINK, maps.create_maps_link),
         python_sandbox.RUN_PYTHON.name: (python_sandbox.RUN_PYTHON, python_sandbox.run_python),
         read_website.DEFINITION.name: (read_website.DEFINITION, read_website.handle),
+        url_check.TEST_URL_REQUEST.name: (url_check.TEST_URL_REQUEST, url_check.test_url_request),
+        url_check.INSERT_URL_CHECK_BLOCK.name: (url_check.INSERT_URL_CHECK_BLOCK, url_check.insert_url_check_block),
         reminders.CREATE_REMINDER.name: (reminders.CREATE_REMINDER, reminders.create_reminder),
         reminders.LIST_REMINDERS.name: (reminders.LIST_REMINDERS, reminders.list_reminders),
         reminders.RESOLVE_REMINDER.name: (reminders.RESOLVE_REMINDER, reminders.resolve_reminder),

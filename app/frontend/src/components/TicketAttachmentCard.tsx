@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { NodeViewWrapper } from "@tiptap/react";
 import type { NodeViewProps } from "@tiptap/react";
 import QRCode from "qrcode";
@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 import type { TicketAttachmentData } from "../extensions/TicketAttachment";
 import { useCreateReminder, useReprocessUpload } from "../api/hooks";
+import { ExpandedTextPanel } from "./RecognizedTextView";
 
 const UPLOAD_ID_RE = /\/api\/uploads\/([0-9a-f-]{36})/i;
 
@@ -185,6 +186,7 @@ export default function TicketAttachmentCard({ node, editor, getPos }: NodeViewP
   const [reminderDone, setReminderDone] = useState(false);
   const createReminder = useCreateReminder();
   const reprocess = useReprocessUpload();
+  const cardRef = useRef<HTMLDivElement>(null);
 
   const isPdf = filename.toLowerCase().endsWith(".pdf");
   const Icon = TICKET_ICONS[ticketType] ?? Ticket;
@@ -265,9 +267,19 @@ export default function TicketAttachmentCard({ node, editor, getPos }: NodeViewP
   }
 
   return (
-    <NodeViewWrapper as="div" className="my-1" data-drag-handle draggable>
-      <div className="max-w-sm rounded border border-violet-200 bg-violet-50">
+    // Реальный найденный баг (тот же, что чинили сегодня у карточки
+    // документа/картинки — найден чтением исходников @tiptap/core): дело
+    // не только в data-drag-handle — ГЛАВНОЕ, что сам HTML-атрибут
+    // draggable=true на NodeViewWrapper браузер распознаёт независимо от
+    // data-drag-handle (та проверка чисто внутри TipTap, уже ПОСЛЕ того,
+    // как браузер решил, что это перетаскивание, а не выделение текста).
+    // draggable теперь ТОЛЬКО на верхней кнопке — dragstart всплывает,
+    // обработчик NodeViewWrapper всё равно сработает для неё.
+    <NodeViewWrapper as="div" className="my-1">
+      <div ref={cardRef} className="max-w-sm rounded border border-violet-200 bg-violet-50">
         <button
+          data-drag-handle
+          draggable
           onClick={() => setPreviewOpen(true)}
           className="flex w-full items-start gap-2 px-3 py-2 text-left hover:bg-violet-100"
         >
@@ -428,26 +440,7 @@ export default function TicketAttachmentCard({ node, editor, getPos }: NodeViewP
             </button>
           )}
         </div>
-        {rawText && expanded && (
-          // contentEditable=true — та же обёртка-остров, что в
-          // DocumentAttachmentCard.tsx: узел atom, а браузеры обращаются с
-          // contenteditable=false внутри редактируемой заметки как с одним
-          // неделимым блоком выделения без этого (реальная жалоба, уже
-          // ловили на карточке документа).
-          <div
-            data-doc-text
-            contentEditable
-            suppressContentEditableWarning
-            draggable={false}
-            onKeyDown={(e) => e.preventDefault()}
-            onPaste={(e) => e.preventDefault()}
-            onBeforeInput={(e) => e.preventDefault()}
-            onDragStart={(e) => e.preventDefault()}
-            className="max-h-96 cursor-text select-text overflow-y-auto whitespace-pre-wrap border-t border-violet-200 px-3 py-2 text-xs text-slate-700 outline-none"
-          >
-            {rawText}
-          </div>
-        )}
+        {rawText && expanded && <ExpandedTextPanel anchorRef={cardRef} text={rawText} />}
       </div>
       {previewOpen && <TicketPreviewOverlay url={url} isPdf={isPdf} onClose={() => setPreviewOpen(false)} />}
       {qrOpen && code && (

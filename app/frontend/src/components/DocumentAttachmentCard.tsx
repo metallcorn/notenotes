@@ -1,13 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
 import { NodeViewWrapper } from "@tiptap/react";
 import type { NodeViewProps } from "@tiptap/react";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
-import { ChevronDown, ChevronUp, Download, File, FileText, X } from "lucide-react";
+import { ChevronDown, ChevronUp, Download, File, FileText, RotateCw, X } from "lucide-react";
 import { useReprocessUpload } from "../api/hooks";
-import { useIsPartOfAttachmentStack, useTapReveal } from "../lib/useNodeViewPreview";
-import { RecognizedTextCopyButtons, recognizedTextMarkdownComponents } from "./RecognizedTextView";
+import { ExpandedTextPanel, RecognizedTextCopyButtons } from "./RecognizedTextView";
 import Spinner from "./Spinner";
 
 const UPLOAD_ID_RE = /\/api\/uploads\/([0-9a-f-]{36})/i;
@@ -43,85 +39,75 @@ function PdfPreviewOverlay({ url, onClose }: { url: string; onClose: () => void 
   );
 }
 
-// Всплывающая мини-превьюшка страницы PDF по ховеру/тапу — тот же приём
-// (портал в body, без position: absolute внутри редактора), что
-// HoverPopover в LinkPreviewCard.tsx: редактор сам overflow-контейнер,
-// абсолютное позиционирование внутри него обрезалось бы.
-function ThumbnailPopover({ anchor, thumbnailUrl }: { anchor: HTMLElement; thumbnailUrl: string }) {
-  const [position, setPosition] = useState<{ top: number; left: number } | null>(null);
-
-  useEffect(() => {
-    const rect = anchor.getBoundingClientRect();
-    setPosition({ top: rect.bottom + 4, left: rect.left });
-  }, [anchor]);
-
-  if (!position) return null;
-
-  return createPortal(
-    <div style={{ top: position.top, left: position.left }} className="fixed z-50 overflow-hidden rounded border bg-white shadow-lg">
-      <img src={thumbnailUrl} alt="" className="max-h-64 w-48 object-cover object-top" />
-    </div>,
-    document.body,
-  );
-}
-
-export default function DocumentAttachmentCard({ node, editor, getPos }: NodeViewProps) {
-  const { url, filename, text } = node.attrs as { url: string; filename: string; text: string };
+export default function DocumentAttachmentCard({ node, editor }: NodeViewProps) {
+  const { url, filename, text, processing } = node.attrs as {
+    url: string;
+    filename: string;
+    text: string;
+    processing?: boolean;
+  };
   const [expanded, setExpanded] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [thumbFailed, setThumbFailed] = useState(false);
-  const [hovered, setHovered] = useState(false);
   const reprocess = useReprocessUpload();
-  const stacked = useIsPartOfAttachmentStack(editor, getPos);
-  const { revealed, handleTap } = useTapReveal();
+  const cardRef = useRef<HTMLDivElement>(null);
 
   const isPdf = filename.toLowerCase().endsWith(".pdf");
   const uploadId = url.match(UPLOAD_ID_RE)?.[1] ?? null;
+  // documentAttachment — блочный atom-узел (extensions/DocumentAttachment.ts,
+  // group: "block"), у него физически не бывает текста слева/справа на той
+  // же строке — только соседние абзацы сверху/снизу, которые сюда не
+  // относятся (то же самое уже сделано для ссылок, LinkPreviewCard.tsx).
+  // Превью поэтому показывается сразу всегда, без наведения/тапа.
   const thumbnailUrl = isPdf && uploadId && !thumbFailed ? `${url}/thumbnail` : null;
-  const rowRef = useRef<HTMLDivElement>(null);
 
+  // Реальная жалоба: раньше карточка файла на время распознавания
+  // целиком заменялась текстовым плейсхолдером — файл нельзя было
+  // открыть/скачать до конца обработки. Теперь узел тот же самый (url
+  // никуда не девается), меняем только атрибут — backend сам сбросит его
+  // обратно на готовый текст (или, при ошибке, на processing=false, чтобы
+  // кнопка снова появилась — pdf_processing.py::_process/_fail).
   async function handleReprocess() {
-    if (!uploadId || typeof getPos !== "function") return;
-    // Плейсхолдер — та же строка, что backend ищет и заменяет
-    // (pdf_processing.placeholder_text) на готовую карточку с текстом.
-    const placeholder = `⏳ Распознавание PDF ${uploadId} обрабатывается…`;
-    const pos = getPos();
-    editor
-      .chain()
-      .focus()
-      .deleteRange({ from: pos, to: pos + node.nodeSize })
-      .insertContentAt(pos, { type: "paragraph", content: [{ type: "text", text: placeholder }] })
-      .run();
+    if (!uploadId) return;
+    editor.chain().focus().updateAttributes("documentAttachment", { processing: true }).run();
     await reprocess.mutateAsync(uploadId);
   }
 
-  // Подборка (пачка файлов/ссылок подряд) — превью сразу, без действия;
-  // одиночный файл среди текста — компактно, превью по ховеру (мышь) или
-  // первому тапу (тач-экран, второй тап открывает — см. useTapReveal).
-  const showBanner = stacked && thumbnailUrl;
-  const showHoverPreview = !stacked && (hovered || revealed) && thumbnailUrl && rowRef.current;
+  // Распознавание заметно улучшилось (постранично причёсанная вёрстка,
+  // document_reflow.py) — кнопка "распознать заново" рядом с остальными
+  // имеет смысл и для УЖЕ распознанных старых файлов, не только для
+  // пустых. Но здесь есть что терять — текущий результат заменится новым
+  // (не факт, что лучшим), поэтому только для этого случая подтверждение.
+  function handleReprocessWithConfirm() {
+    if (!uploadId) return;
+    if (window.confirm("Распознать заново? Текущий распознанный текст будет заменён новым результатом.")) {
+      void handleReprocess();
+    }
+  }
 
   return (
-    <NodeViewWrapper as="div" className="my-1" data-drag-handle draggable>
-      <div className={`overflow-hidden rounded border bg-slate-50 ${stacked ? "max-w-md" : "inline-block max-w-full"}`}>
-        {showBanner && (
+    // Реальный найденный баг: HTML-атрибут draggable="true" на всей
+    // обёртке — браузер распознаёт "тащить мышью" по БЛИЖАЙШЕМУ ПРЕДКУ с
+    // draggable=true, независимо от data-drag-handle (это отдельная,
+    // чисто внутренняя проверка TipTap, срабатывающая уже ПОСЛЕ того, как
+    // браузер решил, что это перетаскивание, а не выделение текста).
+    // draggable теперь ТОЛЬКО на строке с именем файла (dragstart
+    // всплывает, обработчик NodeViewWrapper всё равно сработает).
+    <NodeViewWrapper as="div" className="my-1">
+      <div ref={cardRef} className="max-w-md overflow-hidden rounded border bg-slate-50">
+        {thumbnailUrl && (
           <img
-            src={thumbnailUrl!}
+            src={thumbnailUrl}
             alt=""
             className="h-40 w-full cursor-pointer object-cover object-top"
             onClick={() => setPreviewOpen(true)}
             onError={() => setThumbFailed(true)}
           />
         )}
-        <div
-          ref={rowRef}
-          onMouseEnter={() => setHovered(true)}
-          onMouseLeave={() => setHovered(false)}
-          className="flex items-center"
-        >
+        <div data-drag-handle draggable className="flex items-center">
           {isPdf ? (
             <button
-              onClick={(e) => (stacked ? setPreviewOpen(true) : handleTap(e, () => setPreviewOpen(true)))}
+              onClick={() => setPreviewOpen(true)}
               className="flex min-w-0 flex-1 items-center gap-2 px-3 py-2 text-left text-sm text-slate-800 hover:bg-slate-100"
             >
               <FileText size={16} className="shrink-0 text-red-500" />
@@ -148,70 +134,57 @@ export default function DocumentAttachmentCard({ node, editor, getPos }: NodeVie
               <Download size={14} />
             </a>
           )}
+          {!processing && text && isPdf && uploadId && (
+            <button
+              onClick={handleReprocessWithConfirm}
+              disabled={reprocess.isPending}
+              title="Распознать заново"
+              className="flex h-9 w-9 shrink-0 items-center justify-center text-slate-400 hover:text-slate-700 disabled:opacity-50"
+            >
+              {reprocess.isPending ? <Spinner size={14} /> : <RotateCw size={14} />}
+            </button>
+          )}
           {text && <RecognizedTextCopyButtons text={text} />}
         </div>
-        {showHoverPreview && <ThumbnailPopover anchor={rowRef.current!} thumbnailUrl={thumbnailUrl!} />}
 
-        {text && (
-          <button
-            onClick={() => setExpanded((v) => !v)}
-            className="flex w-full items-center gap-1 border-t px-3 py-1.5 text-xs text-slate-500 hover:bg-slate-100"
-          >
-            {expanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
-            {expanded
-              ? isPdf ? "Скрыть распознанный текст" : "Скрыть содержимое файла"
-              : isPdf ? "Показать распознанный текст" : "Показать содержимое файла"}
-          </button>
-        )}
-        {text && expanded && (
-          // atom-узел целиком лежит в contentEditable={false} (NodeView
-          // без contentDOM — см. addNodeView) — а браузеры по спецификации
-          // редактирования обращаются с contenteditable=false "островом"
-          // внутри contenteditable=true родителя как с ОДНИМ неделимым
-          // блоком выделения: клик-протяг куда угодно внутри всегда
-          // выделяет остров целиком (реальная жалоба — не баг конкретно
-          // ProseMirror, поведение самого браузера). contentEditable=true
-          // здесь заново открывает вложенную "зону редактирования" именно
-          // для этого блока — она уже ведёт себя как обычный текст с
-          // нормальным частичным выделением. Печатать в него по-прежнему
-          // нельзя: onKeyDown/onPaste/onBeforeInput блокируют реальный ввод,
-          // а data-doc-text — маркер для stopEvent в DocumentAttachment.ts,
-          // чтобы ProseMirror не пытался сам обработать эти события.
-          <div
-            data-doc-text
-            contentEditable
-            suppressContentEditableWarning
-            draggable={false}
-            onKeyDown={(e) => e.preventDefault()}
-            onPaste={(e) => e.preventDefault()}
-            onBeforeInput={(e) => e.preventDefault()}
-            onDragStart={(e) => e.preventDefault()}
-            // Реальная жалоба: даже с contentEditable-трюком выше клик-протяг
-            // мышью внутри не выделял текст — вся карточка целиком имеет
-            // data-drag-handle/draggable (drag-to-reorder узла в редакторе),
-            // и это, судя по всему, перехватывало сам жест мышью раньше, чем
-            // браузер успевал понять, что это выделение текста, а не
-            // перетаскивание. stopPropagation на mousedown не даёт этому
-            // событию вообще всплыть до узла с data-drag-handle — жест
-            // остаётся только "выделение", drag не запускается.
-            onMouseDown={(e) => e.stopPropagation()}
-            className="max-h-96 cursor-text select-text overflow-y-auto border-t px-3 py-2 text-xs text-slate-700 outline-none"
-          >
-            <ReactMarkdown remarkPlugins={[remarkGfm]} components={recognizedTextMarkdownComponents}>
-              {text}
-            </ReactMarkdown>
+        {processing ? (
+          <div className="flex items-center gap-1.5 border-t px-3 py-1.5 text-xs text-violet-600">
+            <Spinner size={12} />
+            Распознаём…
           </div>
+        ) : (
+          text && (
+            <button
+              onClick={() => setExpanded((v) => !v)}
+              className="flex w-full items-center gap-1 border-t px-3 py-1.5 text-xs text-slate-500 hover:bg-slate-100"
+            >
+              {expanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+              {expanded
+                ? isPdf ? "Скрыть распознанный текст" : "Скрыть содержимое файла"
+                : isPdf ? "Показать распознанный текст" : "Показать содержимое файла"}
+            </button>
+          )
         )}
+        {text && expanded && <ExpandedTextPanel anchorRef={cardRef} text={text} />}
 
-        {!text && isPdf && uploadId && (
-          <button
-            onClick={handleReprocess}
-            disabled={reprocess.isPending}
-            className="flex w-full items-center gap-1.5 border-t px-3 py-1.5 text-xs text-violet-600 hover:bg-violet-50 disabled:opacity-50"
-          >
-            {reprocess.isPending ? <Spinner size={12} /> : null}
-            Распознать текст
-          </button>
+        {!processing && !text && isPdf && uploadId && (
+          <div className="border-t px-3 py-1.5">
+            <button
+              onClick={handleReprocess}
+              disabled={reprocess.isPending}
+              className="flex items-center gap-1.5 text-xs text-violet-600 hover:opacity-80 disabled:opacity-50"
+            >
+              {reprocess.isPending ? <Spinner size={12} /> : null}
+              Распознать текст
+            </button>
+            {/* Реальная жалоба: непонятно, почему для этого файла нет
+                результата — молча ждать клика неочевидно. Точную причину
+                (>5 МБ vs выключенная автообработка) фронт не знает
+                достоверно, поэтому формулировка общая, не точечная. */}
+            <div className="mt-0.5 text-[11px] text-slate-400">
+              Не распознано автоматически — файл больше 5 МБ или автообработка выключена в настройках
+            </div>
+          </div>
         )}
       </div>
       {previewOpen && <PdfPreviewOverlay url={url} onClose={() => setPreviewOpen(false)} />}

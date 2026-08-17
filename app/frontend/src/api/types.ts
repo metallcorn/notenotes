@@ -150,6 +150,14 @@ export interface UploadResult {
   has_thumbnail: boolean;
 }
 
+// Виджет «Проверить по ссылке» (UrlCheckCard.tsx) — ответ на кнопку
+// «Обновить».
+export interface UrlCheckFetchResult {
+  status_code: number | null;
+  body: string | null;
+  error: string | null;
+}
+
 export interface ItemVersion {
   id: string;
   title: string;

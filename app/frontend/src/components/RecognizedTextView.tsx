@@ -1,4 +1,5 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Check, Copy } from "lucide-react";
@@ -84,5 +85,55 @@ export function RecognizedTextCopyButtons({ text }: { text: string }) {
         </ReactMarkdown>
       </div>
     </>
+  );
+}
+
+// Реальная жалоба, повторявшаяся много раз подряд несмотря на несколько
+// разных попыток фикса (stopPropagation, -webkit-user-drag, scoping
+// data-drag-handle/draggable): выделить текст мышью внутри спойлера
+// упорно не получалось — карточка (ProseMirror atom-узел) всё равно
+// перехватывала жест как перетаскивание. Причина глубже, чем любая
+// точечная правка: NodeView.stopEvent у @tiptap/core в принципе
+// перехватывает mousedown внутри ЛЮБОГО потомка узла, если этот узел
+// selectable (см. исходники — even без data-drag-handle рядом, клик по
+// selectable atom-узлу может стать NodeSelection). Вместо дальнейших
+// попыток обыграть эту логику изнутри — спойлер рендерится ПОРТАЛОМ в
+// document.body, ВНЕ DOM-дерева редактора целиком (тот же приём, что уже
+// использует ThumbnailPopover в DocumentAttachmentCard.tsx для превью по
+// ховеру). Раз DOM физически не является потомком узла — ProseMirror
+// вообще не видит эти события, и они работают как обычный HTML: выделение
+// текста мышью, копирование — без чего-либо специального.
+export function ExpandedTextPanel({ anchorRef, text }: { anchorRef: React.RefObject<HTMLElement>; text: string }) {
+  const [rect, setRect] = useState<{ top: number; left: number; width: number } | null>(null);
+
+  useEffect(() => {
+    function update() {
+      if (!anchorRef.current) return;
+      const r = anchorRef.current.getBoundingClientRect();
+      setRect({ top: r.bottom + 4, left: r.left, width: r.width });
+    }
+    update();
+    // capture: true — ловит скролл ЛЮБОГО предка-контейнера (сам редактор
+    // тоже overflow-y-auto), не только окна целиком.
+    window.addEventListener("scroll", update, true);
+    window.addEventListener("resize", update);
+    return () => {
+      window.removeEventListener("scroll", update, true);
+      window.removeEventListener("resize", update);
+    };
+  }, [anchorRef]);
+
+  if (!rect) return null;
+
+  return createPortal(
+    <div
+      style={{ top: rect.top, left: rect.left, width: Math.max(rect.width, 240) }}
+      className="fixed z-40 max-h-96 overflow-y-auto rounded border bg-white p-3 text-xs text-slate-700 shadow-lg"
+    >
+      <ReactMarkdown remarkPlugins={[remarkGfm]} components={recognizedTextMarkdownComponents}>
+        {text}
+      </ReactMarkdown>
+    </div>,
+    document.body,
   );
 }

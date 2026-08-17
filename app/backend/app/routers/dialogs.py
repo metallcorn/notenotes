@@ -76,10 +76,10 @@ _CORE_TOOL_NAMES = {
 # созданием (см. его описание в tools/reminders.py).
 _SCOPED_TOOL_NAMES = {
     "search_base", "get_note", "list_all_items", "web_search", "read_website", "create_maps_link", "suggest_replies",
-    "create_reminder",
+    "create_reminder", "test_url_request", "insert_url_check_block",
 }
 _TOOL_CATEGORIES: dict[str, set[str]] = {
-    "web": {"web_search", "read_website", "create_maps_link"},
+    "web": {"web_search", "read_website", "create_maps_link", "test_url_request", "insert_url_check_block"},
     "calendar_reminders": {"create_calendar_event", "create_reminder", "list_reminders", "resolve_reminder"},
     "structure": {"create_folder", "list_items_by_tag", "list_items_in_folder"},
     "utility": {"run_python"},
@@ -90,7 +90,7 @@ _CATEGORY_KEYWORDS: dict[str, tuple[str, ...]] = {
         "интернет", "погугли", "в сети", "сайт", "ссылк", "http", "адрес", "карт",
         "маршрут", "как добраться", "где наход", "бар", "ресторан", "кафе", "музей",
         "закрыва", "открыт", "работает ли", "акци", "скидк", "магазин",
-        "allegro", "amazon", "zalando",
+        "allegro", "amazon", "zalando", "curl", "статус", "отслежива", "проверя",
     ),
     "calendar_reminders": (
         "напомни", "напоминани", "календар", "событи", "дедлайн", "не забыть",
@@ -410,6 +410,28 @@ TOOL_PROMPT_FRAGMENTS: dict[str, str] = {
         "на ход), прежде чем сдаваться с неполным списком. Если и после "
         "этого результат неполный — предложи suggest_replies с вариантом "
         "«Поискать глубже»."
+    ),
+    "test_url_request": (
+        "Пользователь просит завести отслеживание статуса/данных по ссылке "
+        "(например, «хочу проверять готовность документа по этой ссылке») — "
+        "иногда присылает готовую команду curl из devtools браузера вместо "
+        "голого URL. Возьми из неё ТОЛЬКО сам URL — заголовки авторизации, "
+        "cookie, токены, если они там были, НИКУДА не сохраняются и не "
+        "передаются дальше; если такие заголовки были в команде, прямо "
+        "скажи пользователю, что взял только публичный адрес, без "
+        "учётных данных (запрос без них может не сработать — это честно "
+        "проговори, не выдумывай успешный результат).\n\n"
+        "Порядок: сначала test_url_request, чтобы увидеть РЕАЛЬНЫЙ ответ "
+        "(обычно JSON). Дальше сам разберись в структуре и предложи "
+        "пользователю в чате конкретные поля с понятными подписями на "
+        "русском (например, для {\"passportStatus\": {\"name\": \"...\"}, "
+        "\"internalStatus\": {\"percent\": 30}} — поля passportStatus.name "
+        "(«Статус») и internalStatus.percent («Готовность, %»), а не весь "
+        "сырой JSON целиком). НЕ вызывай insert_url_check_block сразу — "
+        "дождись явного согласия пользователя на предложенные поля (тот же "
+        "принцип, что у create_reminder — не молча создавай виджет по "
+        "первому же запросу). Если ответ оказался не JSON, пустой или "
+        "ошибка — скажи прямо, не пытайся всё равно предложить поля."
     ),
     "create_calendar_event": (
         "Когда пользователь просит создать заметку/напоминание о конкретном "
@@ -1088,6 +1110,11 @@ async def run_dialog_turn(db: AsyncSession, user: User, item: Item, content: str
     ctx = ToolContext(db=db, user_id=user.id, space_id=item.space_id)
     web_search_calls = 0
     max_web_search_calls = settings.web_search_max_calls_per_turn
+    # Не квота платного API (в отличие от web_search/Tavily) — просто
+    # предохранитель от зацикливания на внешних запросах в один ход,
+    # константа, не настройка.
+    url_check_calls = 0
+    max_url_check_calls = 5
     verified_urls: set[str] = set()
     used_web_search = False
     used_advanced_web_search = False
@@ -1246,6 +1273,12 @@ async def run_dialog_turn(db: AsyncSession, user: User, item: Item, content: str
                         url = image.get("url")
                         if url:
                             verified_urls.add(url)
+            elif tc.name == "test_url_request":
+                url_check_calls += 1
+                if url_check_calls > max_url_check_calls:
+                    result = {"error": "Лимит проверок ссылок на этот ход исчерпан"}
+                else:
+                    result = await dispatch(tc.name, ctx, tc.arguments, disabled=disabled_tool_names)
             elif tc.name == "list_folders":
                 result = await dispatch(tc.name, ctx, tc.arguments, disabled=disabled_tool_names)
                 folders_checked_this_turn = True

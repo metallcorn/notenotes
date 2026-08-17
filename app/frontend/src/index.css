@@ -302,6 +302,23 @@
   display: none;
 }
 
+/* DocumentAttachmentCard.tsx/ImageOcrResultCard.tsx — выделение текста
+   мышью внутри спойлера. Реальная жалоба ПОСЛЕ первой попытки фикса
+   (draggable={false} + stopPropagation на mousedown): всё ещё не
+   работало. Причина — draggable=false на ДОЧЕРНЕМ элементе НЕ отменяет
+   HTML5-жест перетаскивания, начатый внутри него: браузер всё равно
+   ищет ближайшего ПРЕДКА с draggable=true (у карточки — NodeViewWrapper,
+   drag-to-reorder узла) и тащит его целиком, независимо от draggable
+   дочернего элемента в точке нажатия. -webkit-user-drag: none — это
+   единственный по-настоящему надёжный способ выключить именно НАЧАЛО
+   перетаскивания из конкретной точки, на уровне рендер-движка, а не
+   JS-обработчиков событий (которые тут просто проигрывают браузерному
+   жесту по времени). */
+.recognized-text-selectable {
+  -webkit-user-drag: none;
+  user-select: text;
+}
+
 .reminder-anchor {
   display: inline-block;
   cursor: default;

@@ -17,11 +17,17 @@ import DocumentAttachmentCard from "../components/DocumentAttachmentCard";
 // Экспортируется отдельно, чтобы raw-режим редактора (обычная текстовая
 // вставка markdown-строки, без прохода через ProseMirror-схему) мог
 // вставить тот же самый формат тега сам, не дублируя экранирование.
-export function serializeDocumentAttachment(url: string, filename: string, text: string): string {
+export function serializeDocumentAttachment(
+  url: string,
+  filename: string,
+  text: string,
+  processing = false,
+): string {
   const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/\n/g, "&#10;").replace(/"/g, "&quot;");
   const parts = [`data-url="${esc(url)}"`];
   if (filename) parts.push(`data-filename="${esc(filename)}"`);
   if (text) parts.push(`data-text="${esc(text)}"`);
+  if (processing) parts.push('data-processing=""');
   return `<div data-doc-attachment ${parts.join(" ")}></div>`;
 }
 
@@ -48,6 +54,17 @@ export const DocumentAttachment = Node.create({
         parseHTML: (element: HTMLElement) => element.getAttribute("data-text") ?? "",
         renderHTML: (attrs: { text?: string }) => (attrs.text ? { "data-text": attrs.text } : {}),
       },
+      // Реальная жалоба: для больших PDF (>5 МБ или ручной "Распознать")
+      // карточка файла целиком ЗАМЕНЯЛАСЬ текстовым плейсхолдером
+      // "⏳ ... обрабатывается…" — пользователь терял доступ к самому
+      // файлу (скачать/открыть) на всё время распознавания. Теперь узел
+      // остаётся тем же самым (url/filename никуда не деваются), меняется
+      // только этот флаг — карточка файла видна и доступна всегда.
+      processing: {
+        default: false,
+        parseHTML: (element: HTMLElement) => element.hasAttribute("data-processing"),
+        renderHTML: (attrs: { processing?: boolean }) => (attrs.processing ? { "data-processing": "" } : {}),
+      },
     };
   },
 
@@ -72,10 +89,10 @@ export const DocumentAttachment = Node.create({
       markdown: {
         serialize(
           state: { write: (s: string) => void; closeBlock: (node: unknown) => void },
-          node: { attrs: { url: string; filename: string; text: string } },
+          node: { attrs: { url: string; filename: string; text: string; processing?: boolean } },
         ) {
-          const { url, filename, text } = node.attrs;
-          state.write(serializeDocumentAttachment(url, filename, text));
+          const { url, filename, text, processing } = node.attrs;
+          state.write(serializeDocumentAttachment(url, filename, text, processing));
           state.closeBlock(node);
         },
         parse: {},

@@ -2,27 +2,33 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import uuid
 from pathlib import Path
 
 import pymupdf
+from sqlalchemy import select
 
+from app import realtime
 from app.core.config import get_settings
 from app.db import async_session
-from app.models import Upload
+from app.document_reflow import reflow_document_text
+from app.models import Item, Upload
 from app.vision import _analyze as _vision_analyze
-from app.vision import _replace_in_referencing_items
+from app.vision import _split_ticket_marker
 
 logger = logging.getLogger(__name__)
 
-# OCR сканов PDF — текстовый слой extract_text() вытаскивает сразу при
-# загрузке бесплатно и локально через PyMuPDF, без сети; а прогонять
-# каждую страницу скана через Mistral vision может быть долго и
-# небесплатно для многостраничных документов, поэтому это отдельная
-# очередь. Автоматически запускается только для небольших файлов
-# (см. AUTO_OCR_MAX_PDF_BYTES в routers/uploads.py/telegram_bot.py) —
-# для остальных только по кнопке «Распознать». Один воркер — тот же
-# принцип, что у vision.py/transcription.py/autotag.py.
+# Распознавание PDF — асинхронная очередь для ОБОИХ случаев: и текстовый
+# слой (extract_text() сама по себе бесплатна и локальна через PyMuPDF, но
+# результат теперь ещё причёсывается отдельным LLM-вызовом,
+# document_reflow.py — реальная жалоба на "кашу" в вёрстке при прямом
+# извлечении, особенно на многоколоночных/табличных документах), и скан
+# без текстового слоя (постраничный vision-OCR + тот же reflow на каждую
+# страницу — дороже и медленнее для многостраничных документов, поэтому
+# именно этот случай ограничен размером файла, см. AUTO_OCR_MAX_PDF_BYTES
+# ниже — для больших сканов нужен явный клик «Распознать»). Один воркер —
+# тот же принцип, что у vision.py/transcription.py/autotag.py.
 _queue: "asyncio.Queue[uuid.UUID]" = asyncio.Queue()
 
 # Меньше этого на весь документ — считаем, что текстового слоя нет (скан),
@@ -42,14 +48,7 @@ def _upload_path(upload_id: uuid.UUID) -> Path:
     return Path(get_settings().upload_dir) / str(upload_id)
 
 
-def placeholder_text(upload_id: uuid.UUID) -> str:
-    # Без квадратных скобок — см. transcription.placeholder_text: они
-    # экранируются в \[ \] при автосохранении WYSIWYG-редактора и ломают
-    # поиск-замену плейсхолдера на готовую карточку.
-    return f"⏳ Распознавание PDF {upload_id} обрабатывается…"
-
-
-def serialize_document_attachment(url: str, filename: str, text: str) -> str:
+def serialize_document_attachment(url: str, filename: str, text: str, processing: bool = False) -> str:
     """Тот же формат (один самодостаточный тег на одной строке, текст в
     атрибуте), что сериализует фронтенд-нода DocumentAttachment.ts —
     чтобы карточка после автоматического OCR выглядела так же, как у
@@ -58,7 +57,15 @@ def serialize_document_attachment(url: str, filename: str, text: str) -> str:
     остался на одной строке — иначе markdown-it оборвал бы html_block на
     первой пустой строке внутри многостраничного текста), потом " ->
     &quot;. Браузерный DOMParser декодирует сущности обратно при чтении
-    атрибута, ничего вручную на фронте разбирать не нужно."""
+    атрибута, ничего вручную на фронте разбирать не нужно.
+
+    processing — реальная жалоба: раньше на время распознавания карточка
+    файла целиком заменялась отдельным текстовым плейсхолдером
+    "⏳ ... обрабатывается…" — пользователь терял доступ к самому файлу
+    (открыть/скачать) до конца обработки. Теперь карточка — ОДИН и тот же
+    узел (url/filename стабильны) во всех состояниях, меняется только этот
+    флаг; см. _replace_document_card ниже, который заменяет тег ЦЕЛИКОМ по
+    совпадению data-url, а не ищет отдельный плейсхолдер рядом."""
 
     def esc(s: str) -> str:
         return s.replace("&", "&amp;").replace("\n", "&#10;").replace('"', "&quot;")
@@ -68,7 +75,42 @@ def serialize_document_attachment(url: str, filename: str, text: str) -> str:
         parts.append(f'data-filename="{esc(filename)}"')
     if text:
         parts.append(f'data-text="{esc(text)}"')
+    if processing:
+        parts.append('data-processing=""')
     return f"<div data-doc-attachment {' '.join(parts)}></div>"
+
+
+_REPLACE_RETRY_ATTEMPTS = 5
+_REPLACE_RETRY_DELAY_SECONDS = 2.0
+
+
+async def _replace_document_card(upload_id: uuid.UUID, new_card_html: str) -> None:
+    """Находит ТЕКУЩУЮ карточку файла (в любом её состоянии — processing
+    или уже с текстом, см. serialize_document_attachment) по data-url и
+    заменяет тег целиком — не отдельный текст-плейсхолдер рядом, как было
+    раньше (vision._replace_in_referencing_items): карточка с первой же
+    вставки больше не пропадает на время обработки. Тот же retry, что и у
+    того хелпера — плейсхолдер/карточка может ещё не долететь до бэкенда
+    дебаунсом автосохранения."""
+    url = f"/api/uploads/{upload_id}"
+    pattern = re.compile(rf'<div data-doc-attachment[^>]*data-url="{re.escape(url)}"[^>]*></div>')
+    for attempt in range(_REPLACE_RETRY_ATTEMPTS):
+        async with async_session() as db:
+            result = await db.execute(select(Item).where(Item.content.like(f"%{upload_id}%")))
+            items = result.scalars().all()
+            touched_spaces = set()
+            for item in items:
+                new_content, n = pattern.subn(new_card_html, item.content)
+                if n:
+                    item.content = new_content
+                    touched_spaces.add(item.space_id)
+            if touched_spaces:
+                await db.commit()
+                for space_id in touched_spaces:
+                    await realtime.notify_space(space_id, "items")
+                return
+        if attempt < _REPLACE_RETRY_ATTEMPTS - 1:
+            await asyncio.sleep(_REPLACE_RETRY_DELAY_SECONDS)
 
 
 def _extract_page_text_with_tables(page: "pymupdf.Page") -> str:
@@ -133,13 +175,22 @@ def enqueue_ocr(upload_id: uuid.UUID) -> None:
 
 async def _process(upload_id: uuid.UUID) -> None:
     settings = get_settings()
+    url = f"/api/uploads/{upload_id}"
 
-    async def _fail() -> None:
+    async def _fail(filename: str = "") -> None:
+        # Сбрасываем карточку обратно в "не обработано" (processing=false,
+        # без текста) — иначе она застряла бы в состоянии "Распознаём…"
+        # навсегда без всякого способа повторить попытку из интерфейса.
         async with async_session() as db:
             u = await db.get(Upload, upload_id)
             if u is not None:
                 u.transcription_status = "failed"
+                fname = filename or u.filename
                 await db.commit()
+            else:
+                fname = filename
+        if fname:
+            await _replace_document_card(upload_id, serialize_document_attachment(url, fname, ""))
 
     if not settings.llm_api_key:
         logger.error("LLM_API_KEY не задан — OCR PDF %s невозможен", upload_id)
@@ -161,21 +212,35 @@ async def _process(upload_id: uuid.UUID) -> None:
         await db.commit()
 
     try:
-        page_texts: list[str] = []
-        with pymupdf.open(pdf_path) as doc:
-            for i, page in enumerate(doc):
-                if i >= _MAX_OCR_PAGES:
-                    break
-                png_bytes = page.get_pixmap(dpi=150).tobytes("png")
-                description = await _vision_analyze(png_bytes, "image/png", settings.llm_api_key)
-                if description.strip():
-                    page_texts.append(f"**Страница {i + 1}:**\n\n{description.strip()}")
+        pdf_bytes = pdf_path.read_bytes()
+        text_layer = extract_text(pdf_bytes)
+        if text_layer:
+            # Реальный текстовый слой (не скан) — один reflow-вызов на весь
+            # документ (extract_text уже склеивает страницы), не постранично:
+            # дёшево независимо от числа страниц, в отличие от vision ниже.
+            result = await reflow_document_text(text_layer)
+        else:
+            page_texts: list[str] = []
+            with pymupdf.open(pdf_path) as doc:
+                for i, page in enumerate(doc):
+                    if i >= _MAX_OCR_PAGES:
+                        break
+                    png_bytes = page.get_pixmap(dpi=150).tobytes("png")
+                    description = await _vision_analyze(png_bytes, "image/png", settings.llm_api_key)
+                    # Реальная жалоба: маркер классификации ("БИЛЕТ: да/нет" —
+                    # первая строка ответа vision.py, нужна только чтобы решить,
+                    # звать ли tickets.py; PDF-страницы туда не идут вовсе, см.
+                    # ниже) утекал в видимый пользователю текст. vision.py._process
+                    # для отдельных картинок его уже вырезает — здесь тот же приём.
+                    _, description = _split_ticket_marker(description)
+                    description = await reflow_document_text(description)
+                    if description.strip():
+                        page_texts.append(f"**Страница {i + 1}:**\n\n{description.strip()}")
+            result = "\n\n---\n\n".join(page_texts)
     except Exception:
         logger.exception("Ошибка распознавания PDF %s", upload_id)
-        await _fail()
+        await _fail(filename)
         return
-
-    result = "\n\n---\n\n".join(page_texts)
 
     async with async_session() as db:
         upload = await db.get(Upload, upload_id)
@@ -187,10 +252,11 @@ async def _process(upload_id: uuid.UUID) -> None:
 
     if not result.strip():
         logger.warning("OCR PDF %s не дал результата", upload_id)
+        await _fail(filename)
         return
 
-    formatted = serialize_document_attachment(f"/api/uploads/{upload_id}", filename, result)
-    await _replace_in_referencing_items(upload_id, placeholder_text(upload_id), formatted)
+    formatted = serialize_document_attachment(url, filename, result)
+    await _replace_document_card(upload_id, formatted)
 
 
 async def run_worker() -> None:

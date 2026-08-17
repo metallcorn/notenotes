@@ -21,7 +21,6 @@ from app.note_formatting import linkify_notes_content
 from app.pdf_processing import AUTO_OCR_MAX_PDF_BYTES
 from app.pdf_processing import enqueue_ocr as enqueue_pdf_ocr
 from app.pdf_processing import extract_text as extract_pdf_text
-from app.pdf_processing import placeholder_text as pdf_placeholder_text
 from app.pdf_processing import serialize_document_attachment
 from app.routers.dialogs import run_dialog_turn
 from app.routers.items import create_item_row
@@ -446,26 +445,26 @@ async def _handle_document(db: AsyncSession, message: dict, space_id: uuid.UUID,
     attachment_url = f"/api/uploads/{upload.id}"
 
     # PDF: текстовый слой вытаскиваем сразу — быстро, локально, бесплатно
-    # (PyMuPDF, без сети), сразу делает заметку находимой поиском и сразу
-    # кладём в карточку. Сканы без текста — авто-OCR для небольших файлов
-    # (см. AUTO_OCR_MAX_PDF_BYTES в pdf_processing.py), иначе карточка с
-    # кнопкой «Распознать» на ней же. Плейсхолдер — отдельной строкой, не
-    # внутри карточки: backend заменяет его целиком на готовую карточку с
-    # текстом (serialize_document_attachment), вложенность тегов в
-    # HTML-атрибуте была бы некорректной.
+    # (PyMuPDF, без сети). Реальная жалоба: раньше на время распознавания
+    # (и текстового слоя — теперь он тоже причёсывается LLM-reflow'ом, см.
+    # document_reflow.py, — и сканов) карточка файла целиком заменялась
+    # отдельным текстовым плейсхолдером, пользователь терял доступ к
+    # самому файлу до конца обработки. Теперь карточка вставляется сразу
+    # (processing=True вместо отдельного плейсхолдера) — backend меняет
+    # только этот флаг на готовый текст, url/filename никуда не деваются.
     pdf_ocr_queued = False
     is_pdf = mime_type == "application/pdf" or filename.lower().endswith(".pdf")
     if is_pdf:
-        pdf_text = extract_pdf_text(content_bytes)
-        if pdf_text:
-            content = f"{body}{serialize_document_attachment(attachment_url, filename, pdf_text)}\n"
+        text_layer = extract_pdf_text(content_bytes)
+        user = await db.get(User, author_id)
+        auto = user is not None and user.auto_process_uploads
+        if auto and (text_layer or len(content_bytes) <= AUTO_OCR_MAX_PDF_BYTES):
+            content = f"{body}{serialize_document_attachment(attachment_url, filename, '', processing=True)}\n"
+            pdf_ocr_queued = True
+        elif text_layer:
+            content = f"{body}{serialize_document_attachment(attachment_url, filename, text_layer)}\n"
         else:
-            user = await db.get(User, author_id)
-            if user is not None and user.auto_process_uploads and len(content_bytes) <= AUTO_OCR_MAX_PDF_BYTES:
-                content = f"{body}{pdf_placeholder_text(upload.id)}\n"
-                pdf_ocr_queued = True
-            else:
-                content = f"{body}{serialize_document_attachment(attachment_url, filename, '')}\n"
+            content = f"{body}{serialize_document_attachment(attachment_url, filename, '')}\n"
     else:
         content = f"{body}{serialize_document_attachment(attachment_url, filename, '')}\n"
 
@@ -677,17 +676,17 @@ async def _handle_forward_batch(
             attachment_url = f"/api/uploads/{upload.id}"
             is_pdf = mime_type == "application/pdf" or filename.lower().endswith(".pdf")
             if is_pdf:
-                pdf_text = extract_pdf_text(content_bytes)
-                if pdf_text:
-                    parts.append(f"{body}{serialize_document_attachment(attachment_url, filename, pdf_text)}")
+                text_layer = extract_pdf_text(content_bytes)
+                user = await db.get(User, author_id)
+                auto = user is not None and user.auto_process_uploads
+                if auto and (text_layer or len(content_bytes) <= AUTO_OCR_MAX_PDF_BYTES):
+                    parts.append(f"{body}{serialize_document_attachment(attachment_url, filename, '', processing=True)}")
+                    upload.transcription_status = "pending"
+                    deferred.append((enqueue_pdf_ocr, upload.id))
+                elif text_layer:
+                    parts.append(f"{body}{serialize_document_attachment(attachment_url, filename, text_layer)}")
                 else:
-                    user = await db.get(User, author_id)
-                    if user is not None and user.auto_process_uploads and len(content_bytes) <= AUTO_OCR_MAX_PDF_BYTES:
-                        parts.append(f"{body}{pdf_placeholder_text(upload.id)}")
-                        upload.transcription_status = "pending"
-                        deferred.append((enqueue_pdf_ocr, upload.id))
-                    else:
-                        parts.append(f"{body}{serialize_document_attachment(attachment_url, filename, '')}")
+                    parts.append(f"{body}{serialize_document_attachment(attachment_url, filename, '')}")
             else:
                 parts.append(f"{body}{serialize_document_attachment(attachment_url, filename, '')}")
 

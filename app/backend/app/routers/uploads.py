@@ -234,12 +234,19 @@ async def create_upload(
     has_thumbnail = False
     preview_text: str | None = None
 
+    pdf_bytes: bytes | None = None
+    text_layer: str | None = None
     if not is_vault:
-        # Текстовый слой PDF — сразу, синхронно, локально (PyMuPDF, без сети),
-        # независимо от настройки автообработки: это бесплатно и мгновенно,
-        # не то же самое, что дорогой постраничный OCR ниже.
+        # Текстовый слой (если есть) — сразу, синхронно, локально (PyMuPDF,
+        # без сети): дёшево независимо от размера файла. Сам ФИНАЛЬНЫЙ текст
+        # (с причёсанной вёрсткой, document_reflow.py) больше не отдаётся
+        # отсюда напрямую — реальная жалоба на "кашу" в вёрстке у голого
+        # PyMuPDF-извлечения (особенно многоколоночные документы). Ниже он
+        # идёт тем же асинхронным путём, что и сканы (пока автообработка
+        # включена), только та часть, где нет сети/LLM (сам текстовый слой,
+        # thumbnail, превью не-PDF), остаётся синхронной.
         pdf_bytes = dest.read_bytes() if is_pdf else None
-        pdf_text = extract_pdf_text(pdf_bytes) if pdf_bytes is not None else None
+        text_layer = extract_pdf_text(pdf_bytes) if pdf_bytes is not None else None
         has_thumbnail = _generate_pdf_thumbnail(upload.id, pdf_bytes) if pdf_bytes is not None else False
         preview_text = None if is_pdf else _extract_text_preview(dest, content_type, upload.filename)
 
@@ -247,13 +254,20 @@ async def create_upload(
     pdf_ocr_queued = False
     if auto and (content_type.startswith("video/") or content_type.startswith("image/")):
         upload.transcription_status = "pending"
-    elif auto and is_pdf and not pdf_text and total <= AUTO_OCR_MAX_PDF_BYTES:
-        # Скан без текстового слоя — раньше распознавался только по кнопке
-        # «Распознать»; для небольших файлов (типичный чек/страница, не
-        # многостраничная книга) дорогая постраничная vision-OCR не настолько
-        # долгая/дорогая, чтобы требовать лишнего клика.
+    elif auto and is_pdf and (text_layer or total <= AUTO_OCR_MAX_PDF_BYTES):
+        # Текстовый слой — всегда (один reflow-вызов на документ, дёшево
+        # независимо от размера файла). Скан без текстового слоя — раньше
+        # распознавался только по кнопке «Распознать»; для небольших файлов
+        # (типичный чек/страница, не многостраничная книга) дорогая
+        # постраничная vision-OCR не настолько долгая/дорогая, чтобы
+        # требовать лишнего клика.
         upload.transcription_status = "pending"
         pdf_ocr_queued = True
+    elif is_pdf and text_layer:
+        # Автообработка выключена — хотя бы сырой текстовый слой без
+        # причёсывания вёрстки, лучше, чем совсем ничего; причёсанную
+        # версию пользователь получит по клику «Распознать».
+        pdf_text = text_layer
 
     await db.commit()
 

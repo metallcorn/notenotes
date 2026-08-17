@@ -28,6 +28,7 @@ import type {
   Space,
   Tag,
   UploadResult,
+  UrlCheckFetchResult,
   User,
   VaultUnlockInfo,
 } from "./types";
@@ -947,6 +948,15 @@ export function useUploadFile(spaceId: string | undefined) {
 export function useReprocessUpload() {
   return useMutation({
     mutationFn: (uploadId: string) => api.post(`/uploads/${uploadId}/reprocess`),
+  });
+}
+
+// Кнопка «Обновить» на виджете «Проверить по ссылке» (UrlCheckCard.tsx) —
+// прямой REST, без участия ассистента (тот нужен только один раз, при
+// создании блока, tools/url_check.py::insert_url_check_block).
+export function useCheckUrl() {
+  return useMutation({
+    mutationFn: (url: string) => api.post<UrlCheckFetchResult>("/url-checks/fetch", { url }),
   });
 }
 

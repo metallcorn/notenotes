@@ -49,10 +49,12 @@ import { Video } from "../extensions/Video";
 import { Audio } from "../extensions/Audio";
 import { LinkPreview } from "../extensions/LinkPreview";
 import { DocumentAttachment, serializeDocumentAttachment } from "../extensions/DocumentAttachment";
+import { UrlCheckAttachment } from "../extensions/UrlCheckAttachment";
 import { TicketAttachment } from "../extensions/TicketAttachment";
 import { Spacer } from "../extensions/Spacer";
 import { HideImageProcessingPlaceholder } from "../extensions/HideImageProcessingPlaceholder";
 import { ProcessingPlaceholder } from "../extensions/ProcessingPlaceholder";
+import { TrailingParagraph } from "../extensions/TrailingParagraph";
 import { InlineLinkFavicon } from "../extensions/InlineLinkFavicon";
 import { DataRecognition } from "../extensions/DataRecognition";
 import { DetectedAddressLinks } from "../extensions/DetectedAddressLinks";
@@ -162,10 +164,12 @@ export default function NoteEditor({
       Audio,
       LinkPreview,
       DocumentAttachment,
+      UrlCheckAttachment,
       TicketAttachment,
       Spacer,
       ProcessingPlaceholder,
       HideImageProcessingPlaceholder,
+      TrailingParagraph,
       InlineLinkFavicon,
       DataRecognition,
       DetectedAddressLinks,
@@ -587,13 +591,20 @@ export default function NoteEditor({
     const isVideo = uploaded.content_type.startsWith("video/");
     const isAudio = uploaded.content_type.startsWith("audio/");
     // Плейсхолдер — точная строка, которую backend ищет и заменяет на
-    // готовый результат (app/transcription.py и app/pdf_processing.py,
-    // placeholder_text()) — держать в одном месте на фронте не
-    // получится, но текст должен совпадать 1:1, иначе замена не найдёт,
-    // куда вписать результат. В сейфе расшифровка видео не запускается
-    // (uploads.py) — как и с картинкой, плейсхолдер вставлять незачем.
+    // готовый результат (app/transcription.py, placeholder_text()) —
+    // держать в одном месте на фронте не получится, но текст должен
+    // совпадать 1:1, иначе замена не найдёт, куда вписать результат. В
+    // сейфе расшифровка видео не запускается (uploads.py) — как и с
+    // картинкой, плейсхолдер вставлять незачем.
+    //
+    // PDF — по-другому: реальная жалоба, что на время распознавания
+    // карточка файла целиком подменялась текстовым плейсхолдером,
+    // пользователь терял доступ к самому файлу (открыть/скачать) до конца
+    // обработки. Теперь карточка (documentAttachment) вставляется сразу
+    // с processing=true — backend меняет только этот флаг на готовый
+    // текст (pdf_processing.py::_replace_document_card), url/filename
+    // остаются тем же узлом всё время.
     const placeholder = `⏳ Расшифровка ${uploaded.id} обрабатывается…`;
-    const pdfPlaceholder = `⏳ Распознавание PDF ${uploaded.id} обрабатывается…`;
     // Аудио — сразу готовый плеер, без плейсхолдера: расшифровка для
     // отдельно загруженных аудиофайлов не подключена (только для видео),
     // плеер сам по себе и есть превью, ждать нечего.
@@ -614,23 +625,18 @@ export default function NoteEditor({
           .run();
         nextPos = editor.state.selection.to;
         if (isVaultNote && sourceFile) patchLocalPreview("audio", uploaded.url, sourceFile);
-      } else if (uploaded.pdf_ocr_queued) {
-        // Авто-OCR уже поставлен в очередь на бэкенде — плейсхолдер, не
-        // карточка сразу: backend заменит его целиком на готовую
-        // карточку с текстом, когда распознавание закончится.
-        editor
-          .chain()
-          .focus()
-          .insertContentAt(pos, { type: "paragraph", content: [{ type: "text", text: pdfPlaceholder }] })
-          .run();
-        nextPos = editor.state.selection.to;
       } else {
         editor
           .chain()
           .focus()
           .insertContentAt(pos, {
             type: "documentAttachment",
-            attrs: { url: uploaded.url, filename: uploaded.filename, text: previewText },
+            attrs: {
+              url: uploaded.url,
+              filename: uploaded.filename,
+              text: uploaded.pdf_ocr_queued ? "" : previewText,
+              processing: uploaded.pdf_ocr_queued,
+            },
           })
           .run();
         nextPos = editor.state.selection.to;
@@ -644,10 +650,11 @@ export default function NoteEditor({
       setContent(
         (c) => `${c}\n\n<audio src="${uploaded.url}" controls preload="metadata" style="max-width: 100%;"></audio>\n`,
       );
-    } else if (uploaded.pdf_ocr_queued) {
-      setContent((c) => `${c}\n\n${pdfPlaceholder}\n`);
     } else {
-      setContent((c) => `${c}\n\n${serializeDocumentAttachment(uploaded.url, uploaded.filename, previewText)}\n`);
+      setContent(
+        (c) =>
+          `${c}\n\n${serializeDocumentAttachment(uploaded.url, uploaded.filename, uploaded.pdf_ocr_queued ? "" : previewText, uploaded.pdf_ocr_queued)}\n`,
+      );
     }
     return nextPos;
   }
