@@ -1,3 +1,4 @@
+import re
 import uuid
 from collections import defaultdict
 from datetime import datetime, timezone
@@ -8,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import get_settings
 from app.db import get_db
 from app.deps import ensure_space_access, get_current_user, is_vault_space
-from app.models import Folder, Item, User
+from app.models import Folder, Item, ItemVersion, User
 from app.routers.items import create_item_row
 from app.schemas.list_item import ListCreate, ListEntryCreate, ListEntryOut, ListEntryUpdate, ListOut
 from app.security import decode_session_token
@@ -28,6 +29,33 @@ def _now_iso() -> str:
 
 def _flatten_entries(entries: list[dict]) -> str:
     return "\n".join(f"{'[x]' if e['checked'] else '[ ]'} {e['text']}" for e in entries)
+
+
+_ENTRY_LINE_RE = re.compile(r"^\[( |x)\] (.*)$")
+
+
+def parse_entries_text(text: str) -> list[dict]:
+    """Обратное к _flatten_entries — восстанавливает entries из плоского
+    текстового слепка версии (routers/items.py::revert_version). Точные id/
+    created_at исходных пунктов не сохранялись в ItemVersion (там только
+    title/content) — генерируются заново, это откат содержимого, не полная
+    машина времени."""
+    entries = []
+    for line in text.split("\n"):
+        m = _ENTRY_LINE_RE.match(line)
+        if m:
+            entries.append({"id": str(uuid.uuid4()), "text": m.group(2), "checked": m.group(1) == "x", "created_at": _now_iso()})
+    return entries
+
+
+async def _snapshot_version(db: AsyncSession, item: Item, user_id: uuid.UUID) -> None:
+    """Реальная жалоба: у списков не было версий вообще — add/toggle/delete
+    пункта не создавали ItemVersion (в отличие от routers/items.py::update_item),
+    так что "откат" был нечем откатывать. Снимок ДО изменения, тот же
+    приём, что у update_item — content уже содержит плоский слепок
+    entries (_flatten_entries вызывается сразу после мутации каждым
+    хендлером), так что снимаем ЕГО, пока он ещё отражает состояние ДО."""
+    db.add(ItemVersion(item_id=item.id, title=item.title, content=item.content, author_id=user_id))
 
 
 def _serialize(item: Item) -> ListOut:
@@ -114,6 +142,7 @@ async def add_entry(
 
     item = await _get_list_item(db, user, list_id)
     entries = list(item.properties.get("entries", []))
+    await _snapshot_version(db, item, user.id)
     entries.append({"id": str(uuid.uuid4()), "text": text, "checked": False, "created_at": _now_iso()})
     item.properties = {**item.properties, "entries": entries}
     item.content = _flatten_entries(entries)
@@ -157,6 +186,7 @@ async def update_entry(
     if not found:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Пункт не найден")
 
+    await _snapshot_version(db, item, user.id)
     item.properties = {**item.properties, "entries": entries}
     item.content = _flatten_entries(entries)
     await db.commit()
@@ -176,6 +206,7 @@ async def delete_entry(
 ) -> ListOut:
     item = await _get_list_item(db, user, list_id)
     entries = [e for e in item.properties.get("entries", []) if e["id"] != entry_id]
+    await _snapshot_version(db, item, user.id)
     item.properties = {**item.properties, "entries": entries}
     item.content = _flatten_entries(entries)
     await db.commit()

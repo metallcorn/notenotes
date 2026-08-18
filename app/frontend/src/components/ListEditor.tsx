@@ -1,10 +1,11 @@
 import { FormEvent, ReactNode, useEffect, useRef, useState } from "react";
-import { ChevronLeft, Plus, Trash2, X } from "lucide-react";
+import { ChevronLeft, History, Plus, Trash2, X } from "lucide-react";
 import { useAddListEntry, useDeleteItem, useDeleteListEntry, useList, useUpdateItem, useUpdateListEntry } from "../api/hooks";
 import type { ListEntry } from "../api/types";
 import { useListSync } from "../lib/useListSync";
 import ConfirmDialog from "./ConfirmDialog";
 import Spinner from "./Spinner";
+import VersionHistoryPanel from "./VersionHistoryPanel";
 
 // Пункт списка раньше был ВСЕГДА голым <input> — раз это <input value=...>,
 // внутри него физически не может быть настоящего <a>, поэтому markdown-
@@ -188,6 +189,7 @@ export default function ListEditor({
   const [title, setTitle] = useState("");
   const [newEntryText, setNewEntryText] = useState("");
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
   const [syncedId, setSyncedId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -222,7 +224,8 @@ export default function ListEditor({
   const doneCount = list.entries.filter((e) => e.checked).length;
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex h-full">
+    <div className="flex min-w-0 flex-1 flex-col">
       <div className="flex items-center gap-1 border-b p-3">
         <button
           onClick={onBack}
@@ -242,6 +245,13 @@ export default function ListEditor({
             {doneCount}/{list.entries.length}
           </span>
         )}
+        <button
+          onClick={() => setShowHistory((v) => !v)}
+          title="История версий"
+          className="flex h-8 w-8 shrink-0 items-center justify-center text-slate-400 hover:text-slate-700"
+        >
+          <History size={16} />
+        </button>
         <button
           title="Удалить список"
           onClick={() => setConfirmingDelete(true)}
@@ -297,6 +307,8 @@ export default function ListEditor({
           onCancel={() => setConfirmingDelete(false)}
         />
       )}
+    </div>
+    {showHistory && <VersionHistoryPanel itemId={list.id} onClose={() => setShowHistory(false)} />}
     </div>
   );
 }

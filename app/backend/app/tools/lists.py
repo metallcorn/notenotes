@@ -11,7 +11,7 @@ from app.deps import ensure_space_access, is_vault_space
 from app.llm.base import ToolDefinition
 from app.models import Folder, Item, Space
 from app.routers.items import create_item_row
-from app.routers.lists import _broadcast, _serialize
+from app.routers.lists import _broadcast, _serialize, _snapshot_version
 from app.tools.registry import ToolContext, ToolError
 
 logger = logging.getLogger(__name__)
@@ -208,6 +208,7 @@ async def add_list_entry(ctx: ToolContext, args: dict[str, Any]) -> dict[str, An
         raise ToolError("Пустой пункт")
 
     entries = list(item.properties.get("entries", []))
+    await _snapshot_version(ctx.db, item, ctx.user_id)
     entries.append({"id": str(uuid.uuid4()), "text": text, "checked": False, "created_at": _now_iso()})
     item.properties = {**item.properties, "entries": entries}
     item.content = _flatten_entries(entries)
@@ -257,6 +258,7 @@ async def toggle_list_entry(ctx: ToolContext, args: dict[str, Any]) -> dict[str,
         raise ToolError("Пункт не найден — сначала вызови get_list, чтобы увидеть реальные пункты и их id")
 
     entries = [dict(e, checked=checked) if e["id"] == target["id"] else e for e in existing]
+    await _snapshot_version(ctx.db, item, ctx.user_id)
     item.properties = {**item.properties, "entries": entries}
     item.content = _flatten_entries(entries)
     await ctx.db.commit()

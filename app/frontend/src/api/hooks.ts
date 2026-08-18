@@ -799,6 +799,11 @@ export function useRevertVersion(itemId: string | undefined) {
       qc.setQueryData(["item", itemId], item);
       qc.invalidateQueries({ queryKey: ["item-versions", itemId] });
       qc.invalidateQueries({ queryKey: ["items", item.space_id] });
+      // Списки читают своё состояние через useList (["list", id]), не
+      // useItem — без этого откат списка молча не отражался бы в
+      // открытом ListEditor.tsx до перезахода. Безвредный no-op для
+      // обычных заметок (под этим ключом для них ничего не закешировано).
+      if (item.material_type === "list") qc.invalidateQueries({ queryKey: ["list", itemId] });
     },
   });
 }

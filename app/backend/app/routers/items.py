@@ -640,6 +640,17 @@ async def revert_version(
     db.add(ItemVersion(item_id=item.id, title=item.title, content=item.content, author_id=user.id))
     item.title = version.title
     item.content = version.content
+    if item.material_type == "list":
+        # У списка правда живёт в properties.entries, не в content (тот —
+        # только плоский текстовый слепок для поиска/предпросмотра, см.
+        # routers/lists.py::_flatten_entries). Просто откатить content без
+        # entries выглядело бы так, будто откат ничего не сделал —
+        # ListEditor.tsx читает entries, не content. Отложенный импорт —
+        # lists.py уже импортирует из этого модуля, обычный top-level был
+        # бы циклом (тот же приём, что vision.py → tickets.py).
+        from app.routers.lists import parse_entries_text
+
+        item.properties = {**item.properties, "entries": parse_entries_text(version.content)}
 
     await db.commit()
     await db.refresh(item)
