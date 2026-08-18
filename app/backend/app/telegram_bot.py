@@ -24,6 +24,7 @@ from app.pdf_processing import extract_text as extract_pdf_text
 from app.pdf_processing import serialize_document_attachment
 from app.routers.dialogs import run_dialog_turn
 from app.routers.items import create_item_row
+from app.routers.uploads import _extract_text_preview
 from app.transcription import enqueue_transcription
 from app.transcription import placeholder_text as video_placeholder_text
 from app.vision import enqueue_vision
@@ -466,7 +467,19 @@ async def _handle_document(db: AsyncSession, message: dict, space_id: uuid.UUID,
         else:
             content = f"{body}{serialize_document_attachment(attachment_url, filename, '')}\n"
     else:
-        content = f"{body}{serialize_document_attachment(attachment_url, filename, '')}\n"
+        # Реальная жалоба: docx/xlsx/pptx, присланные в Telegram, никогда не
+        # распознавались — извлечение текста для этих форматов (python-docx/
+        # openpyxl/python-pptx) уже было реализовано, но только для файлов,
+        # загруженных через веб (routers/uploads.py::_extract_text_preview),
+        # бот писал файл напрямую в обход этого кода. Тот же экстрактор,
+        # тот же путь на диске (_upload_path — локальная копия в этом
+        # модуле, но ссылается на тот же upload_dir/<id>, что и общий).
+        text_preview = None
+        try:
+            text_preview = _extract_text_preview(_upload_path(upload.id), mime_type, filename)
+        except Exception:
+            logger.exception("Не удалось извлечь текст из %s (Telegram, id=%s)", filename, upload.id)
+        content = f"{body}{serialize_document_attachment(attachment_url, filename, text_preview or '')}\n"
 
     title = _derive_title(caption, fallback=filename)
     item = await create_item_row(
@@ -516,7 +529,15 @@ async def _flush_media_group(group_id: str) -> None:
         link = (await db.execute(select(TelegramLink).where(TelegramLink.chat_id == chat_id))).scalar_one_or_none()
         if link is None:
             return
-        saved = await _handle_forward_batch(db, messages, link.space_id, link.user_id, sender_name)
+        try:
+            saved = await _handle_forward_batch(db, messages, link.space_id, link.user_id, sender_name)
+        except Exception:
+            # Тот же принцип, что в _process — падение здесь раньше было
+            # полностью тихим (альбом просто исчезал), теперь хотя бы ответ
+            # в чат, чтобы отправитель знал, что что-то пошло не так.
+            logger.exception("Не удалось обработать альбом из Telegram (chat_id=%s)", chat_id)
+            await send_message(chat_id, "⚠️ Не получилось сохранить альбом. Попробуйте отправить ещё раз.")
+            return
 
     if saved:
         await send_message(chat_id, "Сохранено ✅")
@@ -556,7 +577,16 @@ async def _flush_forward_batch(key: str) -> None:
         link = (await db.execute(select(TelegramLink).where(TelegramLink.chat_id == chat_id))).scalar_one_or_none()
         if link is None:
             return
-        saved = await _handle_forward_batch(db, messages, link.space_id, link.user_id, sender_name)
+        try:
+            saved = await _handle_forward_batch(db, messages, link.space_id, link.user_id, sender_name)
+        except Exception:
+            # Тот же принцип, что в _flush_media_group/_process — самый
+            # вероятный путь для пересланного документа (реальная жалоба):
+            # раньше падение здесь оставляло отправителя без единого
+            # признака, что сообщение вообще дошло.
+            logger.exception("Не удалось обработать пересланные сообщения из Telegram (chat_id=%s)", chat_id)
+            await send_message(chat_id, "⚠️ Не получилось сохранить пересланное сообщение. Попробуйте отправить ещё раз.")
+            return
 
     if saved:
         await send_message(chat_id, "Сохранено ✅")
@@ -688,7 +718,14 @@ async def _handle_forward_batch(
                 else:
                     parts.append(f"{body}{serialize_document_attachment(attachment_url, filename, '')}")
             else:
-                parts.append(f"{body}{serialize_document_attachment(attachment_url, filename, '')}")
+                # Тот же экстрактор, что в _handle_document — реальная
+                # жалоба касалась именно пересланных документов.
+                text_preview = None
+                try:
+                    text_preview = _extract_text_preview(_upload_path(upload.id), mime_type, filename)
+                except Exception:
+                    logger.exception("Не удалось извлечь текст из %s (Telegram, id=%s)", filename, upload.id)
+                parts.append(f"{body}{serialize_document_attachment(attachment_url, filename, text_preview or '')}")
 
     if not parts:
         return False
@@ -882,8 +919,42 @@ async def _process(update: dict) -> None:
             _buffer_forward_message(message, chat_id, sender_name)
             return
 
-        if "photo" in message:
-            await _handle_photo(db, message, link.space_id, link.user_id)
+        if "photo" in message or "video" in message or "document" in message:
+            # Реальная жалоба: файл, присланный в Telegram, иногда не
+            # появлялся в заметках вообще — без объяснения, без карточки.
+            # Причина — bare except в run_worker ниже: любое исключение при
+            # скачивании/сохранении/распознавании (сеть, диск, битый файл)
+            # проглатывалось целиком, пользователь не получал ни заметки,
+            # ни ошибки. Теперь падение здесь — не тишина, а гарантированная
+            # заметка с честной причиной + ответ в чат.
+            try:
+                if "photo" in message:
+                    await _handle_photo(db, message, link.space_id, link.user_id)
+                elif "video" in message:
+                    await _handle_video(db, message, link.space_id, link.user_id)
+                else:
+                    await _handle_document(db, message, link.space_id, link.user_id)
+            except Exception:
+                logger.exception("Не удалось обработать файл из Telegram (chat_id=%s)", chat_id)
+                # Отдельные try — секция скачивания/сохранения могла упасть
+                # уже ПОСЛЕ записи в БД (испортив транзакцию этой же db-сессии),
+                # тогда create_item_row тоже бросит исключение; неудача одного
+                # шага не должна помешать хотя бы ответить в чат.
+                try:
+                    await create_item_row(
+                        db,
+                        space_id=link.space_id,
+                        author_id=link.user_id,
+                        material_type="note",
+                        content="⚠️ Не удалось сохранить присланный файл — техническая ошибка на сервере. Попробуйте отправить ещё раз.",
+                    )
+                except Exception:
+                    logger.exception("Не удалось даже сохранить заметку-заглушку об ошибке (chat_id=%s)", chat_id)
+                try:
+                    await send_message(chat_id, "⚠️ Не получилось сохранить файл. Попробуйте отправить ещё раз.")
+                except Exception:
+                    logger.exception("Не удалось отправить сообщение об ошибке в Telegram (chat_id=%s)", chat_id)
+                return
         elif "voice" in message or "audio" in message:
             transcript = await _transcribe_voice_only(message)
             if transcript.strip():
@@ -891,10 +962,6 @@ async def _process(update: dict) -> None:
             else:
                 await send_message(chat_id, "Не удалось распознать голосовое сообщение.")
             return
-        elif "video" in message:
-            await _handle_video(db, message, link.space_id, link.user_id)
-        elif "document" in message:
-            await _handle_document(db, message, link.space_id, link.user_id)
         elif text:
             await _handle_assistant_message(db, link, text)
             return
