@@ -28,11 +28,19 @@ sudo docker exec notenotes-postgres-1 psql -U notenotes -d notenotes_test -c "
 
 ## Запуск
 
-Тестовые файлы и зависимости не в образе — перед прогоном скопировать в
-уже запущенный контейнер и поставить `requirements-dev.txt` (pytest,
-pytest-asyncio поверх обычных зависимостей):
+Проще всего — `scripts/build-and-test.sh` из корня репозитория (собирает
+свежий образ и гоняет тесты против НЕГО, не против уже работающего
+контейнера): используется и `scripts/deploy.sh`, и git-хуком
+`scripts/git-hooks/pre-push` (`git config core.hooksPath scripts/git-hooks`
+включает его). Тестовые файлы монтируются как read-only volume через
+`docker compose run`, requirements-dev.txt ставится внутри одноразового
+контейнера — сам prod-образ ими не раздувается.
+
+Вручную, против уже запущенного контейнера (быстрее при итерации на
+одном и том же тесте):
 
 ```bash
+sudo docker exec notenotes-backend-1 rm -rf /app/tests   # если уже копировали раньше
 sudo docker cp app/backend/tests notenotes-backend-1:/app/tests
 sudo docker cp app/backend/pytest.ini notenotes-backend-1:/app/pytest.ini
 sudo docker cp app/backend/requirements-dev.txt notenotes-backend-1:/app/requirements-dev.txt
@@ -45,16 +53,29 @@ sudo docker exec -w /app notenotes-backend-1 python3 -m pytest -q
 создаётся при импорте) — реальная БД `notenotes` вообще не открывается
 тестовым процессом.
 
-## Что покрыто (v1)
+## Что покрыто
 
-Auth (регистрация/логин/сессия), spaces (создание, сейф, публичные
-страницы, участники, инвайты), items (CRUD, версии, перенос между
-спейсами, публикация/снятие с публикации), uploads (лимиты 20 МБ/файл,
-100 МБ суммарно на заметку), public.py (весь анонимный флоу — пароль,
-однократность, доступ к вложениям).
+82 теста, почти весь HTTP- и WS-роутинг: auth, spaces (сейф, публичные
+страницы, участники, инвайты, ротация пароля сейфа), items (CRUD, версии,
+перенос, публикация), uploads (лимиты 20 МБ/100 МБ), folders, tags
+(включая слияние), lists (CRUD + записи), notifications, push, memories,
+skills, feedback, debug-log (включая rate-limit), calendar, search
+(включая транслитерацию и исключение сейфа), link-preview/url-checks
+(SSRF-блокировка — без единого реального сетевого запроса, приватные
+адреса отсекаются до обращения в сеть), telegram (link-code), public.py
+(весь анонимный флоу). WebSocket: space/list/notifications/collab —
+через `live_server` (настоящий uvicorn в процессе теста, в общем event
+loop'е с остальными async-фикстурами; `httpx.ASGITransport` WS не
+поддерживает, а `TestClient` поднимает WS в своём отдельном потоке/loop'е
+и на практике конфликтует с общей транзакционной db_session).
 
-**Не покрыто пока:** WebSocket-эндпоинты (совместное редактирование,
-списки, уведомления) — `httpx.ASGITransport` не тестировался под
-WebSocket в этом раунде, живая проверка (см. историю сессии) остаётся
-основным способом; AI-ассистент и прочие LLM-зависимые пути (дорого и
-недетерминированно гонять в обычном прогоне).
+dialogs.py — только детерминированная часть (создание/список/чтение/
+удаление сообщений, без LLM). ai_text.py/voice.py — только авторизация и
+валидация до вызова провайдера.
+
+**Сознательно не покрыто:** сама отправка сообщения ассистенту
+(`POST /dialogs/{id}/messages`) и любой путь, который реально дёргает
+LLM/ASR/TTS-провайдера (Mistral/Gemini/Groq/Deepgram/Palabra) — платно и
+недетерминированно гонять в обычном прогоне тестов; потребовало бы
+мокать HTTP-клиенты провайдеров, отдельная задача на будущее, если
+понадобится.
