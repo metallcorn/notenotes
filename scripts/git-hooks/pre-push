@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Гейт перед push — блокирует его, если бэкенд не собирается или тесты
+# не проходят. Установка (один раз на чекаут):
+#   git config core.hooksPath scripts/git-hooks
+set -euo pipefail
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+echo "pre-push: сборка + pytest перед отправкой…"
+"$REPO_ROOT/scripts/build-and-test.sh"
