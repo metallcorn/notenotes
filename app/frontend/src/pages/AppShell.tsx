@@ -4,6 +4,7 @@ import { Bell, ChevronLeft, Sparkles, Trash2 } from "lucide-react";
 import { useSpaces } from "../api/hooks";
 import { uiStorage, type ViewMode } from "../lib/storage";
 import { withViewTransition } from "../lib/viewTransition";
+import { useResizablePanel } from "../lib/useResizablePanel";
 import { useVersionCheck } from "../lib/useVersionCheck";
 import { useSpaceSync } from "../lib/useSpaceSync";
 import { useNotificationSync } from "../lib/useNotificationSync";
@@ -85,6 +86,18 @@ export default function AppShell() {
   const [collapsedSpaces, setCollapsedSpaces] = useState<Set<string>>(() => new Set(uiStorage.getCollapsedSpaces()));
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => uiStorage.getSidebarCollapsed());
   const [listCollapsed, setListCollapsed] = useState(() => uiStorage.getListCollapsed());
+  const [sidebarWidth, setSidebarWidth] = useState(() => uiStorage.getSidebarWidth());
+  const [listPanelWidth, setListPanelWidth] = useState(() => uiStorage.getListPanelWidth());
+  // Инлайновая ширина ниже действует только на десктопе (lg:) — на узком
+  // экране панели переключаются целиком через mobileView, там ширина не
+  // при чём (w-full из tailwind-класса).
+  const [isDesktop, setIsDesktop] = useState(() => window.matchMedia("(min-width: 1024px)").matches);
+  useEffect(() => {
+    const mq = window.matchMedia("(min-width: 1024px)");
+    const handler = () => setIsDesktop(mq.matches);
+    mq.addEventListener("change", handler);
+    return () => mq.removeEventListener("change", handler);
+  }, []);
 
   const restoredRef = useRef(false);
   // Точечная диагностика бага "белый экран в standalone PWA при переходе
@@ -423,8 +436,8 @@ export default function AppShell() {
   function toggleSpaceCollapsed(spaceId: string) {
     // Реальный найденный источник "дёргания": это локальное раскрытие ОДНОЙ
     // записи в уже видимом сайдбаре, не переход между экранами/панелями —
-    // startViewTransition() (withViewTransition ниже, toggleSidebar) снимает
-    // ДВА снимка ВСЕЙ страницы и слайдит/затемняет их поверх друг друга
+    // startViewTransition() снимает ДВА снимка ВСЕЙ страницы и слайдит/
+    // затемняет их поверх друг друга
     // (::view-transition-old/new(root) в index.css — по умолчанию таргет
     // именно root целиком, у SpaceSection нет своего view-transition-name).
     // Это соревновалось с локальной CSS-анимацией высоты в SpaceSection.tsx
@@ -441,24 +454,49 @@ export default function AppShell() {
   }
 
   function toggleSidebar() {
-    withViewTransition(() => {
-      setSidebarCollapsed((v) => {
-        const next = !v;
-        uiStorage.setSidebarCollapsed(next);
-        return next;
-      });
+    // Раньше был обёрнут в withViewTransition — тот же баг, что чинили в
+    // toggleSpaceCollapsed: снимок ВСЕЙ страницы поверх обычного изменения
+    // ширины одной панели (реальная жалоба: "дёргается и перерисовывается
+    // весь интерфейс" при сворачивании). Теперь ширина — числовое
+    // состояние (см. sidebarWidth ниже), а не display:none/flex, поэтому
+    // сворачивание анимируется обычным CSS-переходом width, без снимков.
+    setSidebarCollapsed((v) => {
+      const next = !v;
+      uiStorage.setSidebarCollapsed(next);
+      return next;
     });
   }
 
   function toggleList() {
-    withViewTransition(() => {
-      setListCollapsed((v) => {
-        const next = !v;
-        uiStorage.setListCollapsed(next);
-        return next;
-      });
+    setListCollapsed((v) => {
+      const next = !v;
+      uiStorage.setListCollapsed(next);
+      return next;
     });
   }
+
+  const sidebarHandle = useResizablePanel({
+    width: sidebarWidth,
+    collapsed: sidebarCollapsed,
+    min: 200,
+    max: 420,
+    onResize: (next) => {
+      setSidebarWidth(next);
+      uiStorage.setSidebarWidth(next);
+    },
+    onToggle: toggleSidebar,
+  });
+  const listHandle = useResizablePanel({
+    width: listPanelWidth,
+    collapsed: listCollapsed,
+    min: 240,
+    max: 560,
+    onResize: (next) => {
+      setListPanelWidth(next);
+      uiStorage.setListPanelWidth(next);
+    },
+    onToggle: toggleList,
+  });
 
   return (
     <div
@@ -473,9 +511,12 @@ export default function AppShell() {
       }}
     >
       <aside
-        className={`${mobileView === "sidebar" ? "flex" : "hidden"} ${
-          sidebarCollapsed ? "lg:hidden" : "lg:flex"
-        } w-full shrink-0 flex-col border-r bg-slate-50 lg:w-64`}
+        className={`${mobileView === "sidebar" ? "flex" : "hidden"} w-full shrink-0 flex-col overflow-x-hidden border-r bg-slate-50 lg:flex`}
+        style={
+          isDesktop
+            ? { width: sidebarCollapsed ? 0 : sidebarWidth, transition: "width 180ms ease-out" }
+            : undefined
+        }
       >
         {/* На десктопе строка поиска уже есть в панели списка заметок,
             видна одновременно с сайдбаром. На мобиле экраны сменяют друг
@@ -548,10 +589,14 @@ export default function AppShell() {
         </div>
       </aside>
 
+      {/* Та же полоска и сворачивает клик, и меняет ширину перетаскиванием
+          (useResizablePanel — различает по факту движения курсора).
+          Реальная жалоба: на десктопе ширину панели поменять было нельзя
+          вообще. */}
       <button
-        onClick={toggleSidebar}
-        title={sidebarCollapsed ? "Показать панель" : "Скрыть панель"}
-        className="hidden w-4 shrink-0 items-center justify-center border-r bg-slate-50 text-slate-400 hover:bg-slate-100 lg:flex"
+        {...sidebarHandle}
+        title={sidebarCollapsed ? "Показать панель (или потяните)" : "Скрыть панель (или потяните)"}
+        className="hidden w-4 shrink-0 cursor-col-resize touch-none items-center justify-center border-r bg-slate-50 text-slate-400 hover:bg-slate-100 lg:flex"
       >
         {sidebarCollapsed ? "›" : "‹"}
       </button>
@@ -569,9 +614,12 @@ export default function AppShell() {
         ) : (
           <>
             <div
-              className={`${mobileView === "list" ? "flex" : "hidden"} ${
-                listCollapsed ? "lg:hidden" : "lg:flex"
-              } w-full shrink-0 flex-col border-r lg:w-80`}
+              className={`${mobileView === "list" ? "flex" : "hidden"} w-full shrink-0 flex-col overflow-x-hidden border-r lg:flex`}
+              style={
+                isDesktop
+                  ? { width: listCollapsed ? 0 : listPanelWidth, transition: "width 180ms ease-out" }
+                  : undefined
+              }
             >
               {viewMode === "notes" ? (
                 <>
@@ -620,9 +668,9 @@ export default function AppShell() {
             </div>
 
             <button
-              onClick={toggleList}
-              title={listCollapsed ? "Показать список" : "Скрыть список"}
-              className="hidden w-4 shrink-0 items-center justify-center border-r bg-white text-slate-300 hover:bg-slate-50 lg:flex"
+              {...listHandle}
+              title={listCollapsed ? "Показать список (или потяните)" : "Скрыть список (или потяните)"}
+              className="hidden w-4 shrink-0 cursor-col-resize touch-none items-center justify-center border-r bg-white text-slate-300 hover:bg-slate-50 lg:flex"
             >
               {listCollapsed ? "›" : "‹"}
             </button>

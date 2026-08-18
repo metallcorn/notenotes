@@ -39,6 +39,15 @@ export const uiStorage = {
   getListCollapsed: (): boolean => read<boolean>("listCollapsed", false),
   setListCollapsed: (v: boolean): void => write("listCollapsed", v),
 
+  // Ширина панели спейсов/списка заметок на десктопе (px, перетаскиванием
+  // за границу панели) — реальная жалоба: раньше была фиксированной
+  // (256/320px), тот же принцип, что и у getNotePanelWidth.
+  getSidebarWidth: (): number => read<number>("sidebarWidth", 256),
+  setSidebarWidth: (v: number): void => write("sidebarWidth", v),
+
+  getListPanelWidth: (): number => read<number>("listPanelWidth", 320),
+  setListPanelWidth: (v: number): void => write("listPanelWidth", v),
+
   getActiveSelection: (): ActiveSelection | null => read<ActiveSelection | null>("activeSelection", null),
   setActiveSelection: (v: ActiveSelection | null): void => write("activeSelection", v),
 

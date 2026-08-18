@@ -1,5 +1,5 @@
 import { FormEvent, useState } from "react";
-import { Pencil, Plus, X } from "lucide-react";
+import { MoreVertical, Pencil, Plus, X } from "lucide-react";
 import type { Folder } from "../api/types";
 import { useCreateFolder, useDeleteFolder, useFolders, useUpdateFolder } from "../api/hooks";
 import Spinner from "./Spinner";
@@ -18,6 +18,7 @@ interface NodeProps {
 
 function FolderNode({ folder, all, selectedFolderId, onSelect, onAddChild, onRename, onDelete }: NodeProps) {
   const children = all.filter((f) => f.parent_id === folder.id);
+  const [menuOpen, setMenuOpen] = useState(false);
   return (
     <li>
       <div
@@ -28,33 +29,54 @@ function FolderNode({ folder, all, selectedFolderId, onSelect, onAddChild, onRen
         <button className="flex-1 truncate text-left" onClick={() => onSelect(folder.id)}>
           {folder.name}
         </button>
-        {/* Не group-hover: на тачскрине :hover не срабатывает вообще —
-            кнопки были физически недостижимы на телефоне. h-8 w-8 (было
-            h-6 w-6) — тот же телефонный отзыв: 24px физически не попасть
-            пальцем, тем более три кнопки подряд. */}
-        <span className="flex shrink-0 gap-0.5">
+        {/* Раньше тут было три отдельные кнопки подряд — реальная жалоба:
+            на узкой (особенно свежеразвёрнутой, до ресайза) панели
+            занимали слишком много места на строку папки. h-8 w-8, не
+            group-hover — тот же телефонный отзыв, что и раньше: кнопка
+            должна быть физически нажимаема на тачскрине без наведения. */}
+        <div className="relative shrink-0">
           <button
-            title="Подпапка"
-            onClick={() => onAddChild(folder.id)}
+            title="Действия с папкой"
+            onClick={() => setMenuOpen((v) => !v)}
             className="flex h-8 w-8 items-center justify-center text-slate-400 hover:text-slate-700"
           >
-            <Plus size={14} />
+            <MoreVertical size={15} />
           </button>
-          <button
-            title="Переименовать"
-            onClick={() => onRename(folder)}
-            className="flex h-8 w-8 items-center justify-center text-slate-400 hover:text-slate-700"
-          >
-            <Pencil size={13} />
-          </button>
-          <button
-            title="Удалить"
-            onClick={() => onDelete(folder)}
-            className="flex h-8 w-8 items-center justify-center text-slate-400 hover:text-red-600"
-          >
-            <X size={15} />
-          </button>
-        </span>
+          {menuOpen && (
+            <>
+              <div className="fixed inset-0 z-20" onClick={() => setMenuOpen(false)} />
+              <div className="absolute right-0 top-full z-30 w-44 rounded border bg-white py-1 shadow-lg">
+                <button
+                  onClick={() => {
+                    onAddChild(folder.id);
+                    setMenuOpen(false);
+                  }}
+                  className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-slate-600 hover:bg-slate-50"
+                >
+                  <Plus size={14} /> Подпапка
+                </button>
+                <button
+                  onClick={() => {
+                    onRename(folder);
+                    setMenuOpen(false);
+                  }}
+                  className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-slate-600 hover:bg-slate-50"
+                >
+                  <Pencil size={13} /> Переименовать
+                </button>
+                <button
+                  onClick={() => {
+                    onDelete(folder);
+                    setMenuOpen(false);
+                  }}
+                  className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-red-600 hover:bg-red-50"
+                >
+                  <X size={14} /> Удалить
+                </button>
+              </div>
+            </>
+          )}
+        </div>
       </div>
       {children.length > 0 && (
         <ul className="ml-3 border-l pl-2">

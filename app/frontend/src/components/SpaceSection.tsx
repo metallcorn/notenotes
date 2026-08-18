@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Globe, KeyRound, Lock, LockOpen, Pencil, Trash2, Users } from "lucide-react";
+import { Globe, KeyRound, Lock, LockOpen, MoreVertical, Pencil, Trash2, Users } from "lucide-react";
 import type { Space } from "../api/types";
 import { useDeleteSpace, useUpdateSpace } from "../api/hooks";
 import { ApiError } from "../api/client";
@@ -37,6 +37,7 @@ export default function SpaceSection({
   // явной просьбе, чтобы случайное удаление было буквально невозможным.
   const [needsForce, setNeedsForce] = useState(false);
   const [forceConfirmed, setForceConfirmed] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const unlocked = useVaultUnlocked(space.is_vault ? space.id : undefined);
 
   async function handleDeleteSpace() {
@@ -75,50 +76,78 @@ export default function SpaceSection({
           )}
           <span className="truncate">{space.name}</span>
         </button>
-        {space.is_vault && unlocked && (
+        {/* Раньше тут был ряд из до пяти отдельных кнопок подряд —
+            реальная жалоба: занимало слишком много места на строку
+            спейса. Один "⋮" + выпадающий список, тот же паттерн, что и
+            UserMenu.tsx. */}
+        <div className="relative shrink-0">
           <button
-            title="Закрыть сейф (снова запросит пароль)"
-            onClick={() => lockVault(space.id)}
-            className="flex h-6 w-6 shrink-0 items-center justify-center text-amber-500 hover:text-amber-700"
+            title="Действия со спейсом"
+            onClick={() => setMenuOpen((v) => !v)}
+            className="flex h-6 w-6 items-center justify-center text-slate-400 hover:text-slate-700"
           >
-            <LockOpen size={12} />
+            <MoreVertical size={13} />
           </button>
-        )}
-        {space.is_vault && (
-          <button
-            title="Сменить пароль сейфа"
-            onClick={() => setChangingPassword(true)}
-            className="flex h-6 w-6 shrink-0 items-center justify-center text-slate-400 hover:text-slate-700"
-          >
-            <KeyRound size={12} />
-          </button>
-        )}
-        <button
-          title="Участники спейса"
-          onClick={() => setManagingMembers(true)}
-          className="flex h-6 w-6 shrink-0 items-center justify-center text-slate-400 hover:text-slate-700"
-        >
-          <Users size={12} />
-        </button>
-        <button
-          title="Переименовать спейс"
-          onClick={() => setRenaming(true)}
-          className="flex h-6 w-6 shrink-0 items-center justify-center text-slate-400 hover:text-slate-700"
-        >
-          <Pencil size={12} />
-        </button>
-        <button
-          title="Удалить спейс"
-          onClick={() => {
-            setDeleteError(null);
-            setNeedsForce(false);
-            setForceConfirmed(false);
-            setConfirmingDelete(true);
-          }}
-          className="flex h-6 w-6 shrink-0 items-center justify-center text-slate-400 hover:text-red-600"
-        >
-          <Trash2 size={12} />
-        </button>
+          {menuOpen && (
+            <>
+              <div className="fixed inset-0 z-20" onClick={() => setMenuOpen(false)} />
+              <div className="absolute right-0 top-full z-30 w-52 rounded border bg-white py-1 shadow-lg">
+                {space.is_vault && unlocked && (
+                  <button
+                    onClick={() => {
+                      lockVault(space.id);
+                      setMenuOpen(false);
+                    }}
+                    className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-amber-600 hover:bg-amber-50"
+                  >
+                    <LockOpen size={14} /> Закрыть сейф
+                  </button>
+                )}
+                {space.is_vault && (
+                  <button
+                    onClick={() => {
+                      setChangingPassword(true);
+                      setMenuOpen(false);
+                    }}
+                    className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-slate-600 hover:bg-slate-50"
+                  >
+                    <KeyRound size={14} /> Сменить пароль сейфа
+                  </button>
+                )}
+                <button
+                  onClick={() => {
+                    setManagingMembers(true);
+                    setMenuOpen(false);
+                  }}
+                  className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-slate-600 hover:bg-slate-50"
+                >
+                  <Users size={14} /> Участники спейса
+                </button>
+                <button
+                  onClick={() => {
+                    setRenaming(true);
+                    setMenuOpen(false);
+                  }}
+                  className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-slate-600 hover:bg-slate-50"
+                >
+                  <Pencil size={14} /> Переименовать спейс
+                </button>
+                <button
+                  onClick={() => {
+                    setDeleteError(null);
+                    setNeedsForce(false);
+                    setForceConfirmed(false);
+                    setConfirmingDelete(true);
+                    setMenuOpen(false);
+                  }}
+                  className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-red-600 hover:bg-red-50"
+                >
+                  <Trash2 size={14} /> Удалить спейс
+                </button>
+              </div>
+            </>
+          )}
+        </div>
       </div>
       {/* Реальная жалоба: раньше это была условная РАЗМОНТИРОВКА
           (`{!collapsed && <FolderTree .../>}`) — сворачивание/разворачивание
