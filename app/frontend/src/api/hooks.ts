@@ -511,7 +511,18 @@ export function useItem(id: string | undefined) {
       cancelled = true;
     };
   }, [raw.data, unlocked]);
-  return { ...raw, data };
+  // Реальный найденный баг: при смене id (переход к другой заметке) react-query
+  // мгновенно обнуляет raw.data под новым ключом, но локальный data (нужен
+  // для расшифровки сейфа выше, useEffect асинхронный) на ОДИН кадр рендера
+  // ещё хранит ПРЕДЫДУЩИЙ item — целиком, включая его material_type. Свежесозданная
+  // обычная заметка в этом кадре выглядела как "список" (если до этого
+  // был открыт список), ItemView.tsx на этом основании монтировал
+  // ListEditor, который тут же дёргал /api/lists/{id} и получал 404 —
+  // ни разу не список, просто устаревшие данные под новым id. Раз id не
+  // совпадает с тем, для кого реально резолвился data — считаем, что
+  // данных ещё нет, а не отдаём чужие.
+  const effectiveData = data?.id === id ? data : undefined;
+  return { ...raw, data: effectiveData };
 }
 
 export function useCreateItem() {
