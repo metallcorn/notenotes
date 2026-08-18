@@ -8,6 +8,50 @@ async def test_create_space_and_list(auth_client):
     assert any(s["id"] == space_id for s in r.json())
 
 
+async def test_delete_empty_space(auth_client):
+    r = await auth_client.post("/api/spaces", json={"name": "To delete"})
+    space_id = r.json()["id"]
+    r = await auth_client.delete(f"/api/spaces/{space_id}")
+    assert r.status_code == 204
+
+    r = await auth_client.get("/api/spaces")
+    assert not any(s["id"] == space_id for s in r.json())
+
+
+async def test_delete_space_with_items_rejected(auth_client):
+    r = await auth_client.post("/api/spaces", json={"name": "Has items"})
+    space_id = r.json()["id"]
+    await auth_client.post("/api/items", json={"space_id": space_id, "title": "T", "content": "x"})
+
+    r = await auth_client.delete(f"/api/spaces/{space_id}")
+    assert r.status_code == 400
+
+    r = await auth_client.get("/api/spaces")
+    assert any(s["id"] == space_id for s in r.json())  # спейс никуда не делся
+
+
+async def test_delete_space_with_folders_rejected(auth_client):
+    r = await auth_client.post("/api/spaces", json={"name": "Has folders"})
+    space_id = r.json()["id"]
+    await auth_client.post("/api/folders", json={"space_id": space_id, "name": "F"})
+
+    r = await auth_client.delete(f"/api/spaces/{space_id}")
+    assert r.status_code == 400
+
+
+async def test_delete_space_with_soft_deleted_item_still_rejected(auth_client):
+    """Мягко удалённая (в корзине) заметка — всё ещё повод отказать
+    удалению спейса: её можно восстановить, каскад стёр бы безвозвратно."""
+    r = await auth_client.post("/api/spaces", json={"name": "Has trashed item"})
+    space_id = r.json()["id"]
+    r = await auth_client.post("/api/items", json={"space_id": space_id, "title": "T", "content": "x"})
+    item_id = r.json()["id"]
+    await auth_client.delete(f"/api/items/{item_id}")
+
+    r = await auth_client.delete(f"/api/spaces/{space_id}")
+    assert r.status_code == 400
+
+
 async def test_vault_requires_salt_and_verifier(auth_client):
     r = await auth_client.post("/api/spaces", json={"name": "Vault", "is_vault": True})
     assert r.status_code == 400

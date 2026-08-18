@@ -183,6 +183,17 @@ export function useUpdateSpace() {
   });
 }
 
+// Раньше такой возможности не было вообще (реальная жалоба — случайно
+// созданный спейс невозможно было убрать). Сервер требует спейс пустым
+// (routers/spaces.py::delete_space) — не даём тихо потерять данные каскадом.
+export function useDeleteSpace() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.delete<void>(`/spaces/${id}`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["spaces"] }),
+  });
+}
+
 // --- space members / invites ----------------------------------------------
 
 export function useSpaceMembers(spaceId: string | undefined) {

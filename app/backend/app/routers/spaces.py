@@ -12,7 +12,7 @@ from app import realtime
 from app.core.config import get_settings
 from app.db import get_db
 from app.deps import ensure_space_access, get_current_user
-from app.models import Item, Notification, Space, SpaceInvite, SpaceMember, Upload, User
+from app.models import Folder, Item, Notification, Space, SpaceInvite, SpaceMember, Upload, User
 from app.routers.uploads import _staged_upload_path, _upload_path
 from app.schemas.space import (
     SpaceCreate,
@@ -263,6 +263,41 @@ async def update_space(
     await db.commit()
     await db.refresh(space)
     return space
+
+
+@router.delete("/{space_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_space(
+    space_id: uuid.UUID, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+) -> None:
+    """Раньше такого эндпоинта не было вообще — реальная жалоба: спейс,
+    созданный по ошибке, невозможно было убрать никак. Требуем спейс
+    пустым (ни одной заметки/списка/билета — в любом состоянии, включая
+    корзину, ни одной папки) — не потому что технически нельзя удалить
+    непустой (FK space_id у Item/Folder/Upload — CASCADE), а потому что
+    каскадное удаление обошло бы мягкое удаление заметок совсем: то, что
+    лежит в корзине, всё ещё можно восстановить, а после каскада — уже
+    нет. Пустой спейс убрать явно, непустой — сначала опустошить руками
+    (та же дисциплина, что и everywhere в проекте: не тихо терять данные)."""
+    await ensure_space_access(db, space_id, user.id)
+    space = await db.get(Space, space_id)
+    if space is None:
+        return
+
+    has_items = (
+        await db.execute(select(Item.id).where(Item.space_id == space_id).limit(1))
+    ).scalar_one_or_none()
+    if has_items is not None:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, "В спейсе есть заметки/списки — сначала удалите их (включая корзину)"
+        )
+    has_folders = (
+        await db.execute(select(Folder.id).where(Folder.space_id == space_id).limit(1))
+    ).scalar_one_or_none()
+    if has_folders is not None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "В спейсе есть папки — сначала удалите их")
+
+    await db.delete(space)
+    await db.commit()
 
 
 @router.post("/{space_id}/vault-rotate-password", response_model=SpaceOut)

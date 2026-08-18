@@ -1,7 +1,8 @@
 import { useState } from "react";
-import { Globe, KeyRound, Lock, Pencil, Users } from "lucide-react";
+import { Globe, KeyRound, Lock, Pencil, Trash2, Users } from "lucide-react";
 import type { Space } from "../api/types";
-import { useUpdateSpace } from "../api/hooks";
+import { useDeleteSpace, useUpdateSpace } from "../api/hooks";
+import { ApiError } from "../api/client";
 import { useVaultUnlocked } from "../lib/vaultSession";
 import FolderTree from "./FolderTree";
 import PromptDialog from "./PromptDialog";
@@ -25,10 +26,27 @@ export default function SpaceSection({
   onSelectFolder: (spaceId: string, folderId: string | null) => void;
 }) {
   const updateSpace = useUpdateSpace();
+  const deleteSpace = useDeleteSpace();
   const [renaming, setRenaming] = useState(false);
   const [changingPassword, setChangingPassword] = useState(false);
   const [managingMembers, setManagingMembers] = useState(false);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const unlocked = useVaultUnlocked(space.is_vault ? space.id : undefined);
+
+  async function handleDeleteSpace() {
+    setDeleteError(null);
+    try {
+      await deleteSpace.mutateAsync(space.id);
+      setConfirmingDelete(false);
+    } catch (err) {
+      // Не закрываем диалог — реальный частый случай: спейс не пустой,
+      // сервер отказывает с понятным сообщением (routers/spaces.py::
+      // delete_space), пользователю нужно увидеть его, а не просто
+      // "ничего не произошло".
+      setDeleteError(err instanceof ApiError ? err.message : "Не удалось удалить спейс");
+    }
+  }
 
   return (
     <div className="mb-3">
@@ -75,6 +93,16 @@ export default function SpaceSection({
         >
           <Pencil size={12} />
         </button>
+        <button
+          title="Удалить спейс"
+          onClick={() => {
+            setDeleteError(null);
+            setConfirmingDelete(true);
+          }}
+          className="flex h-6 w-6 shrink-0 items-center justify-center text-slate-400 hover:text-red-600"
+        >
+          <Trash2 size={12} />
+        </button>
       </div>
       {/* Реальная жалоба: раньше это была условная РАЗМОНТИРОВКА
           (`{!collapsed && <FolderTree .../>}`) — сворачивание/разворачивание
@@ -109,6 +137,37 @@ export default function SpaceSection({
           }}
           onCancel={() => setRenaming(false)}
         />
+      )}
+
+      {confirmingDelete && (
+        // Не ConfirmDialog — нужно показать серверную ошибку ("в спейсе
+        // есть заметки/папки"), не закрывая диалог, а общий ConfirmDialog
+        // такого не умеет.
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          onClick={() => setConfirmingDelete(false)}
+        >
+          <div onClick={(e) => e.stopPropagation()} className="w-full max-w-sm rounded-lg bg-white p-4 shadow-xl">
+            <div className="mb-1 text-sm text-slate-900">Удалить спейс «{space.name}»?</div>
+            <p className="mb-3 text-xs text-slate-500">Можно удалить только пустой спейс — без заметок, списков и папок.</p>
+            {deleteError && <div className="mb-3 text-xs text-red-600">{deleteError}</div>}
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => setConfirmingDelete(false)}
+                className="rounded px-3 py-1.5 text-sm text-slate-500 hover:bg-slate-100"
+              >
+                Отмена
+              </button>
+              <button
+                onClick={handleDeleteSpace}
+                disabled={deleteSpace.isPending}
+                className="rounded bg-red-600 px-3 py-1.5 text-sm text-white hover:bg-red-700 disabled:opacity-50"
+              >
+                {deleteSpace.isPending ? "Удаляем…" : "Удалить"}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {changingPassword && (
