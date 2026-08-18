@@ -127,7 +127,22 @@ async def fetch_html(url: str, max_bytes: int = MAX_BODY_BYTES) -> tuple[str, st
             max_redirects=5,
             event_hooks={"request": [_check_request_url]},
         ) as client:
-            async with client.stream("GET", url, headers={"User-Agent": "Notenotesbot-link-preview/1.0"}) as resp:
+            # Реальная жалоба: честный бот-UA ("Notenotesbot-link-preview/1.0")
+            # заставлял часть сайтов (подтверждено на ceneo.pl) отдавать
+            # урезанную версию страницы без <title> — не блокировку по
+            # статусу, а молча другой контент, из-за которого fetch_preview
+            # ниже решал, что превью собрать не из чего. Браузерный UA —
+            # обычная практика для self-hosted превью-ботов именно из-за
+            # этого; не решает всё (ozon.by отдаёт 403 независимо от UA,
+            # подтверждено отдельно), но чинит класс сайтов, которые просто
+            # различают контент по UA, а не блокируют ботов целиком.
+            headers = {
+                "User-Agent": (
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                    "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                )
+            }
+            async with client.stream("GET", url, headers=headers) as resp:
                 if resp.status_code >= 400:
                     return None
                 content_type = resp.headers.get("content-type", "")
