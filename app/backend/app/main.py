@@ -15,7 +15,7 @@ from app.pdf_processing import run_worker as run_pdf_worker
 from app.telegram_bot import register_webhook as register_telegram_webhook, run_worker as run_telegram_worker
 from app.tickets import run_worker as run_ticket_worker
 from app.transcription import resume_pending as resume_transcription, run_worker as run_transcription_worker
-from app.vision import resume_pending as resume_vision, run_worker as run_vision_worker
+from app.vision import resume_pending as resume_vision, resume_stuck_replacements, run_worker as run_vision_worker
 from app.routers import (
     ai_text,
     auth,
@@ -56,6 +56,7 @@ async def lifespan(app: FastAPI):
     note_recording_task = asyncio.create_task(run_note_recording_worker())
     await resume_transcription()
     await resume_vision()
+    await resume_stuck_replacements()
     await resume_note_recording()
     await register_telegram_webhook()
     try:

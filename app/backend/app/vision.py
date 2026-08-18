@@ -307,3 +307,41 @@ async def resume_pending() -> None:
         )
         for row in result.all():
             enqueue_vision(row[0])
+
+
+_STUCK_PLACEHOLDER_PREFIX = "⏳ Описание изображения "
+
+
+async def resume_stuck_replacements() -> None:
+    """Реальный найденный баг (живые данные): если процесс обрывается МЕЖДУ
+    записью transcription_status="done" (_process, после успешного вызова
+    Mistral) и вызовом _replace_in_referencing_items чуть ниже — распознавание
+    полностью посчитано (upload.transcript заполнен), но плейсхолдер "⏳ ...
+    обрабатывается…" в заметке так и остаётся навсегда: enqueue_vision
+    вызывается только один раз, при загрузке файла, больше НИКТО не
+    пытается доделать замену. resume_pending() (выше) эту ситуацию не
+    ловит — статус уже "done", не "pending"/"processing". На старте —
+    один проход: найти заметки, где плейсхолдер ещё виден, и доделать
+    замену из уже посчитанного upload.transcript (без повторного дорогого
+    запроса к Mistral)."""
+    async with async_session() as db:
+        stuck_items = (
+            await db.execute(select(Item.content).where(Item.content.like(f"%{_STUCK_PLACEHOLDER_PREFIX}%")))
+        ).scalars().all()
+    if not stuck_items:
+        return
+
+    upload_ids: set[uuid.UUID] = set()
+    id_re = re.compile(re.escape(_STUCK_PLACEHOLDER_PREFIX) + r"([0-9a-fA-F-]{36})")
+    for content in stuck_items:
+        upload_ids |= {uuid.UUID(m) for m in id_re.findall(content)}
+
+    async with async_session() as db:
+        uploads = (await db.execute(select(Upload).where(Upload.id.in_(upload_ids)))).scalars().all()
+
+    for upload in uploads:
+        if upload.transcription_status != "done" or not (upload.transcript or "").strip():
+            continue
+        logger.info("Довершаю зависшую замену плейсхолдера для %s (найдено при старте)", upload.id)
+        formatted = serialize_image_ocr_result(upload.transcript)
+        await _replace_in_referencing_items(upload.id, placeholder_text(upload.id), formatted)
