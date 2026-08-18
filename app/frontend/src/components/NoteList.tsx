@@ -198,16 +198,22 @@ export default function NoteList({
       {/* На десктопе — обычные кнопки сверху. На телефоне верх экрана до
           них тянуться неудобно (жалоба с телефона), поэтому там вместо
           них плавающие кнопки снизу-справа — чуть выше кнопки «Отзыв»,
-          чтобы не перекрывались. */}
+          чтобы не перекрывались.
+          Реальная жалоба: три текстовые кнопки "+ Заметка/Список/Таблица"
+          подряд ломали вёрстку в узкой (особенно после ресайза) панели
+          списка. Заметка остаётся основной, текстовой (самое частое
+          действие) — Список и Таблица теперь компактные квадратные иконки
+          рядом, не растягиваются на всю ширину и не зависят от длины
+          перевода слова "Таблица". */}
       <div className="hidden gap-2 border-b p-3 md:flex">
-        <div className="flex flex-1">
+        <div className="flex min-w-0 flex-1">
           <button
             onClick={() => createNote()}
             disabled={createItem.isPending}
-            className="flex flex-1 items-center justify-center gap-2 rounded-l bg-slate-900 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
+            className="flex min-w-0 flex-1 items-center justify-center gap-2 rounded-l bg-slate-900 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
           >
             {createItem.isPending && <Spinner />}
-            {createItem.isPending ? "Создаём…" : "+ Заметка"}
+            <span className="truncate">{createItem.isPending ? "Создаём…" : "+ Заметка"}</span>
           </button>
           <NoteTemplateMenu onSelect={createNote} disabled={createItem.isPending} align="top" />
         </div>
@@ -215,20 +221,20 @@ export default function NoteList({
           <button
             onClick={createNewList}
             disabled={createList.isPending}
-            className="flex flex-1 items-center justify-center gap-2 rounded border border-slate-900 px-3 py-1.5 text-sm font-medium text-slate-900 disabled:opacity-50"
+            title="Новый список"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded border border-slate-900 text-slate-900 disabled:opacity-50"
           >
-            {createList.isPending && <Spinner />}
-            {createList.isPending ? "Создаём…" : "+ Список"}
+            {createList.isPending ? <Spinner size={16} /> : <ListChecks size={16} />}
           </button>
         )}
         {!isVault && (
           <button
             onClick={createNewTable}
             disabled={createTable.isPending}
-            className="flex flex-1 items-center justify-center gap-2 rounded border border-slate-900 px-3 py-1.5 text-sm font-medium text-slate-900 disabled:opacity-50"
+            title="Новая таблица"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded border border-slate-900 text-slate-900 disabled:opacity-50"
           >
-            {createTable.isPending && <Spinner />}
-            {createTable.isPending ? "Создаём…" : "+ Таблица"}
+            {createTable.isPending ? <Spinner size={16} /> : <TableIcon size={16} />}
           </button>
         )}
       </div>

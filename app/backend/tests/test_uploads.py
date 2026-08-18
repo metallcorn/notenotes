@@ -70,6 +70,40 @@ async def test_video_and_audio_exempt_from_generic_limit(auth_client):
     assert r.status_code == 201
 
 
+async def test_docx_upload_extracts_text_preview(auth_client):
+    import io
+
+    import docx
+
+    space_id = await _make_space(auth_client)
+    doc = docx.Document()
+    doc.add_paragraph("Договор аренды")
+    doc.add_paragraph("Сумма: 50000 рублей в месяц")
+    buf = io.BytesIO()
+    doc.save(buf)
+    buf.seek(0)
+
+    r = await auth_client.post(
+        f"/api/uploads?space_id={space_id}",
+        files={
+            "file": (
+                "contract.docx",
+                buf.read(),
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            )
+        },
+    )
+    assert r.status_code == 201
+    # Реальная жалоба: docx, присланные в Telegram, не распознавались — тот
+    # же экстрактор (routers/uploads.py::_extract_text_preview), что
+    # используется здесь для веб-загрузки, теперь используется и там
+    # (telegram_bot.py). Прямого теста на сетевой Telegram-путь нет (см.
+    # tests/README.md — внешние сетевые вызовы вне охвата), но сама функция
+    # извлечения — общая, и именно её отсутствие в покрытии было пробелом.
+    assert "Договор аренды" in r.json()["preview_text"]
+    assert "50000" in r.json()["preview_text"]
+
+
 async def test_upload_thumbnail_lazily_generated_for_pdf(auth_client):
     """Не-PDF без превью — 404, не 500 (см. get_upload_thumbnail)."""
     space_id = await _make_space(auth_client)

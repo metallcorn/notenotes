@@ -295,6 +295,22 @@ export function useDeleteFolder(spaceId: string | undefined) {
   });
 }
 
+// Реальная жалоба: перенести можно было заметку за заметкой, но не целую
+// папку разом. Задевает СРАЗУ два спейса (как useMoveItemSpace выше) —
+// префиксная инвалидация ["folders"]/["items"] без привязки к spaceId,
+// чтобы обновились оба.
+export function useMoveFolderSpace() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, space_id }: { id: string; space_id: string }) =>
+      api.post<Folder>(`/folders/${id}/move`, { space_id }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["folders"] });
+      qc.invalidateQueries({ queryKey: ["items"] });
+    },
+  });
+}
+
 // --- tags --------------------------------------------------------------
 
 export function useTags() {

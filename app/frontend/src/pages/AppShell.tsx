@@ -508,8 +508,17 @@ export default function AppShell() {
         paddingLeft: "var(--safe-left)",
       }}
     >
+      {/* Реальный найденный баг: тут раньше был overflow-x-hidden (чтобы
+          контент не вылезал вбок во время анимации ширины) — но CSS
+          вычисляет overflow-y как auto вместо visible, если overflow-x
+          задан НЕ visible, а overflow-y явно не указан (спека: "visible"
+          на одной оси при не-"visible" на другой считается как "auto").
+          Это молча обрезало любой попап, всплывающий ЗА пределы панели по
+          вертикали — выпадающее меню шаблонов заметки (NoteTemplateMenu)
+          рисовалось, но было невидимым и съедало следующий клик своим
+          fixed-бэкдропом. Косметика ширины не стоила этой цены — убрано. */}
       <aside
-        className={`${mobileView === "sidebar" ? "flex" : "hidden"} w-full shrink-0 flex-col overflow-x-hidden border-r bg-slate-50 lg:flex`}
+        className={`${mobileView === "sidebar" ? "flex" : "hidden"} w-full shrink-0 flex-col border-r bg-slate-50 lg:flex`}
         style={
           isDesktop
             ? { width: sidebarCollapsed ? 0 : sidebarWidth, transition: "width 180ms ease-out" }
@@ -630,8 +639,10 @@ export default function AppShell() {
           />
         ) : (
           <>
+            {/* overflow-x-hidden убран тут же и по той же причине, что у
+                aside выше — этот блок держит NoteTemplateMenu. */}
             <div
-              className={`${mobileView === "list" ? "flex" : "hidden"} w-full shrink-0 flex-col overflow-x-hidden border-r lg:flex`}
+              className={`${mobileView === "list" ? "flex" : "hidden"} w-full shrink-0 flex-col border-r lg:flex`}
               style={
                 isDesktop
                   ? { width: listCollapsed ? 0 : listPanelWidth, transition: "width 180ms ease-out" }

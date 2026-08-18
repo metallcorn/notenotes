@@ -19,6 +19,10 @@ class FolderUpdate(BaseModel):
     parent_id: uuid.UUID | None = None
 
 
+class FolderMoveSpace(BaseModel):
+    space_id: uuid.UUID
+
+
 class FolderOut(BaseModel):
     model_config = {"from_attributes": True}
 

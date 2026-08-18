@@ -1,10 +1,11 @@
 import { FormEvent, useState } from "react";
-import { MoreVertical, Pencil, Plus, X } from "lucide-react";
+import { FolderInput, MoreVertical, Pencil, Plus, X } from "lucide-react";
 import type { Folder } from "../api/types";
 import { useCreateFolder, useDeleteFolder, useFolders, useUpdateFolder } from "../api/hooks";
 import Spinner from "./Spinner";
 import PromptDialog from "./PromptDialog";
 import ConfirmDialog from "./ConfirmDialog";
+import FolderMoveModal from "./FolderMoveModal";
 
 interface NodeProps {
   folder: Folder;
@@ -14,9 +15,10 @@ interface NodeProps {
   onAddChild: (parentId: string) => void;
   onRename: (folder: Folder) => void;
   onDelete: (folder: Folder) => void;
+  onMove: (folder: Folder) => void;
 }
 
-function FolderNode({ folder, all, selectedFolderId, onSelect, onAddChild, onRename, onDelete }: NodeProps) {
+function FolderNode({ folder, all, selectedFolderId, onSelect, onAddChild, onRename, onDelete, onMove }: NodeProps) {
   const children = all.filter((f) => f.parent_id === folder.id);
   const [menuOpen, setMenuOpen] = useState(false);
   return (
@@ -66,6 +68,15 @@ function FolderNode({ folder, all, selectedFolderId, onSelect, onAddChild, onRen
                 </button>
                 <button
                   onClick={() => {
+                    onMove(folder);
+                    setMenuOpen(false);
+                  }}
+                  className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-slate-600 hover:bg-slate-50"
+                >
+                  <FolderInput size={13} /> Перенести в другой спейс
+                </button>
+                <button
+                  onClick={() => {
                     onDelete(folder);
                     setMenuOpen(false);
                   }}
@@ -90,6 +101,7 @@ function FolderNode({ folder, all, selectedFolderId, onSelect, onAddChild, onRen
               onAddChild={onAddChild}
               onRename={onRename}
               onDelete={onDelete}
+              onMove={onMove}
             />
           ))}
         </ul>
@@ -115,6 +127,7 @@ export default function FolderTree({
   const [newName, setNewName] = useState("");
   const [renaming, setRenaming] = useState<Folder | null>(null);
   const [deleting, setDeleting] = useState<Folder | null>(null);
+  const [moving, setMoving] = useState<Folder | null>(null);
 
   const all = folders ?? [];
   const roots = all.filter((f) => f.parent_id === null);
@@ -170,6 +183,7 @@ export default function FolderTree({
             onAddChild={(parentId) => setAddingParentId(parentId)}
             onRename={setRenaming}
             onDelete={setDeleting}
+            onMove={setMoving}
           />
         ))}
       </ul>
@@ -226,6 +240,19 @@ export default function FolderTree({
             setDeleting(null);
           }}
           onCancel={() => setDeleting(null)}
+        />
+      )}
+
+      {moving && (
+        <FolderMoveModal
+          folder={moving}
+          onClose={() => setMoving(null)}
+          onMoved={() => {
+            // Папка уехала в другой спейс — в текущем её больше нет,
+            // держать выбранной ссылку на несуществующую папку нельзя
+            // (тот же приём, что при удалении папки выше).
+            if (selectedFolderId === moving.id) onSelect(null);
+          }}
         />
       )}
     </div>
