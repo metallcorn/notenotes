@@ -127,6 +127,31 @@ async def auth_client(_client_factory, test_user: User) -> AsyncClient:
     return c
 
 
+@pytest_asyncio.fixture
+async def live_server(_client_factory) -> AsyncGenerator[str, None]:
+    """Настоящий uvicorn на локальном порту, в ТОМ ЖЕ event loop'е, что и
+    остальные async-фикстуры — только для WS-эндпоинтов. httpx/ASGITransport
+    не тестировался под WebSocket в этом раунде; starlette.testclient.TestClient
+    поддерживает WS, но поднимает соединение в СВОЁМ отдельном потоке со
+    своим loop'ом — на практике это ровно тот же класс проблем ("different
+    loop"/MissingGreenlet), что уже ловили сегодня при живой отладке
+    коллаборации. Настоящий сервер в этом же процессе и loop'е избегает
+    этого класса багов целиком: WS-хэндлеры видят тот же
+    app.dependency_overrides[get_db], что и обычные HTTP-тесты (см.
+    _client_factory), сессия/транзакция общая, как и везде."""
+    import uvicorn
+
+    config = uvicorn.Config(app, host="127.0.0.1", port=0, log_level="warning")
+    server = uvicorn.Server(config)
+    task = asyncio.get_event_loop().create_task(server.serve())
+    while not server.started:
+        await asyncio.sleep(0.01)
+    port = server.servers[0].sockets[0].getsockname()[1]
+    yield f"ws://127.0.0.1:{port}"
+    server.should_exit = True
+    await task
+
+
 @pytest.fixture(scope="session")
 def event_loop():
     # Реальный найденный при первом прогоне баг: без этого pytest-asyncio
