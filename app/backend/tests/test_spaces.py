@@ -52,6 +52,46 @@ async def test_delete_space_with_soft_deleted_item_still_rejected(auth_client):
     assert r.status_code == 400
 
 
+async def test_force_delete_space_with_items_and_uploads(auth_client):
+    from datetime import datetime, timezone
+
+    from app.routers.uploads import _upload_path
+
+    r = await auth_client.post("/api/spaces", json={"name": "Force delete"})
+    space_id = r.json()["id"]
+    r = await auth_client.post("/api/items", json={"space_id": space_id, "title": "T", "content": "x"})
+    item_id = r.json()["id"]
+    await auth_client.post("/api/folders", json={"space_id": space_id, "name": "F"})
+
+    r = await auth_client.post(
+        f"/api/uploads?space_id={space_id}", files={"file": ("f.bin", b"hello", "application/octet-stream")}
+    )
+    upload_id = r.json()["id"]
+    upload_path = _upload_path(upload_id)
+    assert upload_path.exists()
+
+    trigger_at = datetime.now(timezone.utc).isoformat()
+    r = await auth_client.post(
+        "/api/notifications", json={"title": "T", "body": "", "trigger_at": trigger_at, "item_id": item_id}
+    )
+    notif_id = r.json()["id"]
+
+    # без force всё ещё отказ, ничего не подчищено
+    r = await auth_client.delete(f"/api/spaces/{space_id}")
+    assert r.status_code == 400
+
+    r = await auth_client.delete(f"/api/spaces/{space_id}?force=true")
+    assert r.status_code == 204
+
+    assert not upload_path.exists()  # реальная жалоба: файлы не должны оставаться мусором на диске
+
+    r = await auth_client.get("/api/spaces")
+    assert not any(s["id"] == space_id for s in r.json())
+
+    r = await auth_client.get("/api/notifications?scope=all")
+    assert not any(n["id"] == notif_id for n in r.json())  # висящее уведомление на удалённый item
+
+
 async def test_vault_requires_salt_and_verifier(auth_client):
     r = await auth_client.post("/api/spaces", json={"name": "Vault", "is_vault": True})
     assert r.status_code == 400

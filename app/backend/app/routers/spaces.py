@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect, status
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import realtime
@@ -13,7 +13,7 @@ from app.core.config import get_settings
 from app.db import get_db
 from app.deps import ensure_space_access, get_current_user
 from app.models import Folder, Item, Notification, Space, SpaceInvite, SpaceMember, Upload, User
-from app.routers.uploads import _staged_upload_path, _upload_path
+from app.routers.uploads import _staged_upload_path, _thumbnail_path, _upload_path
 from app.schemas.space import (
     SpaceCreate,
     SpaceInviteOut,
@@ -267,36 +267,71 @@ async def update_space(
 
 @router.delete("/{space_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_space(
-    space_id: uuid.UUID, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+    space_id: uuid.UUID,
+    force: bool = False,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ) -> None:
     """Раньше такого эндпоинта не было вообще — реальная жалоба: спейс,
-    созданный по ошибке, невозможно было убрать никак. Требуем спейс
-    пустым (ни одной заметки/списка/билета — в любом состоянии, включая
-    корзину, ни одной папки) — не потому что технически нельзя удалить
-    непустой (FK space_id у Item/Folder/Upload — CASCADE), а потому что
-    каскадное удаление обошло бы мягкое удаление заметок совсем: то, что
-    лежит в корзине, всё ещё можно восстановить, а после каскада — уже
-    нет. Пустой спейс убрать явно, непустой — сначала опустошить руками
-    (та же дисциплина, что и everywhere в проекте: не тихо терять данные)."""
+    созданный по ошибке, невозможно было убрать никак. По умолчанию
+    требуем спейс пустым (ни одной заметки/списка/билета — в любом
+    состоянии, включая корзину, ни одной папки) — не потому что
+    технически нельзя удалить непустой (FK space_id у Item/Folder/Upload
+    — CASCADE), а потому что каскадное удаление обошло бы мягкое
+    удаление заметок совсем: то, что лежит в корзине, ещё можно
+    восстановить, а после каскада — уже нет.
+
+    force=True — реальная жалоба: иногда именно это и нужно (спейс с
+    содержимым, который по-честному хотят стереть целиком, не разбирая
+    вручную). ВАЖНО: каскад в БД удаляет только СТРОКИ — ни физические
+    файлы вложений на диске, ни Notification (payload — свободный JSONB
+    без FK на items.id, каскад его не видит вообще) сам по себе не
+    тронет. Оба явно подчищаются здесь ДО удаления Space — иначе с force
+    получили бы ровно те мусорные файлы и висящие уведомления, которых
+    просили избежать."""
     await ensure_space_access(db, space_id, user.id)
     space = await db.get(Space, space_id)
     if space is None:
         return
 
-    has_items = (
-        await db.execute(select(Item.id).where(Item.space_id == space_id).limit(1))
-    ).scalar_one_or_none()
-    if has_items is not None:
-        raise HTTPException(
-            status.HTTP_400_BAD_REQUEST, "В спейсе есть заметки/списки — сначала удалите их (включая корзину)"
-        )
+    items_result = await db.execute(select(Item).where(Item.space_id == space_id))
+    items = list(items_result.scalars().all())
     has_folders = (
         await db.execute(select(Folder.id).where(Folder.space_id == space_id).limit(1))
-    ).scalar_one_or_none()
-    if has_folders is not None:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "В спейсе есть папки — сначала удалите их")
+    ).scalar_one_or_none() is not None
 
-    await db.delete(space)
+    if not force:
+        if items:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                "В спейсе есть заметки/списки — сначала удалите их (включая корзину), "
+                "либо подтвердите удаление вместе со всем содержимым",
+            )
+        if has_folders:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                "В спейсе есть папки — сначала удалите их, либо подтвердите удаление вместе со всем содержимым",
+            )
+        await db.delete(space)
+        await db.commit()
+        return
+
+    item_ids = [item.id for item in items]
+    if item_ids:
+        await db.execute(
+            delete(Notification).where(Notification.payload["item_id"].astext.in_([str(i) for i in item_ids]))
+        )
+
+    uploads = list((await db.execute(select(Upload).where(Upload.space_id == space_id))).scalars().all())
+    for upload in uploads:
+        _upload_path(upload.id).unlink(missing_ok=True)
+        _thumbnail_path(upload.id).unlink(missing_ok=True)
+        # .new-копия остаётся, только если ротацию пароля сейфа прервали
+        # на середине (routers/spaces.py::rotate_vault_password) — на
+        # практике редкость, но незачем оставлять и её.
+        _staged_upload_path(upload.id).unlink(missing_ok=True)
+
+    await db.delete(space)  # каскад подчищает items/folders/uploads/space_members/space_invites сам
     await db.commit()
 
 

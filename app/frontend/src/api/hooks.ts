@@ -184,12 +184,15 @@ export function useUpdateSpace() {
 }
 
 // Раньше такой возможности не было вообще (реальная жалоба — случайно
-// созданный спейс невозможно было убрать). Сервер требует спейс пустым
-// (routers/spaces.py::delete_space) — не даём тихо потерять данные каскадом.
+// созданный спейс невозможно было убрать). По умолчанию сервер требует
+// спейс пустым (routers/spaces.py::delete_space) — не даём тихо потерять
+// данные каскадом; force=true — осознанное удаление вместе с содержимым,
+// подтверждённое отдельным чекбоксом в UI (SpaceSection.tsx).
 export function useDeleteSpace() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) => api.delete<void>(`/spaces/${id}`),
+    mutationFn: ({ id, force }: { id: string; force?: boolean }) =>
+      api.delete<void>(`/spaces/${id}${force ? "?force=true" : ""}`),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["spaces"] }),
   });
 }

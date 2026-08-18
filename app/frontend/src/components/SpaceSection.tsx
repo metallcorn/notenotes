@@ -1,9 +1,9 @@
 import { useState } from "react";
-import { Globe, KeyRound, Lock, Pencil, Trash2, Users } from "lucide-react";
+import { Globe, KeyRound, Lock, LockOpen, Pencil, Trash2, Users } from "lucide-react";
 import type { Space } from "../api/types";
 import { useDeleteSpace, useUpdateSpace } from "../api/hooks";
 import { ApiError } from "../api/client";
-import { useVaultUnlocked } from "../lib/vaultSession";
+import { lockVault, useVaultUnlocked } from "../lib/vaultSession";
 import FolderTree from "./FolderTree";
 import PromptDialog from "./PromptDialog";
 import SpaceMembersModal from "./SpaceMembersModal";
@@ -32,19 +32,24 @@ export default function SpaceSection({
   const [managingMembers, setManagingMembers] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  // Непустой спейс сервер отклоняет без force (400) — тогда предлагаем
+  // принудительное удаление, но только через отдельный чекбокс ниже: по
+  // явной просьбе, чтобы случайное удаление было буквально невозможным.
+  const [needsForce, setNeedsForce] = useState(false);
+  const [forceConfirmed, setForceConfirmed] = useState(false);
   const unlocked = useVaultUnlocked(space.is_vault ? space.id : undefined);
 
   async function handleDeleteSpace() {
     setDeleteError(null);
     try {
-      await deleteSpace.mutateAsync(space.id);
+      await deleteSpace.mutateAsync({ id: space.id, force: needsForce && forceConfirmed });
       setConfirmingDelete(false);
     } catch (err) {
       // Не закрываем диалог — реальный частый случай: спейс не пустой,
       // сервер отказывает с понятным сообщением (routers/spaces.py::
-      // delete_space), пользователю нужно увидеть его, а не просто
-      // "ничего не произошло".
+      // delete_space) — тогда предлагаем force вместо простого отказа.
       setDeleteError(err instanceof ApiError ? err.message : "Не удалось удалить спейс");
+      if (err instanceof ApiError && err.status === 400) setNeedsForce(true);
     }
   }
 
@@ -70,6 +75,15 @@ export default function SpaceSection({
           )}
           <span className="truncate">{space.name}</span>
         </button>
+        {space.is_vault && unlocked && (
+          <button
+            title="Закрыть сейф (снова запросит пароль)"
+            onClick={() => lockVault(space.id)}
+            className="flex h-6 w-6 shrink-0 items-center justify-center text-amber-500 hover:text-amber-700"
+          >
+            <LockOpen size={12} />
+          </button>
+        )}
         {space.is_vault && (
           <button
             title="Сменить пароль сейфа"
@@ -97,6 +111,8 @@ export default function SpaceSection({
           title="Удалить спейс"
           onClick={() => {
             setDeleteError(null);
+            setNeedsForce(false);
+            setForceConfirmed(false);
             setConfirmingDelete(true);
           }}
           className="flex h-6 w-6 shrink-0 items-center justify-center text-slate-400 hover:text-red-600"
@@ -150,7 +166,23 @@ export default function SpaceSection({
           <div onClick={(e) => e.stopPropagation()} className="w-full max-w-sm rounded-lg bg-white p-4 shadow-xl">
             <div className="mb-1 text-sm text-slate-900">Удалить спейс «{space.name}»?</div>
             <p className="mb-3 text-xs text-slate-500">Можно удалить только пустой спейс — без заметок, списков и папок.</p>
-            {deleteError && <div className="mb-3 text-xs text-red-600">{deleteError}</div>}
+            {deleteError && <div className="mb-2 text-xs text-red-600">{deleteError}</div>}
+            {needsForce && (
+              // Отдельный чекбокс, не автоматический retry — по прямой
+              // просьбе: "чтобы вот прям никак не получилось что
+              // пользователь нечаянно удалил". Удаление вместе с
+              // содержимым необратимо (файлы стираются с диска, а не
+              // просто из корзины) — второй явный шаг обязателен.
+              <label className="mb-3 flex items-start gap-2 rounded border border-red-200 bg-red-50 p-2 text-xs text-red-700">
+                <input
+                  type="checkbox"
+                  checked={forceConfirmed}
+                  onChange={(e) => setForceConfirmed(e.target.checked)}
+                  className="mt-0.5"
+                />
+                <span>Удалить безвозвратно вместе со всеми заметками, списками, вложениями и папками внутри</span>
+              </label>
+            )}
             <div className="flex justify-end gap-2">
               <button
                 onClick={() => setConfirmingDelete(false)}
@@ -160,7 +192,7 @@ export default function SpaceSection({
               </button>
               <button
                 onClick={handleDeleteSpace}
-                disabled={deleteSpace.isPending}
+                disabled={deleteSpace.isPending || (needsForce && !forceConfirmed)}
                 className="rounded bg-red-600 px-3 py-1.5 text-sm text-white hover:bg-red-700 disabled:opacity-50"
               >
                 {deleteSpace.isPending ? "Удаляем…" : "Удалить"}

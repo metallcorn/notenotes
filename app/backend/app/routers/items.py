@@ -4,14 +4,14 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select, update
+from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import realtime
 from app.autotag import enqueue_autotag, suggest_tags_now
 from app.db import get_db
 from app.deps import ensure_space_access, get_current_user, is_vault_space
-from app.models import Folder, Item, ItemTag, ItemVersion, Space, SpaceMember, Tag, Upload, User
+from app.models import Folder, Item, ItemTag, ItemVersion, Notification, Space, SpaceMember, Tag, Upload, User
 from app.schemas.item import (
     DetectedEventDismissIn,
     DetectedEventOut,
@@ -600,6 +600,12 @@ async def delete_item_permanent(
     # из корзины, руками, никогда через AI-тул.
     item = await _get_accessible_item(db, user, item_id, include_deleted=True)
     space_id = item.space_id
+    # Реальная жалоба: Notification.payload — JSONB без FK на items.id
+    # (свободная структура, разные типы уведомлений хранят в ней разное),
+    # каскад на уровне БД её никак не заденет — уведомление о напоминании
+    # для этой заметки осталось бы висеть и ссылаться на уже несуществующий
+    # item_id (ошибка при попытке открыть его из уведомления).
+    await db.execute(delete(Notification).where(Notification.payload["item_id"].astext == str(item_id)))
     await db.delete(item)
     await db.commit()
     await realtime.notify_space(space_id, "items")

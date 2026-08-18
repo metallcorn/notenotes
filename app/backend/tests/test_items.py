@@ -43,6 +43,28 @@ async def test_item_soft_delete_and_restore(auth_client):
     assert r.status_code == 200
 
 
+async def test_permanent_delete_cleans_up_notifications(auth_client):
+    from datetime import datetime, timezone
+
+    space_id = await _make_space(auth_client)
+    r = await auth_client.post("/api/items", json={"space_id": space_id, "title": "T", "content": "x"})
+    item_id = r.json()["id"]
+
+    trigger_at = datetime.now(timezone.utc).isoformat()
+    r = await auth_client.post(
+        "/api/notifications", json={"title": "T", "body": "", "trigger_at": trigger_at, "item_id": item_id}
+    )
+    assert r.status_code == 201
+    notif_id = r.json()["id"]
+
+    await auth_client.delete(f"/api/items/{item_id}")  # в корзину
+    r = await auth_client.delete(f"/api/items/{item_id}/permanent")
+    assert r.status_code == 204
+
+    r = await auth_client.get("/api/notifications?scope=all")
+    assert not any(n["id"] == notif_id for n in r.json())  # висящее уведомление на удалённый item — реальная жалоба
+
+
 async def test_move_item_between_spaces(auth_client):
     space_a = await _make_space(auth_client, name="A")
     space_b = await _make_space(auth_client, name="B")
