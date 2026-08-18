@@ -103,14 +103,45 @@ export function RecognizedTextCopyButtons({ text }: { text: string }) {
 // ховеру). Раз DOM физически не является потомком узла — ProseMirror
 // вообще не видит эти события, и они работают как обычный HTML: выделение
 // текста мышью, копирование — без чего-либо специального.
+interface PanelPosition {
+  top?: number;
+  bottom?: number;
+  left: number;
+  width: number;
+  maxHeight: number;
+}
+
 export function ExpandedTextPanel({ anchorRef, text }: { anchorRef: React.RefObject<HTMLElement>; text: string }) {
-  const [rect, setRect] = useState<{ top: number; left: number; width: number } | null>(null);
+  const [pos, setPos] = useState<PanelPosition | null>(null);
 
   useEffect(() => {
+    // Реальная жалоба: панель — fixed-position портал в document.body (см.
+    // докстринг ниже), она НЕ участвует в потоке страницы — раньше всегда
+    // открывалась ВНИЗ от якоря фиксированной высотой (max-h-96) без учёта
+    // реального свободного места. Если якорь оказывался ближе к низу
+    // экрана, панель улетала за видимую область — а прокрутка страницы её
+    // не показывала (fixed от неё не зависит), содержимое было буквально
+    // невозможно увидеть. Теперь: открываем вверх, если снизу места
+    // меньше, чем сверху, и в обоих случаях ограничиваем высоту РЕАЛЬНО
+    // доступным пространством, а не произвольной константой; по
+    // горизонтали — не даём вылезти за правый край экрана.
     function update() {
       if (!anchorRef.current) return;
       const r = anchorRef.current.getBoundingClientRect();
-      setRect({ top: r.bottom + 4, left: r.left, width: r.width });
+      const margin = 8;
+      const width = Math.max(r.width, 240);
+
+      const maxLeft = window.innerWidth - width - margin;
+      const left = Math.max(margin, Math.min(r.left, maxLeft));
+
+      const spaceBelow = window.innerHeight - r.bottom - margin;
+      const spaceAbove = r.top - margin;
+
+      if (spaceBelow >= 160 || spaceBelow >= spaceAbove) {
+        setPos({ top: r.bottom + 4, left, width, maxHeight: Math.max(120, Math.min(384, spaceBelow)) });
+      } else {
+        setPos({ bottom: window.innerHeight - r.top + 4, left, width, maxHeight: Math.max(120, Math.min(384, spaceAbove)) });
+      }
     }
     update();
     // capture: true — ловит скролл ЛЮБОГО предка-контейнера (сам редактор
@@ -123,12 +154,12 @@ export function ExpandedTextPanel({ anchorRef, text }: { anchorRef: React.RefObj
     };
   }, [anchorRef]);
 
-  if (!rect) return null;
+  if (!pos) return null;
 
   return createPortal(
     <div
-      style={{ top: rect.top, left: rect.left, width: Math.max(rect.width, 240) }}
-      className="fixed z-40 max-h-96 overflow-y-auto rounded border bg-white p-3 text-xs text-slate-700 shadow-lg"
+      style={{ top: pos.top, bottom: pos.bottom, left: pos.left, width: pos.width, maxHeight: pos.maxHeight }}
+      className="fixed z-40 overflow-y-auto rounded border bg-white p-3 text-xs text-slate-700 shadow-lg"
     >
       <ReactMarkdown remarkPlugins={[remarkGfm]} components={recognizedTextMarkdownComponents}>
         {text}
