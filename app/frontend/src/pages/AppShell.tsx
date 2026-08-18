@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Bell, ChevronLeft, Sparkles, Trash2 } from "lucide-react";
+import { Bell, ChevronLeft, ChevronRight, Sparkles, Trash2 } from "lucide-react";
 import { useSpaces } from "../api/hooks";
 import { uiStorage, type ViewMode } from "../lib/storage";
 import { withViewTransition } from "../lib/viewTransition";
-import { useResizablePanel } from "../lib/useResizablePanel";
+import { useResizeHandle } from "../lib/useResizablePanel";
 import { useVersionCheck } from "../lib/useVersionCheck";
 import { useSpaceSync } from "../lib/useSpaceSync";
 import { useNotificationSync } from "../lib/useNotificationSync";
@@ -475,7 +475,7 @@ export default function AppShell() {
     });
   }
 
-  const sidebarHandle = useResizablePanel({
+  const sidebarHandle = useResizeHandle({
     width: sidebarWidth,
     collapsed: sidebarCollapsed,
     min: 200,
@@ -484,9 +484,8 @@ export default function AppShell() {
       setSidebarWidth(next);
       uiStorage.setSidebarWidth(next);
     },
-    onToggle: toggleSidebar,
   });
-  const listHandle = useResizablePanel({
+  const listHandle = useResizeHandle({
     width: listPanelWidth,
     collapsed: listCollapsed,
     min: 240,
@@ -495,7 +494,6 @@ export default function AppShell() {
       setListPanelWidth(next);
       uiStorage.setListPanelWidth(next);
     },
-    onToggle: toggleList,
   });
 
   return (
@@ -589,17 +587,28 @@ export default function AppShell() {
         </div>
       </aside>
 
-      {/* Та же полоска и сворачивает клик, и меняет ширину перетаскиванием
-          (useResizablePanel — различает по факту движения курсора).
-          Реальная жалоба: на десктопе ширину панели поменять было нельзя
-          вообще. */}
-      <button
+      {/* Реальная жалоба: раньше это была одна большая (во всю высоту)
+          кликабельная кнопка, совмещавшая ресайз и сворачивание — тянуть
+          и кликать по одному и тому же большому элементу было неудобно и
+          неочевидно, к тому же наведение мышкой само по себе (без нажатия)
+          иногда двигало ширину — pointermove у браузера срабатывает и без
+          зажатой кнопки, useResizeHandle это чинит явным флагом (см. lib/
+          useResizablePanel.ts). Теперь как в Confluence/Jira: тонкая
+          полоска — только ресайз перетаскиванием, поверх неё маленькая
+          круглая кнопка посередине — только сворачивание кликом. */}
+      <div
         {...sidebarHandle}
-        title={sidebarCollapsed ? "Показать панель (или потяните)" : "Скрыть панель (или потяните)"}
-        className="hidden w-4 shrink-0 cursor-col-resize touch-none items-center justify-center border-r bg-slate-50 text-slate-400 hover:bg-slate-100 lg:flex"
+        title="Потяните, чтобы изменить ширину панели"
+        className="relative hidden w-2 shrink-0 cursor-col-resize touch-none border-r bg-slate-50 hover:bg-slate-200 lg:block"
       >
-        {sidebarCollapsed ? "›" : "‹"}
-      </button>
+        <button
+          onClick={toggleSidebar}
+          title={sidebarCollapsed ? "Показать панель" : "Скрыть панель"}
+          className="absolute left-1/2 top-1/2 z-10 flex h-6 w-6 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border bg-white text-slate-400 shadow-sm hover:text-slate-700"
+        >
+          {sidebarCollapsed ? <ChevronRight size={13} /> : <ChevronLeft size={13} />}
+        </button>
+      </div>
 
       <main className="flex min-h-0 flex-1 overflow-hidden">
         {viewMode === "trash" ? (
@@ -667,13 +676,19 @@ export default function AppShell() {
               )}
             </div>
 
-            <button
+            <div
               {...listHandle}
-              title={listCollapsed ? "Показать список (или потяните)" : "Скрыть список (или потяните)"}
-              className="hidden w-4 shrink-0 cursor-col-resize touch-none items-center justify-center border-r bg-white text-slate-300 hover:bg-slate-50 lg:flex"
+              title="Потяните, чтобы изменить ширину списка"
+              className="relative hidden w-2 shrink-0 cursor-col-resize touch-none border-r bg-white hover:bg-slate-100 lg:block"
             >
-              {listCollapsed ? "›" : "‹"}
-            </button>
+              <button
+                onClick={toggleList}
+                title={listCollapsed ? "Показать список" : "Скрыть список"}
+                className="absolute left-1/2 top-1/2 z-10 flex h-6 w-6 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border bg-white text-slate-400 shadow-sm hover:text-slate-700"
+              >
+                {listCollapsed ? <ChevronRight size={13} /> : <ChevronLeft size={13} />}
+              </button>
+            </div>
 
             <div className={`${mobileView === "editor" ? "flex" : "hidden"} lg:flex min-h-0 flex-1 flex-col overflow-hidden`}>
               {viewMode === "notes" ? (

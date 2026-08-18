@@ -1,43 +1,40 @@
 import { useRef } from "react";
 
-// Одна и та же полоска между панелями — и кнопка сворачивания (клик), и
-// граница ресайза (тянешь мышью). Различаем по факту движения курсора
-// между pointerdown и pointerup: если сдвинулось больше нескольких
-// пикселей — это был ресайз, onToggle не вызываем (тот же паттерн, что
-// в NoteAssistantModal.tsx/RecordingPanel.tsx для тамошнего ресайза, но
-// там ручка ресайза отдельная от кнопки — здесь места в сайдбаре под
-// два элемента подряд нет, реальная жалоба на тесноту панели).
-export function useResizablePanel({
+// Реальный найденный баг: pointermove у браузера срабатывает просто при
+// наведении курсора на элемент, независимо от того, зажата ли кнопка —
+// без явного флага "идёт перетаскивание" ресайз запускался от одного
+// ховера мышкой над полоской (реальная жалоба). drag.active выставляется
+// только в pointerdown и снимается в pointerup — onPointerMove до/после
+// перетаскивания не делает вообще ничего.
+export function useResizeHandle({
   width,
   collapsed,
   min,
   max,
   onResize,
-  onToggle,
 }: {
   width: number;
   collapsed: boolean;
   min: number;
   max: number;
   onResize: (next: number) => void;
-  onToggle: () => void;
 }) {
-  const drag = useRef({ startX: 0, startWidth: 0, moved: false });
+  const drag = useRef({ active: false, startX: 0, startWidth: 0 });
 
-  function onPointerDown(e: React.PointerEvent<HTMLButtonElement>) {
-    drag.current = { startX: e.clientX, startWidth: width, moved: false };
+  function onPointerDown(e: React.PointerEvent<HTMLDivElement>) {
+    if (collapsed) return;
+    drag.current = { active: true, startX: e.clientX, startWidth: width };
     e.currentTarget.setPointerCapture(e.pointerId);
   }
-  function onPointerMove(e: React.PointerEvent<HTMLButtonElement>) {
-    if (collapsed) return;
+  function onPointerMove(e: React.PointerEvent<HTMLDivElement>) {
+    if (!drag.current.active) return;
     const dx = e.clientX - drag.current.startX;
-    if (Math.abs(dx) > 3) drag.current.moved = true;
-    if (!drag.current.moved) return;
     onResize(Math.min(max, Math.max(min, drag.current.startWidth + dx)));
   }
-  function onPointerUp(e: React.PointerEvent<HTMLButtonElement>) {
+  function onPointerUp(e: React.PointerEvent<HTMLDivElement>) {
+    if (!drag.current.active) return;
+    drag.current.active = false;
     e.currentTarget.releasePointerCapture(e.pointerId);
-    if (!drag.current.moved) onToggle();
   }
 
   return { onPointerDown, onPointerMove, onPointerUp };
