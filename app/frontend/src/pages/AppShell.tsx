@@ -421,14 +421,22 @@ export default function AppShell() {
   }
 
   function toggleSpaceCollapsed(spaceId: string) {
-    withViewTransition(() => {
-      setCollapsedSpaces((prev) => {
-        const next = new Set(prev);
-        if (next.has(spaceId)) next.delete(spaceId);
-        else next.add(spaceId);
-        uiStorage.setCollapsedSpaces(Array.from(next));
-        return next;
-      });
+    // Реальный найденный источник "дёргания": это локальное раскрытие ОДНОЙ
+    // записи в уже видимом сайдбаре, не переход между экранами/панелями —
+    // startViewTransition() (withViewTransition ниже, toggleSidebar) снимает
+    // ДВА снимка ВСЕЙ страницы и слайдит/затемняет их поверх друг друга
+    // (::view-transition-old/new(root) в index.css — по умолчанию таргет
+    // именно root целиком, у SpaceSection нет своего view-transition-name).
+    // Это соревновалось с локальной CSS-анимацией высоты в SpaceSection.tsx
+    // (grid-template-rows) на одном и том же участке экрана — два независимых
+    // анимационных механизма поверх друг друга и есть тот самый рывок,
+    // который чинили раньше вслепую на уровне CSS, хотя источник был здесь.
+    setCollapsedSpaces((prev) => {
+      const next = new Set(prev);
+      if (next.has(spaceId)) next.delete(spaceId);
+      else next.add(spaceId);
+      uiStorage.setCollapsedSpaces(Array.from(next));
+      return next;
     });
   }
 
