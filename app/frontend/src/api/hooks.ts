@@ -24,6 +24,7 @@ import type {
   LinkPreviewData,
   ListDetail,
   Notification,
+  ShareInfo,
   Skill,
   Space,
   SpaceInvite,
@@ -154,8 +155,13 @@ export function useSpaces() {
 export function useCreateSpace() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (payload: { name: string; is_vault?: boolean; vault_salt?: string; vault_verifier?: string }) =>
-      api.post<Space>("/spaces", payload),
+    mutationFn: (payload: {
+      name: string;
+      is_vault?: boolean;
+      vault_salt?: string;
+      vault_verifier?: string;
+      is_public_pages?: boolean;
+    }) => api.post<Space>("/spaces", payload),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["spaces"] }),
   });
 }
@@ -560,6 +566,33 @@ export function useMoveItemSpace() {
       // совпадение ["items"] инвалидирует списки обоих разом.
       qc.invalidateQueries({ queryKey: ["items"] });
     },
+  });
+}
+
+// --- публичные страницы (ShareNoteModal.tsx) --------------------------
+
+export function useItemShareInfo(itemId: string | undefined) {
+  return useQuery<ShareInfo>({
+    queryKey: ["item-share", itemId],
+    queryFn: () => api.get<ShareInfo>(`/items/${itemId}/share`),
+    enabled: !!itemId,
+  });
+}
+
+export function useShareItem(itemId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: { password?: string; expires_in_days?: number; single_use: boolean }) =>
+      api.post<ShareInfo>(`/items/${itemId}/share`, payload),
+    onSuccess: (info) => qc.setQueryData(["item-share", itemId], info),
+  });
+}
+
+export function useUnshareItem(itemId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.post<ShareInfo>(`/items/${itemId}/unshare`),
+    onSuccess: (info) => qc.setQueryData(["item-share", itemId], info),
   });
 }
 

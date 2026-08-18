@@ -32,6 +32,7 @@ export interface Space {
   owner_id: string;
   created_at: string;
   is_vault: boolean;
+  is_public_pages: boolean;
 }
 
 export interface VaultUnlockInfo {
@@ -210,4 +211,14 @@ export interface DetectedEvent {
   item_title: string;
   event_title: string;
   event_at: string;
+}
+
+// Публичные страницы (routers/public.py) — ShareNoteModal.tsx.
+export interface ShareInfo {
+  is_public: boolean;
+  share_token: string | null;
+  has_password: boolean;
+  share_expires_at: string | null;
+  share_single_use: boolean;
+  share_used_at: string | null;
 }

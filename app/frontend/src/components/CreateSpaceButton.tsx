@@ -1,5 +1,5 @@
 import { FormEvent, useState } from "react";
-import { Lock } from "lucide-react";
+import { Globe, Lock } from "lucide-react";
 import { useCreateSpace } from "../api/hooks";
 import { createVerifier, deriveKey, generateSalt } from "../lib/vaultCrypto";
 import { unlockVault } from "../lib/vaultSession";
@@ -9,6 +9,9 @@ export default function CreateSpaceButton({ onCreated }: { onCreated: (spaceId: 
   const [adding, setAdding] = useState(false);
   const [name, setName] = useState("");
   const [isVault, setIsVault] = useState(false);
+  // Публичные страницы (routers/public.py) — взаимоисключающе с сейфом,
+  // сервер и так это проверит, но незачем позволять выбрать оба в UI.
+  const [isPublicPages, setIsPublicPages] = useState(false);
   const [step, setStep] = useState<"name" | "password">("name");
   const [password, setPassword] = useState("");
   const [password2, setPassword2] = useState("");
@@ -19,6 +22,7 @@ export default function CreateSpaceButton({ onCreated }: { onCreated: (spaceId: 
     setAdding(false);
     setName("");
     setIsVault(false);
+    setIsPublicPages(false);
     setStep("name");
     setPassword("");
     setPassword2("");
@@ -32,7 +36,7 @@ export default function CreateSpaceButton({ onCreated }: { onCreated: (spaceId: 
       setStep("password");
       return;
     }
-    const space = await createSpace.mutateAsync({ name: name.trim() });
+    const space = await createSpace.mutateAsync({ name: name.trim(), is_public_pages: isPublicPages });
     reset();
     onCreated(space.id);
   }
@@ -138,12 +142,28 @@ export default function CreateSpaceButton({ onCreated }: { onCreated: (spaceId: 
       <button
         type="button"
         title={isVault ? "Сейф — зашифрован, без ИИ" : "Сделать сейфом"}
-        onClick={() => setIsVault((v) => !v)}
+        onClick={() => {
+          setIsVault((v) => !v);
+          setIsPublicPages(false);
+        }}
         className={`flex h-5 w-5 shrink-0 items-center justify-center rounded ${
           isVault ? "bg-slate-900 text-white" : "text-slate-400 hover:text-slate-700"
         }`}
       >
         <Lock size={12} />
+      </button>
+      <button
+        type="button"
+        title={isPublicPages ? "Публичные страницы" : "Сделать спейсом публичных страниц"}
+        onClick={() => {
+          setIsPublicPages((v) => !v);
+          setIsVault(false);
+        }}
+        className={`flex h-5 w-5 shrink-0 items-center justify-center rounded ${
+          isPublicPages ? "bg-slate-900 text-white" : "text-slate-400 hover:text-slate-700"
+        }`}
+      >
+        <Globe size={12} />
       </button>
       <button
         type="submit"

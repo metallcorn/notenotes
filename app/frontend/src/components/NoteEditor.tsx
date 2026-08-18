@@ -11,7 +11,7 @@ import { createLowlight, common } from "lowlight";
 import { Markdown } from "tiptap-markdown";
 import { Suspense, lazy, useEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent } from "react";
-import { ChevronLeft, Code2, Eye, History, Palette, Pin, PinOff, Sparkles, Tag as TagIcon, Trash2, Users, WifiOff } from "lucide-react";
+import { ChevronLeft, Code2, Eye, Globe, History, Palette, Pin, PinOff, Sparkles, Tag as TagIcon, Trash2, Users, WifiOff } from "lucide-react";
 import { uiStorage, type ContentWidth } from "../lib/storage";
 import { getVaultKey } from "../lib/vaultSession";
 import { downloadFile, inlineImages, sanitizeFilename, wrapHtmlDocument } from "../lib/export";
@@ -43,6 +43,7 @@ import Spinner from "./Spinner";
 import ConfirmDialog from "./ConfirmDialog";
 import ReminderModal from "./ReminderModal";
 import NoteAssistantModal from "./NoteAssistantModal";
+import ShareNoteModal from "./ShareNoteModal";
 import RecordingPanel from "./RecordingPanel";
 import ExportMenu from "./ExportMenu";
 import { ResizableImage } from "../extensions/ResizableImage";
@@ -130,6 +131,7 @@ export default function NoteEditor({
   const [content, setContent] = useState("");
   const [status, setStatus] = useState<"idle" | "saving" | "saved">("idle");
   const [showHistory, setShowHistory] = useState(false);
+  const [showShareModal, setShowShareModal] = useState(false);
   const [showTagPicker, setShowTagPicker] = useState(false);
   const [tagQuery, setTagQuery] = useState("");
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
@@ -335,6 +337,11 @@ export default function NoteEditor({
   // изменение ОДНОГО конкретного примитива (та самая заметка стала/
   // перестала быть vault), а не на переспрос всего списка спейсов.
   const currentSpaceIsVault = spaces?.find((s) => s.id === item?.space_id)?.is_vault ?? null;
+  // Кнопка «Поделиться» видна только для заметок в спейсе «Публичные
+  // страницы» (routers/items.py::share_item отклонит попытку для любого
+  // другого спейса всё равно, но незачем показывать кнопку там, где она
+  // гарантированно откажет).
+  const currentSpaceIsPublicPages = spaces?.find((s) => s.id === item?.space_id)?.is_public_pages ?? false;
 
   useEffect(() => {
     if (!item || !editor) return;
@@ -1041,6 +1048,15 @@ export default function NoteEditor({
             >
               {item.pinned ? <PinOff size={16} /> : <Pin size={16} />}
             </button>
+            {currentSpaceIsPublicPages && (
+              <button
+                onClick={() => setShowShareModal(true)}
+                title="Публичная ссылка"
+                className="flex h-8 w-8 items-center justify-center rounded border text-slate-600 hover:bg-slate-50"
+              >
+                <Globe size={16} />
+              </button>
+            )}
             <button
               onClick={() => setShowHistory((v) => !v)}
               title="История версий"
@@ -1283,6 +1299,7 @@ export default function NoteEditor({
             )}
           </div>
           {showHistory && <VersionHistoryPanel itemId={item.id} onClose={() => setShowHistory(false)} />}
+          {showShareModal && <ShareNoteModal itemId={item.id} onClose={() => setShowShareModal(false)} />}
         </div>
       </div>
 

@@ -5,6 +5,7 @@ import { useBoundedRestoring } from "./lib/useBoundedRestoring";
 import LoginPage from "./pages/LoginPage";
 import RegisterPage from "./pages/RegisterPage";
 import InviteAcceptPage from "./pages/InviteAcceptPage";
+import PublicNotePage from "./pages/PublicNotePage";
 import AppShell from "./pages/AppShell";
 import FeedbackWidget from "./components/FeedbackWidget";
 import ErrorBoundary from "./components/ErrorBoundary";
@@ -105,6 +106,10 @@ export default function App() {
             </RequireAuth>
           }
         />
+        {/* Без RequireAuth/RedirectIfAuthed сознательно — публичная
+            страница не должна зависеть от состояния авторизации вообще,
+            анонимный посетитель не имеет и не должен иметь сессию. */}
+        <Route path="/s/:token" element={<PublicNotePage />} />
         <Route
           path="/*"
           element={

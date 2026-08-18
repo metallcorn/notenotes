@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { KeyRound, Lock, Pencil, Users } from "lucide-react";
+import { Globe, KeyRound, Lock, Pencil, Users } from "lucide-react";
 import type { Space } from "../api/types";
 import { useUpdateSpace } from "../api/hooks";
 import { useVaultUnlocked } from "../lib/vaultSession";
@@ -44,6 +44,11 @@ export default function SpaceSection({
           </span>
           {space.is_vault && (
             <Lock size={12} className={`shrink-0 ${unlocked ? "text-amber-500" : "text-slate-400"}`} />
+          )}
+          {space.is_public_pages && (
+            <span title="Публичные страницы" className="flex shrink-0 items-center text-slate-400">
+              <Globe size={12} />
+            </span>
           )}
           <span className="truncate">{space.name}</span>
         </button>
