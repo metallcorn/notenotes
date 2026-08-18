@@ -357,14 +357,41 @@ export default function NoteEditor({
       }
       if (isStale()) return;
 
+      // Реальный найденный баг: "вставляю ссылку — заметка её не
+      // сохраняет и ссылка тупо пропадает". Между тем, как заметка
+      // создаётся (POST) и тем, как этот эффект реально получает её
+      // содержимое (GET, а для совместных заметок — ещё и подключение к
+      // Yjs-комнате, attachCollab ниже) есть настоящий сетевой зазор.
+      // Если пользователь успел вставить/напечатать что-то в редакторе
+      // ДО того, как этот эффект досюда добежал, код ниже слепо
+      // перезаписывал И React state (setContent), И сам документ
+      // редактора (editor.commands.setContent / editor.view.updateState
+      // внутри attachCollab) содержимым с сервера, которое ещё ничего не
+      // знает об этой правке — вставленное визуально исчезало из
+      // редактора и никогда не попадало в автосохранение (действительно
+      // "не вводится"/"пропадает", а не проблема сети или деплоя). Раз
+      // это ПЕРВАЯ загрузка именно этого id (loadedItemIdRef ещё не
+      // совпадает) — текущее содержимое редактора может быть тем, что
+      // пользователь уже успел ввести, а не мусором от предыдущей
+      // заметки: берём его за основу вместо ответа сервера.
+      const isFirstLoadOfThisItem = loadedItemIdRef.current !== item.id;
+      const liveMarkdown = isFirstLoadOfThisItem ? editor.storage.markdown.getMarkdown() : "";
+      const hasUnseenLocalEdit = isFirstLoadOfThisItem && liveMarkdown.trim() !== "";
+      const effectiveContent = hasUnseenLocalEdit ? liveMarkdown : item.content;
+
       setTitle(item.title);
-      setContent(item.content);
-      savedRef.current = { title: item.title, content: item.content };
+      setContent(effectiveContent);
+      // content: "" (не effectiveContent) — если есть незамеченная правка,
+      // это специально делает её "ещё не сохранённой" для дебаунс-эффекта
+      // ниже (сравнение content !== savedRef.current.content), чтобы он
+      // реально досохранил её на сервер, а не посчитал состояние уже
+      // синхронизированным.
+      savedRef.current = { title: item.title, content: hasUnseenLocalEdit ? "" : item.content };
       loadedItemIdRef.current = item.id;
 
       if (!collabEligible) {
-        editor.commands.setContent(item.content || "");
-        setStatus("idle");
+        if (!hasUnseenLocalEdit) editor.commands.setContent(item.content || "");
+        setStatus(hasUnseenLocalEdit ? "saving" : "idle");
         setCollabStatus(null);
         return;
       }
@@ -374,7 +401,7 @@ export default function NoteEditor({
         if (!isStale()) setCollabStatus(s);
       });
       try {
-        await attachCollab(editor, editorExtensions, provider, item.content || "", {
+        await attachCollab(editor, editorExtensions, provider, effectiveContent || "", {
           name: me?.name ?? "?",
           color: cursorColorForUser(me?.id),
         });
