@@ -55,19 +55,28 @@ sudo docker exec -w /app notenotes-backend-1 python3 -m pytest -q
 
 ## Что покрыто
 
-82 теста, почти весь HTTP- и WS-роутинг: auth, spaces (сейф, публичные
-страницы, участники, инвайты, ротация пароля сейфа), items (CRUD, версии,
-перенос, публикация), uploads (лимиты 20 МБ/100 МБ), folders, tags
-(включая слияние), lists (CRUD + записи), notifications, push, memories,
-skills, feedback, debug-log (включая rate-limit), calendar, search
-(включая транслитерацию и исключение сейфа), link-preview/url-checks
-(SSRF-блокировка — без единого реального сетевого запроса, приватные
-адреса отсекаются до обращения в сеть), telegram (link-code), public.py
+108 тестов, весь HTTP- и WS-роутинг, кроме явно перечисленного ниже как
+непокрытое: auth (включая rate-limit на login, инвайт-коды, PATCH /me),
+spaces (сейф, публичные страницы, участники, инвайты — включая истёкшие,
+ротация пароля сейфа, переименование), items (CRUD, список по space/
+folder/tag, /recent, версии + откат, detected-events, публикация), uploads
+(лимиты 20 МБ/100 МБ, превью, диктофонная запись start/chunk, staged
+только для сейфа), folders, tags (включая слияние), lists (CRUD +
+записи), notifications, push, memories, skills, feedback, debug-log
+(включая rate-limit), calendar, search (включая транслитерацию и
+исключение сейфа), link-preview/url-checks (SSRF-блокировка — без
+единого реального сетевого запроса), telegram (link-code), public.py
 (весь анонимный флоу). WebSocket: space/list/notifications/collab —
 через `live_server` (настоящий uvicorn в процессе теста, в общем event
 loop'е с остальными async-фикстурами; `httpx.ASGITransport` WS не
 поддерживает, а `TestClient` поднимает WS в своём отдельном потоке/loop'е
 и на практике конфликтует с общей транзакционной db_session).
+
+**Отдельно — граница доступа между спейсами** (`test_access_control.py`):
+участник ОДНОГО спейса не может читать/писать заметки, папки, списки и
+файлы в спейсе, где он не состоит (items/folders/lists/uploads/spaces) —
+самая важная граница безопасности во всём API, раньше не была явно
+проверена ни одним тестом.
 
 dialogs.py — только детерминированная часть (создание/список/чтение/
 удаление сообщений, без LLM). ai_text.py/voice.py — только авторизация и

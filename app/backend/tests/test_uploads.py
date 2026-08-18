@@ -59,3 +59,52 @@ async def test_note_total_attachment_size_over_100mb_rejected(auth_client):
     r = await auth_client.patch(f"/api/items/{item_id}", json={"content": content_6_files})
     assert r.status_code == 400
     assert "100" in r.json()["detail"]
+
+
+async def test_video_and_audio_exempt_from_generic_limit(auth_client):
+    """MAX_UPLOAD_BYTES (300 МБ) действует для video/*|audio/*, а не
+    MAX_GENERIC_UPLOAD_BYTES (20 МБ) — 25 МБ "видео" должно пройти."""
+    space_id = await _make_space(auth_client)
+    blob = b"x" * (25 * 1024 * 1024)
+    r = await auth_client.post(f"/api/uploads?space_id={space_id}", files={"file": ("v.mp4", blob, "video/mp4")})
+    assert r.status_code == 201
+
+
+async def test_upload_thumbnail_lazily_generated_for_pdf(auth_client):
+    """Не-PDF без превью — 404, не 500 (см. get_upload_thumbnail)."""
+    space_id = await _make_space(auth_client)
+    r = await auth_client.post(
+        f"/api/uploads?space_id={space_id}", files={"file": ("f.bin", b"hello", "application/octet-stream")}
+    )
+    upload_id = r.json()["id"]
+    r = await auth_client.get(f"/api/uploads/{upload_id}/thumbnail")
+    assert r.status_code == 404
+
+
+async def test_recording_start_and_chunk(auth_client):
+    """finish (реальная расшифровка через Deepgram) сознательно не
+    покрыт — внешний ASR-провайдер, см. tests/README.md. start/chunk —
+    чистая работа с диском/БД, без сети."""
+    space_id = await _make_space(auth_client)
+    r = await auth_client.post("/api/uploads/recording/start", json={"space_id": space_id, "content_type": "audio/webm"})
+    assert r.status_code == 201
+    upload_id = r.json()["id"]
+
+    r = await auth_client.post(f"/api/uploads/recording/{upload_id}/chunk", content=b"fake-audio-bytes")
+    assert r.status_code == 204
+
+
+async def test_recording_start_rejects_non_audio_content_type(auth_client):
+    space_id = await _make_space(auth_client)
+    r = await auth_client.post("/api/uploads/recording/start", json={"space_id": space_id, "content_type": "text/html"})
+    assert r.status_code == 400
+
+
+async def test_staged_upload_requires_vault_space(auth_client):
+    space_id = await _make_space(auth_client)  # обычный, не сейф
+    r = await auth_client.post(
+        f"/api/uploads?space_id={space_id}", files={"file": ("f.bin", b"hello", "application/octet-stream")}
+    )
+    upload_id = r.json()["id"]
+    r = await auth_client.put(f"/api/uploads/{upload_id}/staged", files={"file": ("f.bin", b"new-bytes")})
+    assert r.status_code == 400

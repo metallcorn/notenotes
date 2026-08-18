@@ -1,6 +1,3 @@
-import pytest
-
-
 async def test_create_space_and_list(auth_client):
     r = await auth_client.post("/api/spaces", json={"name": "Test space"})
     assert r.status_code == 201
@@ -71,5 +68,36 @@ async def test_space_members_and_invite_flow(auth_client, client, db_session):
     r = await auth_client.delete(f"/api/spaces/{space_id}/invites/{invite['id']}")
     assert r.status_code == 204
 
-    r = await auth_client.post(f"/api/spaces/invites/{invite['token']}/accept")
-    assert r.status_code == 404  # уже отозвана
+
+async def test_rename_space(auth_client):
+    r = await auth_client.post("/api/spaces", json={"name": "Old name"})
+    space_id = r.json()["id"]
+    r = await auth_client.patch(f"/api/spaces/{space_id}", json={"name": "New name"})
+    assert r.status_code == 200 and r.json()["name"] == "New name"
+
+
+async def test_add_member_by_unknown_username_404(auth_client):
+    r = await auth_client.post("/api/spaces", json={"name": "S"})
+    space_id = r.json()["id"]
+    r = await auth_client.post(f"/api/spaces/{space_id}/members", json={"username": "does-not-exist"})
+    assert r.status_code == 404
+
+
+async def test_accept_expired_invite_rejected(auth_client, db_session, test_user):
+    from datetime import datetime, timedelta, timezone
+
+    from app.models import SpaceInvite
+
+    r = await auth_client.post("/api/spaces", json={"name": "S"})
+    space_id = r.json()["id"]
+    invite = SpaceInvite(
+        space_id=space_id,
+        created_by_id=test_user.id,
+        token="expired-token-123",
+        expires_at=datetime.now(timezone.utc) - timedelta(days=1),
+    )
+    db_session.add(invite)
+    await db_session.commit()
+
+    r = await auth_client.post(f"/api/spaces/invites/{invite.token}/accept")
+    assert r.status_code == 404
