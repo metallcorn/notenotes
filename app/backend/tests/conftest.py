@@ -70,20 +70,45 @@ async def db_session() -> AsyncGenerator:
 
 
 @pytest_asyncio.fixture
-async def client(db_session) -> AsyncGenerator[AsyncClient, None]:
+async def _client_factory(db_session) -> AsyncGenerator:
+    """Реальный найденный баг первой версии этих фикстур: client и
+    auth_client были буквально ОДНИМ И ТЕМ ЖЕ httpx.AsyncClient (auth_client
+    просто дописывал куку поверх client) — тест, запросивший ОБА параметра
+    сразу (например, "аноним видит X, авторизованный видит Y" в одной
+    функции), на деле получал два имени для одного и того же уже
+    авторизованного объекта: фикстуры pytest резолвятся до тела теста,
+    порядок обращения внутри функции роли не играет. Фабрика ниже создаёт
+    НЕЗАВИСИМЫЕ httpx-клиенты (свои cookie jar у каждого), которые делят
+    только db_session — то есть одну и ту же транзакцию/видимость БД,
+    что и нужно."""
+
     async def _override_get_db():
         yield db_session
 
     app.dependency_overrides[get_db] = _override_get_db
-    transport = ASGITransport(app=app)
-    # https://, не http:// — сессионная кука выставляется с Secure (см.
-    # routers/auth.py::_set_session_cookie, осознанно, для прода). httpx
-    # честно соблюдает флаг Secure и молча не пришлёт такую куку обратно
-    # на http://-origin — без этого /auth/me после регистрации/логина
-    # ловил бы 401 из-за самого тестового клиента, не из-за бага в коде.
-    async with AsyncClient(transport=transport, base_url="https://test") as c:
-        yield c
+    created: list[AsyncClient] = []
+
+    def make() -> AsyncClient:
+        transport = ASGITransport(app=app)
+        # https://, не http:// — сессионная кука выставляется с Secure (см.
+        # routers/auth.py::_set_session_cookie, осознанно, для прода). httpx
+        # честно соблюдает флаг Secure и молча не пришлёт такую куку обратно
+        # на http://-origin — без этого /auth/me после регистрации/логина
+        # ловил бы 401 из-за самого тестового клиента, не из-за бага в коде.
+        c = AsyncClient(transport=transport, base_url="https://test")
+        created.append(c)
+        return c
+
+    yield make
+
+    for c in created:
+        await c.aclose()
     app.dependency_overrides.pop(get_db, None)
+
+
+@pytest_asyncio.fixture
+async def client(_client_factory) -> AsyncClient:
+    return _client_factory()
 
 
 @pytest_asyncio.fixture
@@ -96,10 +121,10 @@ async def test_user(db_session) -> User:
 
 
 @pytest_asyncio.fixture
-async def auth_client(client: AsyncClient, test_user: User) -> AsyncClient:
-    token = create_session_token(test_user.id)
-    client.cookies.set("notenotes_session", token)
-    return client
+async def auth_client(_client_factory, test_user: User) -> AsyncClient:
+    c = _client_factory()
+    c.cookies.set("notenotes_session", create_session_token(test_user.id))
+    return c
 
 
 @pytest.fixture(scope="session")
