@@ -11,7 +11,7 @@ import { createLowlight, common } from "lowlight";
 import { Markdown } from "tiptap-markdown";
 import { Suspense, lazy, useEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent } from "react";
-import { ChevronLeft, Code2, Eye, History, Palette, Pin, PinOff, Sparkles, Tag as TagIcon, Trash2 } from "lucide-react";
+import { ChevronLeft, Code2, Eye, History, Palette, Pin, PinOff, Sparkles, Tag as TagIcon, Trash2, Users, WifiOff } from "lucide-react";
 import { uiStorage, type ContentWidth } from "../lib/storage";
 import { getVaultKey } from "../lib/vaultSession";
 import { downloadFile, inlineImages, sanitizeFilename, wrapHtmlDocument } from "../lib/export";
@@ -23,6 +23,7 @@ import {
   useDeleteItem,
   useFolders,
   useItem,
+  useMe,
   useMigrateItemToVault,
   useMoveItemSpace,
   useRemoveItemTag,
@@ -61,6 +62,18 @@ import { DetectedAddressLinks } from "../extensions/DetectedAddressLinks";
 import { ReminderAnchor } from "../extensions/ReminderAnchor";
 import { ImageOcrResult } from "../extensions/ImageOcrResult";
 import { SlashCommand } from "../extensions/SlashCommand";
+import { CollabProvider, type CollabStatus } from "../lib/collabProvider";
+import { attachCollab, detachCollab } from "../lib/collabState";
+
+// Детерминированный цвет курсора участника из его id — тот же человек
+// всегда одного цвета у всех остальных, без координации между клиентами.
+const CURSOR_COLORS = ["#ef4444", "#f97316", "#eab308", "#22c55e", "#14b8a6", "#3b82f6", "#a855f7", "#ec4899"];
+function cursorColorForUser(userId: string | undefined): string {
+  if (!userId) return CURSOR_COLORS[0];
+  let hash = 0;
+  for (let i = 0; i < userId.length; i++) hash = (hash * 31 + userId.charCodeAt(i)) >>> 0;
+  return CURSOR_COLORS[hash % CURSOR_COLORS.length];
+}
 
 // Только когда вставленный текст ЦЕЛИКОМ — голая ссылка (случай "вставил
 // ссылку на сайт, чтобы сохранить на потом" — реальный сценарий из
@@ -106,6 +119,7 @@ export default function NoteEditor({
   const createTag = useCreateTag();
   const { data: folders } = useFolders(item?.space_id);
   const { data: spaces } = useSpaces();
+  const { data: me } = useMe();
   const moveItemSpace = useMoveItemSpace();
   const migrateItemToVault = useMigrateItemToVault();
   const aiTransform = useAiTransform();
@@ -140,6 +154,17 @@ export default function NoteEditor({
   const loadedItemIdRef = useRef<string | null>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Совместное редактирование (Yjs) — провайдер живёт, только пока текущая
+  // заметка коллаборативна и открыта; collabItemIdRef — id заметки, к
+  // которой он реально привязан (сверяется перед фоновым ресинком ниже).
+  // switchTokenRef — защита от гонки при быстром переключении между
+  // заметками: асинхронный переход, чей номер не совпадает с актуальным
+  // на момент завершения шага, бросается, не применяя результат.
+  const collabProviderRef = useRef<CollabProvider | null>(null);
+  const collabItemIdRef = useRef<string | null>(null);
+  const switchTokenRef = useRef(0);
+  const [collabStatus, setCollabStatus] = useState<CollabStatus | null>(null);
 
   // Реальный найденный баг (пойман через отчёт ErrorBoundary — "can't
   // access property destroy, o is null" внутри ReactNodeViewRenderer):
@@ -242,6 +267,16 @@ export default function NoteEditor({
       // переставало на Enter/клик реагировать. Проверка textBefore ниже
       // — тот же триггер-паттерн, что у Suggestion (char: "/", без
       // пробела после) — пропускаем перехват, пока слэш-команда набирается.
+      //
+      // Второй найденный регресс (реальная жалоба): предыдущая версия
+      // перехватывала АБСОЛЮТНО КАЖДЫЙ Enter в обычном абзаце — из-за
+      // этого нормальное "напечатал текст → Enter → новый абзац" вообще
+      // перестало работать, всё превращалось в один абзац с переносами
+      // внутри. Перехватывать нужно только ВТОРОЙ Enter подряд (когда
+      // абзац, в котором стоит курсор, уже пустой — то есть предыдущий
+      // Enter только что создал его штатным способом) — только тогда есть
+      // риск потери пустой строки при сохранении; самый первый Enter,
+      // разбивающий реальный текст, должен создавать обычный новый абзац.
       handleKeyDown: (view: EditorView, event: KeyboardEvent) => {
         if (event.key !== "Enter" || event.shiftKey || event.ctrlKey || event.metaKey || event.altKey) {
           return false;
@@ -251,6 +286,7 @@ export default function NoteEditor({
         if (!empty || $from.depth !== 1 || $from.parent.type.name !== "paragraph") {
           return false;
         }
+        if ($from.parent.textContent.length > 0) return false;
         const textBefore = $from.parent.textBetween(0, $from.parentOffset, undefined, "￼");
         if (/\/\S*$/.test(textBefore)) return false;
         const hardBreak = state.schema.nodes.hardBreak;
@@ -281,17 +317,92 @@ export default function NoteEditor({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isError]);
 
-  // Заметку сменили — подгружаем её состояние в редактор заново.
+  // Заметку сменили — подгружаем её состояние в редактор заново. Для
+  // заметок в шареном (не vault) спейсе дополнительно поднимаем живое
+  // совместное редактирование (Yjs, см. lib/collabState.ts) — один
+  // стабильный editor переиспользуется для всех заметок, поэтому сначала
+  // ПОЛНОСТЬЮ отключаемся от предыдущей коллаборативной заметки (если
+  // была), и только потом подключаемся к новой — строго по очереди,
+  // никогда одновременно (см. обсуждение гонки при быстром переключении).
   useEffect(() => {
-    if (!item) return;
-    setTitle(item.title);
-    setContent(item.content);
-    savedRef.current = { title: item.title, content: item.content };
-    editor?.commands.setContent(item.content || "");
-    setStatus("idle");
-    loadedItemIdRef.current = item.id;
+    if (!item || !editor) return;
+    const token = ++switchTokenRef.current;
+    const isStale = () => switchTokenRef.current !== token;
+    const space = spaces?.find((s) => s.id === item.space_id);
+    const collabEligible = !!space && !space.is_vault;
+
+    (async () => {
+      if (collabProviderRef.current) {
+        detachCollab(editor, collabProviderRef.current);
+        collabProviderRef.current = null;
+        collabItemIdRef.current = null;
+      }
+      if (isStale()) return;
+
+      setTitle(item.title);
+      setContent(item.content);
+      savedRef.current = { title: item.title, content: item.content };
+      loadedItemIdRef.current = item.id;
+
+      if (!collabEligible) {
+        editor.commands.setContent(item.content || "");
+        setStatus("idle");
+        setCollabStatus(null);
+        return;
+      }
+
+      setCollabStatus("connecting");
+      const provider = new CollabProvider(item.id, (s) => {
+        if (!isStale()) setCollabStatus(s);
+      });
+      try {
+        await attachCollab(editor, editorExtensions, provider, item.content || "", {
+          name: me?.name ?? "?",
+          color: cursorColorForUser(me?.id),
+        });
+      } catch {
+        // Не удалось подключиться — блокируем редактирование этой заметки
+        // явно (setEditable ниже реагирует на collabStatus), а не тихо
+        // откатываемся на локальное редактирование без синхронизации —
+        // осознанный выбор простоты и предсказуемости.
+        provider.disconnect();
+        if (!isStale()) setCollabStatus("disconnected");
+        return;
+      }
+      if (isStale()) {
+        // Успели уйти с этой заметки, пока шло подключение — не оставляем
+        // висящее соединение и не трогаем редактор, которым уже владеет
+        // следующий переход.
+        provider.disconnect();
+        return;
+      }
+      collabProviderRef.current = provider;
+      collabItemIdRef.current = item.id;
+      setStatus("idle");
+    })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [item?.id]);
+  }, [item?.id, editor, spaces]);
+
+  // Заблокировать редактирование, пока совместная заметка подключается
+  // или если связь оборвалась — осознанное решение (см. обсуждение):
+  // проще и безопаснее, чем тихо давать печатать локально без синка.
+  useEffect(() => {
+    if (!editor) return;
+    editor.setEditable(collabStatus !== "connecting" && collabStatus !== "disconnected");
+  }, [editor, collabStatus]);
+
+  // Компонент размонтировался (переключились на другой viewMode —
+  // Активность/Корзина/Ассистент — сам NoteEditor размонтируется) — не
+  // оставляем открытое WS-соединение висеть.
+  useEffect(() => {
+    return () => {
+      if (collabProviderRef.current && editor) {
+        detachCollab(editor, collabProviderRef.current);
+        collabProviderRef.current = null;
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editor]);
 
   // TicketAttachmentCard.tsx читает это при клике "Напомнить" — см.
   // комментарий в TicketAttachment.ts про то, почему storage, а не проп.
@@ -355,6 +466,11 @@ export default function NoteEditor({
   // refetchItem() досогласовывает пропущенное по её окончании).
   useEffect(() => {
     if (!item || item.id !== loadedItemIdRef.current) return;
+    // Пока у этой заметки живо совместное редактирование, за синхронизацию
+    // содержимого отвечает Yjs (см. эффект выше) — грубая перезапись всего
+    // документа отсюда поверх него не читает, а ЛОМАЕТ привязку sync-плагина
+    // к содержимому редактора.
+    if (collabItemIdRef.current === item.id) return;
     if (uploadBatch) return;
     if (item.content === savedRef.current.content) return;
     const hasPendingLocalEdit = content !== savedRef.current.content || title !== savedRef.current.title;
@@ -791,9 +907,24 @@ export default function NoteEditor({
             className="min-w-0 flex-1 text-lg font-semibold outline-none"
           />
           <div className="flex shrink-0 items-center gap-1">
-            <span className="mr-1 flex w-20 items-center gap-1 text-xs text-slate-400">
-              {status === "saving" && <Spinner size={12} />}
-              {status === "saving" ? "Сохраняем…" : status === "saved" ? "Сохранено" : ""}
+            <span className="mr-1 flex items-center gap-1 whitespace-nowrap text-xs text-slate-400">
+              {collabStatus === "connecting" && (
+                <>
+                  <Spinner size={12} /> Подключение…
+                </>
+              )}
+              {collabStatus === "disconnected" && (
+                <span className="flex items-center gap-1 text-amber-600" title="Нет связи — редактирование заблокировано">
+                  <WifiOff size={12} /> Нет связи
+                </span>
+              )}
+              {collabStatus === "connected" && (
+                <span title="Совместное редактирование" className="flex items-center text-emerald-500">
+                  <Users size={12} />
+                </span>
+              )}
+              {!collabStatus && status === "saving" && <Spinner size={12} />}
+              {!collabStatus && (status === "saving" ? "Сохраняем…" : status === "saved" ? "Сохранено" : "")}
             </span>
             <div className="flex overflow-hidden rounded border">
               <button

@@ -20,6 +20,7 @@ from app.routers import (
     ai_text,
     auth,
     calendar,
+    collab_ws,
     debug_log,
     dialogs,
     feedback,
@@ -83,6 +84,7 @@ app.include_router(spaces.router)
 app.include_router(folders.router)
 app.include_router(tags.router)
 app.include_router(items.router)
+app.include_router(collab_ws.router)
 app.include_router(uploads.router)
 app.include_router(search.router)
 app.include_router(feedback.router)

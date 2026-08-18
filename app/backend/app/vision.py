@@ -13,7 +13,6 @@ from sqlalchemy import select
 from app import realtime
 from app.core.config import get_settings
 from app.db import async_session
-from app.document_reflow import reflow_document_text
 from app.models import Item, Upload
 from app.rotation import correct_orientation
 
@@ -244,11 +243,14 @@ async def _process(upload_id: uuid.UUID) -> None:
 
     # Билеты идут в tickets.py за структурированным извлечением — там
     # своя, ещё более конкретная раскладка по полям, причёсывать текстом
-    # тут смысла нет. Для остального (документы, паспорта, формы) —
-    # отдельный проход причёсывания вёрстки (app/document_reflow.py, тот
-    # же приём, что и у pdf_processing.py) поверх уже прочитанного текста.
-    if not is_ticket and description.strip():
-        description = await reflow_document_text(description)
+    # тут смысла нет. Реальная жалоба: reflow здесь применялся КО ВСЕМ
+    # картинкам без разбора (не только сканам документов) — второй
+    # последовательный вызов LLM удваивал время распознавания даже для
+    # обычных фото, где причёсывать особо нечего (проблема многоколоночной
+    # вёрстки, ради которой заводился reflow, — это про сканы документов/
+    # PDF, см. pdf_processing.py, там он и остаётся). Для отдельно
+    # загруженных картинок больше не запускаем — _PROMPT ниже и так просит
+    # модель формировать таблицы за один проход.
 
     async with async_session() as db:
         upload = await db.get(Upload, upload_id)

@@ -71,20 +71,28 @@ export default function SpaceSection({
           <Pencil size={12} />
         </button>
       </div>
-      {!collapsed && space.is_vault && !unlocked && (
-        <div className="ml-3">
-          <VaultUnlockOverlay spaceId={space.id} spaceName={space.name} compact />
+      {/* Реальная жалоба: раньше это была условная РАЗМОНТИРОВКА
+          (`{!collapsed && <FolderTree .../>}`) — сворачивание/разворачивание
+          выглядело как рывок, а не плавное схлопывание, и каждый повторный
+          разворот пересоздавал FolderTree с нуля. grid-template-rows-трюк
+          (0fr/1fr + overflow-hidden на вложенном div) анимирует высоту "до
+          auto" средствами CSS, а не JS-измерением, и не размонтирует
+          содержимое — оно просто визуально скрыто, пока свёрнуто. */}
+      <div
+        className="ml-3 grid transition-[grid-template-rows] duration-200 ease-out"
+        style={{ gridTemplateRows: collapsed ? "0fr" : "1fr" }}
+      >
+        <div className="overflow-hidden">
+          {space.is_vault && !unlocked && <VaultUnlockOverlay spaceId={space.id} spaceName={space.name} compact />}
+          {(!space.is_vault || unlocked) && (
+            <FolderTree
+              spaceId={space.id}
+              selectedFolderId={isActive ? activeFolderId : undefined}
+              onSelect={(folderId) => onSelectFolder(space.id, folderId)}
+            />
+          )}
         </div>
-      )}
-      {!collapsed && (!space.is_vault || unlocked) && (
-        <div className="ml-3">
-          <FolderTree
-            spaceId={space.id}
-            selectedFolderId={isActive ? activeFolderId : undefined}
-            onSelect={(folderId) => onSelectFolder(space.id, folderId)}
-          />
-        </div>
-      )}
+      </div>
 
       {renaming && (
         <PromptDialog
