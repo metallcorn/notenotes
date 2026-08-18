@@ -1,0 +1,7 @@
+# Только для запуска тестов — сознательно НЕ в requirements.txt: не
+# нужны в проде, лишний вес в образе (CLAUDE.md — образ и так собирается
+# на 4 ГБ VPS). Устанавливать поверх requirements.txt только при запуске
+# тестов, см. tests/README.md.
+-r requirements.txt
+pytest>=8.3,<9
+pytest-asyncio>=0.24,<0.25
