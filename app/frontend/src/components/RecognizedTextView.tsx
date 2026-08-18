@@ -137,10 +137,19 @@ export function ExpandedTextPanel({ anchorRef, text }: { anchorRef: React.RefObj
       const spaceBelow = window.innerHeight - r.bottom - margin;
       const spaceAbove = r.top - margin;
 
+      // Реальный найденный баг предыдущей версии этого фикса: Math.max(120, …)
+      // ниже навязывал МИНИМАЛЬНУЮ высоту 120px, даже когда реального места
+      // было меньше (например, 90px) — то есть панель всё равно вылезала за
+      // край ровно на разницу, то же самое, что чинили. Клэмпить — значит
+      // ТОЛЬКО ограничивать сверху, никогда не раздувать сверх доступного —
+      // никакого искусственного минимума; если места мало с обеих сторон,
+      // короткая панель со своим скроллом — ожидаемый исход, не баг.
+      // Math.max(0, …) — только защита от отрицательного значения, если
+      // сам якорь уже частично за пределами экрана.
       if (spaceBelow >= 160 || spaceBelow >= spaceAbove) {
-        setPos({ top: r.bottom + 4, left, width, maxHeight: Math.max(120, Math.min(384, spaceBelow)) });
+        setPos({ top: r.bottom + 4, left, width, maxHeight: Math.min(384, Math.max(0, spaceBelow)) });
       } else {
-        setPos({ bottom: window.innerHeight - r.top + 4, left, width, maxHeight: Math.max(120, Math.min(384, spaceAbove)) });
+        setPos({ bottom: window.innerHeight - r.top + 4, left, width, maxHeight: Math.min(384, Math.max(0, spaceAbove)) });
       }
     }
     update();
