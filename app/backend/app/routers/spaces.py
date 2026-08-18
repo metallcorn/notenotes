@@ -57,6 +57,10 @@ async def create_space(
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "Для сейфа нужны vault_salt и vault_verifier")
     elif payload.vault_salt or payload.vault_verifier:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "vault_salt/vault_verifier без is_vault не имеют смысла")
+    # Сейф и публичные страницы противоречат друг другу по смыслу —
+    # E2E-шифрование и сознательно публичный доступ к содержимому.
+    if payload.is_vault and payload.is_public_pages:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Сейф не может быть спейсом публичных страниц")
 
     space = Space(
         name=payload.name,
@@ -64,6 +68,7 @@ async def create_space(
         is_vault=payload.is_vault,
         vault_salt=payload.vault_salt,
         vault_verifier=payload.vault_verifier,
+        is_public_pages=payload.is_public_pages,
     )
     db.add(space)
     await db.flush()

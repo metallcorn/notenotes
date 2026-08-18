@@ -12,6 +12,9 @@ class SpaceCreate(BaseModel):
     is_vault: bool = False
     vault_salt: str | None = None
     vault_verifier: str | None = None
+    # Публичные страницы (routers/public.py) — взаимоисключающе с
+    # is_vault, проверка в routers/spaces.py::create_space.
+    is_public_pages: bool = False
 
 
 class SpaceUpdate(BaseModel):
@@ -33,6 +36,7 @@ class SpaceOut(BaseModel):
     # смысле (без пароля бесполезен), но незачем светить его там, где он
     # не нужен — см. VaultUnlockInfoOut/отдельный эндпоинт.
     is_vault: bool
+    is_public_pages: bool
 
 
 class VaultUnlockInfoOut(BaseModel):

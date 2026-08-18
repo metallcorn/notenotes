@@ -62,6 +62,32 @@ class ItemOut(BaseModel):
     detected_addresses: list[dict] = []
 
 
+class ShareItemIn(BaseModel):
+    password: str | None = Field(default=None, min_length=1, max_length=200)
+    expires_in_days: int | None = Field(default=None, ge=1, le=365)
+    single_use: bool = False
+
+
+class ShareItemOut(BaseModel):
+    is_public: bool
+    share_token: str | None
+    has_password: bool
+    share_expires_at: datetime | None
+    share_single_use: bool
+    share_used_at: datetime | None
+
+
+class PublicItemOut(BaseModel):
+    """Публичные страницы (routers/public.py) — намеренно узкая схема:
+    никаких space_id/author_id/folder_id/vault/tags/detected_addresses,
+    это внутренние поля, которым нечего делать в ответе анонимному
+    посетителю."""
+
+    title: str
+    content: str
+    updated_at: datetime
+
+
 class DetectedEventDismissIn(BaseModel):
     event_at: str
     event_title: str

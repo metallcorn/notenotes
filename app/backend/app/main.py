@@ -30,6 +30,7 @@ from app.routers import (
     lists,
     memories,
     notifications,
+    public,
     push,
     search,
     skills,
@@ -86,6 +87,7 @@ app.include_router(tags.router)
 app.include_router(items.router)
 app.include_router(collab_ws.router)
 app.include_router(uploads.router)
+app.include_router(public.router)
 app.include_router(search.router)
 app.include_router(feedback.router)
 app.include_router(debug_log.router)

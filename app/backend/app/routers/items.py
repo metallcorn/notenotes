@@ -1,6 +1,7 @@
 import re
+import secrets
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select, update
@@ -19,8 +20,16 @@ from app.schemas.item import (
     ItemOut,
     ItemUpdate,
     ItemVersionOut,
+    ShareItemIn,
+    ShareItemOut,
 )
 from app.schemas.tag import ItemTagOut
+from app.security import hash_password
+
+# Публичные страницы (routers/public.py) — тот же приём, что у
+# SpaceInvite.token (routers/spaces.py): непредсказуемый URL-safe токен,
+# сам факт владения ссылкой и есть доказательство доступа.
+_SHARE_TOKEN_BYTES = 24
 
 router = APIRouter(prefix="/api/items", tags=["items"])
 
@@ -471,6 +480,77 @@ async def move_item_space(
     await realtime.notify_space(old_space_id, "items")
     await realtime.notify_space(payload.space_id, "items")
     return await _serialize(db, item, user.id)
+
+
+def _share_out(item: Item) -> ShareItemOut:
+    return ShareItemOut(
+        is_public=item.is_public,
+        share_token=item.share_token if item.is_public else None,
+        has_password=item.share_password_hash is not None,
+        share_expires_at=item.share_expires_at,
+        share_single_use=item.share_single_use,
+        share_used_at=item.share_used_at,
+    )
+
+
+@router.get("/{item_id}/share", response_model=ShareItemOut)
+async def get_item_share(
+    item_id: uuid.UUID, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+) -> ShareItemOut:
+    item = await _get_accessible_item(db, user, item_id)
+    return _share_out(item)
+
+
+@router.post("/{item_id}/share", response_model=ShareItemOut)
+async def share_item(
+    item_id: uuid.UUID,
+    payload: ShareItemIn,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> ShareItemOut:
+    """Публикация только для заметок в спейсе «Публичные страницы»
+    (Space.is_public_pages) — заметку сначала кладут туда, только тогда
+    для неё можно настроить ссылку. Любой участник спейса может
+    публиковать/снимать с публикации — та же философия равных прав, что
+    и у остального в этом спейсе (ensure_space_access не различает
+    владельца и участника нигде в кодовой базе)."""
+    item = await _get_accessible_item(db, user, item_id)
+    if item.material_type != "note":
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Публиковать можно только заметки")
+    space = await db.get(Space, item.space_id)
+    if space is None or not space.is_public_pages:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Заметка не в спейсе «Публичные страницы»")
+
+    item.is_public = True
+    item.share_token = secrets.token_urlsafe(_SHARE_TOKEN_BYTES)
+    item.share_password_hash = hash_password(payload.password) if payload.password else None
+    item.share_expires_at = (
+        datetime.now(timezone.utc) + timedelta(days=payload.expires_in_days) if payload.expires_in_days else None
+    )
+    item.share_single_use = payload.single_use
+    item.share_used_at = None
+    await db.commit()
+    await db.refresh(item)
+    return _share_out(item)
+
+
+@router.post("/{item_id}/unshare", response_model=ShareItemOut)
+async def unshare_item(
+    item_id: uuid.UUID, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+) -> ShareItemOut:
+    """is_public=False + токен обнуляется целиком (не просто прячется) —
+    старая ссылка перестаёт работать безвозвратно, повторная публикация
+    всегда выдаёт новый токен."""
+    item = await _get_accessible_item(db, user, item_id)
+    item.is_public = False
+    item.share_token = None
+    item.share_password_hash = None
+    item.share_expires_at = None
+    item.share_single_use = False
+    item.share_used_at = None
+    await db.commit()
+    await db.refresh(item)
+    return _share_out(item)
 
 
 @router.delete("/{item_id}", status_code=status.HTTP_204_NO_CONTENT)

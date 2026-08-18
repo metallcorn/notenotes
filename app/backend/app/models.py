@@ -90,6 +90,12 @@ class Space(Base):
     is_vault: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     vault_salt: Mapped[str | None] = mapped_column(String(64), nullable=True)
     vault_verifier: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Публичные страницы — спейс-контейнер: заметку сначала кладут сюда,
+    # только тогда для неё можно настроить публичную ссылку
+    # (routers/items.py::share_item). Взаимоисключающе с is_vault
+    # (проверка в routers/spaces.py::create_space) — сейф и публичный
+    # доступ противоречат друг другу по смыслу.
+    is_public_pages: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
 
 
 class SpaceMember(Base):
@@ -161,10 +167,24 @@ class Item(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
+    # Публичные страницы (routers/public.py) — is_public/share_token/
+    # share_password_hash существуют с самой первой миграции, но были
+    # мертвы (ничто их не читало/не писало) до этой фичи. share_revoked
+    # сознательно НЕ используется — избыточен относительно is_public
+    # (выключить публикацию = снять is_public, отдельного "отозвать" не
+    # нужно, это то же самое действие).
     is_public: Mapped[bool] = mapped_column(Boolean, default=False)
     share_token: Mapped[str | None] = mapped_column(String(64), unique=True, nullable=True)
     share_password_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
     share_revoked: Mapped[bool] = mapped_column(Boolean, default=False)
+    # null — «до отмены» (владелец сам выключает публикацию, см. выше).
+    share_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    share_single_use: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    # Момент, когда одноразовую ссылку открыли — второй показ САМОГО
+    # содержимого заметки после этого запрещён (routers/public.py); файлы,
+    # вложенные в неё, эту проверку сознательно не повторяют (см. докстринг
+    # routers/public.py).
+    share_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     # Мягкое удаление: с появлением AI-ассистента с правом на delete_note
     # цена ошибки модели — безвозвратная потеря заметки. NULL = не удалена.
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
