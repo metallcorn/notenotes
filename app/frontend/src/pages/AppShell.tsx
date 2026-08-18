@@ -595,12 +595,20 @@ export default function AppShell() {
           зажатой кнопки, useResizeHandle это чинит явным флагом (см. lib/
           useResizablePanel.ts). Теперь как в Confluence/Jira: тонкая
           полоска — только ресайз перетаскиванием, поверх неё маленькая
-          круглая кнопка посередине — только сворачивание кликом. */}
-      <div
-        {...sidebarHandle}
-        title="Потяните, чтобы изменить ширину панели"
-        className="relative hidden w-2 shrink-0 cursor-col-resize touch-none border-r bg-slate-50 hover:bg-slate-200 lg:block"
-      >
+          круглая кнопка посередине — только сворачивание кликом.
+          Реальный найденный баг: кнопка была ВЛОЖЕНА в полоску — клик по
+          ней всё равно всплывал до pointerdown полоски, та вызывала
+          setPointerCapture НА СЕБЯ, и последующий click ретаргетился на
+          неё же вместо кнопки (спека Pointer Events) — кнопка визуально
+          была на месте, но ничего не нажималось. Полоска и кнопка теперь
+          СЁСТРЫ (не родитель/потомок) внутри общего relative-обёртки —
+          события одной больше не проходят через другую. */}
+      <div className="relative hidden w-2 shrink-0 lg:block">
+        <div
+          {...sidebarHandle}
+          title="Потяните, чтобы изменить ширину панели"
+          className="absolute inset-0 cursor-col-resize touch-none border-r bg-slate-50 hover:bg-slate-200"
+        />
         <button
           onClick={toggleSidebar}
           title={sidebarCollapsed ? "Показать панель" : "Скрыть панель"}
@@ -676,11 +684,12 @@ export default function AppShell() {
               )}
             </div>
 
-            <div
-              {...listHandle}
-              title="Потяните, чтобы изменить ширину списка"
-              className="relative hidden w-2 shrink-0 cursor-col-resize touch-none border-r bg-white hover:bg-slate-100 lg:block"
-            >
+            <div className="relative hidden w-2 shrink-0 lg:block">
+              <div
+                {...listHandle}
+                title="Потяните, чтобы изменить ширину списка"
+                className="absolute inset-0 cursor-col-resize touch-none border-r bg-white hover:bg-slate-100"
+              />
               <button
                 onClick={toggleList}
                 title={listCollapsed ? "Показать список" : "Скрыть список"}
