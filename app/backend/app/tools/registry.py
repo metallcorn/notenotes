@@ -55,6 +55,11 @@ SKILL_CATALOG: dict[str, dict[str, Any]] = {
     "get_list": {"label": "Чтение списков", "description": "Читает реальные пункты списка", "toggleable": False},
     "add_list_entry": {"label": "Добавление пунктов списка", "description": "Добавляет новый пункт в список", "toggleable": False},
     "toggle_list_entry": {"label": "Отметка пунктов списка", "description": "Отмечает пункт выполненным/невыполненным", "toggleable": False},
+    "tables": {
+        "label": "Таблицы",
+        "description": "Создаёт и редактирует таблицы со столбцами и строками (create_table/get_table/add_table_row и т.п.)",
+        "toggleable": True,
+    },
     "remember_fact": {"label": "Память", "description": "Запоминает факты о тебе между диалогами", "toggleable": False},
     "list_memories": {"label": "Просмотр памяти", "description": "Смотрит, что уже запомнено", "toggleable": False},
     "forget_fact": {"label": "Забыть факт", "description": "Удаляет запомненный факт", "toggleable": False},
@@ -81,9 +86,28 @@ SKILL_CATALOG: dict[str, dict[str, Any]] = {
 # _build_registry() и list_skills() ниже не нашёл бы его обычным способом.
 PROMPT_ONLY_SKILLS = {"show_note_images"}
 
+# "tables" в SKILL_CATALOG — не имя реального тула (в отличие от
+# создания/чтения заметок и списков, работа с таблицами намеренно не
+# "core": реальный запрос — видеть и уметь выключить работу с таблицами
+# как ОДНУ способность в настройках, а не 6 отдельных переключателей на
+# каждый tables.* тул по отдельности, что было бы неюзабельно и
+# бессмысленно включать вразнобой). Здесь — единственное место, где имя
+# из SKILL_CATALOG разворачивается в реальные имена тулов для фильтрации.
+TOOL_GROUPS: dict[str, tuple[str, ...]] = {
+    "tables": ("create_table", "get_table", "add_table_row", "update_table_row", "delete_table_row", "add_table_column"),
+}
+
+
+def _expand_disabled(disabled: set[str]) -> set[str]:
+    expanded = set(disabled)
+    for group_name, members in TOOL_GROUPS.items():
+        if group_name in disabled:
+            expanded |= set(members)
+    return expanded
+
 
 def _build_registry() -> dict[str, tuple[ToolDefinition, ToolHandler]]:
-    from app.tools import calendar_event, lists, maps, memory, notes, python_sandbox, read_website, reminders, search_base, ui, url_check, web_search
+    from app.tools import calendar_event, lists, maps, memory, notes, python_sandbox, read_website, reminders, search_base, tables, ui, url_check, web_search
 
     registry: dict[str, tuple[ToolDefinition, ToolHandler]] = {
         search_base.DEFINITION.name: (search_base.DEFINITION, search_base.handle),
@@ -116,6 +140,12 @@ def _build_registry() -> dict[str, tuple[ToolDefinition, ToolHandler]]:
         lists.GET_LIST.name: (lists.GET_LIST, lists.get_list),
         lists.ADD_LIST_ENTRY.name: (lists.ADD_LIST_ENTRY, lists.add_list_entry),
         lists.TOGGLE_LIST_ENTRY.name: (lists.TOGGLE_LIST_ENTRY, lists.toggle_list_entry),
+        tables.CREATE_TABLE.name: (tables.CREATE_TABLE, tables.create_table),
+        tables.GET_TABLE.name: (tables.GET_TABLE, tables.get_table),
+        tables.ADD_TABLE_ROW.name: (tables.ADD_TABLE_ROW, tables.add_table_row),
+        tables.UPDATE_TABLE_ROW.name: (tables.UPDATE_TABLE_ROW, tables.update_table_row),
+        tables.DELETE_TABLE_ROW.name: (tables.DELETE_TABLE_ROW, tables.delete_table_row),
+        tables.ADD_TABLE_COLUMN.name: (tables.ADD_TABLE_COLUMN, tables.add_table_column),
         memory.REMEMBER_FACT.name: (memory.REMEMBER_FACT, memory.remember_fact),
         memory.LIST_MEMORIES.name: (memory.LIST_MEMORIES, memory.list_memories),
         memory.FORGET_FACT.name: (memory.FORGET_FACT, memory.forget_fact),
@@ -131,7 +161,7 @@ def _build_registry() -> dict[str, tuple[ToolDefinition, ToolHandler]]:
 
 
 def get_tool_definitions(disabled: set[str] | None = None) -> list[ToolDefinition]:
-    disabled = disabled or set()
+    disabled = _expand_disabled(disabled or set())
     return [definition for definition in (d for d, _ in _build_registry().values()) if definition.name not in disabled]
 
 
@@ -146,7 +176,7 @@ def list_skills(disabled: set[str]) -> list[dict[str, Any]]:
             "enabled": name not in disabled,
         }
         for name, meta in SKILL_CATALOG.items()
-        if name in available or name in PROMPT_ONLY_SKILLS
+        if name in available or name in PROMPT_ONLY_SKILLS or name in TOOL_GROUPS
     ]
 
 
@@ -157,7 +187,7 @@ async def dispatch(name: str, ctx: ToolContext, args: dict[str, Any], disabled: 
     # dispatch не может полагаться только на то, что "модель не должна была
     # это вызвать". Отключённый тул отказывает здесь тоже, а не только
     # отсутствует в описании для модели.
-    if disabled and name in disabled:
+    if disabled and name in _expand_disabled(disabled):
         return {"error": f"Инструмент {name} отключён в настройках пользователя"}
     entry = _build_registry().get(name)
     if entry is None:

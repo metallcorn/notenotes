@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { ChevronDown, ListChecks, Plus } from "lucide-react";
-import { useCreateItem, useCreateList, useItems } from "../api/hooks";
+import { ChevronDown, ListChecks, Plus, Table as TableIcon } from "lucide-react";
+import { useCreateItem, useCreateList, useCreateTable, useItems } from "../api/hooks";
 import type { Item } from "../api/types";
 import Spinner from "./Spinner";
 
@@ -107,6 +107,7 @@ function listProgress(content: string): string {
 
 function NoteRow({ item, selected, onSelect }: { item: Item; selected: boolean; onSelect: (id: string) => void }) {
   const isList = item.material_type === "list";
+  const isTable = item.material_type === "table";
   const preview = isList ? listProgress(item.content) : previewText(item.content);
   return (
     <li>
@@ -117,6 +118,8 @@ function NoteRow({ item, selected, onSelect }: { item: Item; selected: boolean; 
         <div className="flex items-center gap-1.5 truncate text-sm font-medium">
           {isList ? (
             <ListChecks size={13} className="shrink-0 text-slate-400" />
+          ) : isTable ? (
+            <TableIcon size={13} className="shrink-0 text-slate-400" />
           ) : (
             item.icon && <span>{item.icon}</span>
           )}
@@ -162,6 +165,7 @@ export default function NoteList({
   const { data: items, isLoading } = useItems(effectiveSpaceId, effectiveFolderId, tagId);
   const createItem = useCreateItem();
   const createList = useCreateList();
+  const createTable = useCreateTable();
 
   async function createNote(template?: NoteTemplate) {
     const targetFolderId = effectiveFolderId === "root" ? null : effectiveFolderId;
@@ -178,6 +182,12 @@ export default function NoteList({
     const targetFolderId = effectiveFolderId === "root" ? null : effectiveFolderId;
     const list = await createList.mutateAsync({ space_id: spaceId, folder_id: targetFolderId });
     onSelect(list.id);
+  }
+
+  async function createNewTable() {
+    const targetFolderId = effectiveFolderId === "root" ? null : effectiveFolderId;
+    const table = await createTable.mutateAsync({ space_id: spaceId, folder_id: targetFolderId });
+    onSelect(table.id);
   }
 
   const pinned = (items ?? []).filter((i) => i.pinned);
@@ -211,6 +221,16 @@ export default function NoteList({
             {createList.isPending ? "Создаём…" : "+ Список"}
           </button>
         )}
+        {!isVault && (
+          <button
+            onClick={createNewTable}
+            disabled={createTable.isPending}
+            className="flex flex-1 items-center justify-center gap-2 rounded border border-slate-900 px-3 py-1.5 text-sm font-medium text-slate-900 disabled:opacity-50"
+          >
+            {createTable.isPending && <Spinner />}
+            {createTable.isPending ? "Создаём…" : "+ Таблица"}
+          </button>
+        )}
       </div>
       <ul className="min-h-0 flex-1 overflow-y-auto pb-20 md:pb-0">
         {isLoading && (
@@ -236,6 +256,16 @@ export default function NoteList({
         ))}
       </ul>
       <div className="fixed bottom-20 right-4 z-40 flex flex-col items-end gap-2 md:hidden">
+        {!isVault && (
+          <button
+            onClick={createNewTable}
+            disabled={createTable.isPending}
+            title="Новая таблица"
+            className="flex h-11 w-11 items-center justify-center rounded-full bg-white text-slate-900 shadow-lg ring-1 ring-slate-200 disabled:opacity-50"
+          >
+            {createTable.isPending ? <Spinner size={18} /> : <TableIcon size={18} />}
+          </button>
+        )}
         {!isVault && (
           <button
             onClick={createNewList}

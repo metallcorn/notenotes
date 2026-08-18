@@ -35,6 +35,7 @@ from app.routers import (
     search,
     skills,
     spaces,
+    tables,
     tags,
     telegram,
     uploads,
@@ -96,6 +97,7 @@ app.include_router(push.router)
 app.include_router(dialogs.router)
 app.include_router(voice.router)
 app.include_router(lists.router)
+app.include_router(tables.router)
 app.include_router(memories.router)
 app.include_router(skills.router)
 app.include_router(telegram.router)

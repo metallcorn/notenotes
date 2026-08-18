@@ -1,6 +1,7 @@
 import { useItem } from "../api/hooks";
 import NoteEditor from "./NoteEditor";
 import ListEditor from "./ListEditor";
+import TableEditor from "./TableEditor";
 import NoteSkeleton from "./NoteSkeleton";
 
 export default function ItemView({
@@ -28,6 +29,9 @@ export default function ItemView({
 
   if (item.material_type === "list") {
     return <ListEditor itemId={itemId} onDeleted={onDeleted} onBack={onBack} highlightEntryId={highlightEntryId} />;
+  }
+  if (item.material_type === "table") {
+    return <TableEditor itemId={itemId} onDeleted={onDeleted} onBack={onBack} />;
   }
   return <NoteEditor itemId={itemId} onDeleted={onDeleted} onBack={onBack} highlightAnchorId={highlightAnchorId} />;
 }

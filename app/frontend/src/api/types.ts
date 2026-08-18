@@ -149,6 +149,29 @@ export interface ListDetail {
   updated_at: string;
 }
 
+export interface TableColumn {
+  id: string;
+  name: string;
+  type: string;
+}
+
+export interface TableRow {
+  id: string;
+  cells: Record<string, string>;
+  created_at: string;
+}
+
+export interface TableDetail {
+  id: string;
+  space_id: string;
+  folder_id: string | null;
+  title: string;
+  columns: TableColumn[];
+  rows: TableRow[];
+  created_at: string;
+  updated_at: string;
+}
+
 export interface AssistantMemoryFact {
   id: string;
   content: string;

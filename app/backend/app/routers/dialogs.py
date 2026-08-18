@@ -63,7 +63,8 @@ _CORE_TOOL_NAMES = {
     "search_base", "get_note", "create_note", "update_note", "append_to_note", "delete_note",
     "suggest_replies", "list_folders", "list_all_items", "remember_fact",
     "list_memories", "add_tag", "list_tags", "create_list", "get_list",
-    "add_list_entry", "toggle_list_entry",
+    "add_list_entry", "toggle_list_entry", "create_table", "get_table",
+    "add_table_row", "update_table_row", "delete_table_row", "add_table_column",
 }
 # Мини-чат "спроси ассистента в заметке" (scoped_item_id, см. create_dialog
 # ниже) — почти только чтение/поиск: применяет результат сам пользователь

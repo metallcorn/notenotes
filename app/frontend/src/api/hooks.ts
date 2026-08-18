@@ -30,6 +30,7 @@ import type {
   SpaceInvite,
   SpaceMember,
   Tag,
+  TableDetail,
   UploadResult,
   UrlCheckFetchResult,
   User,
@@ -966,6 +967,78 @@ export function useDeleteListEntry(listId: string | undefined) {
   return useMutation({
     mutationFn: (entryId: string) => api.delete<ListDetail>(`/lists/${listId}/entries/${entryId}`),
     onSuccess: (list) => qc.setQueryData(["list", listId], list),
+  });
+}
+
+// --- таблицы ---------------------------------------------------------------
+
+export function useTable(id: string | undefined) {
+  return useQuery<TableDetail>({
+    queryKey: ["table", id],
+    queryFn: () => api.get<TableDetail>(`/tables/${id}`),
+    enabled: !!id,
+  });
+}
+
+export function useCreateTable() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: { space_id: string; folder_id?: string | null; title?: string; columns?: { name: string }[] }) =>
+      api.post<TableDetail>("/tables", payload),
+    onSuccess: (table) => qc.invalidateQueries({ queryKey: ["items", table.space_id] }),
+  });
+}
+
+export function useAddTableColumn(tableId: string | undefined) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (name: string) => api.post<TableDetail>(`/tables/${tableId}/columns`, { name }),
+    onSuccess: (table) => qc.setQueryData(["table", tableId], table),
+  });
+}
+
+export function useUpdateTableColumn(tableId: string | undefined) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ columnId, name, type }: { columnId: string; name: string; type: string }) =>
+      api.patch<TableDetail>(`/tables/${tableId}/columns/${columnId}`, { name, type }),
+    onSuccess: (table) => qc.setQueryData(["table", tableId], table),
+  });
+}
+
+export function useDeleteTableColumn(tableId: string | undefined) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (columnId: string) => api.delete<TableDetail>(`/tables/${tableId}/columns/${columnId}`),
+    onSuccess: (table) => qc.setQueryData(["table", tableId], table),
+  });
+}
+
+export function useAddTableRow(tableId: string | undefined) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (cells: Record<string, string>) => api.post<TableDetail>(`/tables/${tableId}/rows`, { cells }),
+    onSuccess: (table) => {
+      qc.setQueryData(["table", tableId], table);
+      qc.invalidateQueries({ queryKey: ["items", table.space_id] });
+    },
+  });
+}
+
+export function useUpdateTableRow(tableId: string | undefined) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ rowId, cells }: { rowId: string; cells: Record<string, string> }) =>
+      api.patch<TableDetail>(`/tables/${tableId}/rows/${rowId}`, { cells }),
+    onSuccess: (table) => qc.setQueryData(["table", tableId], table),
+  });
+}
+
+export function useDeleteTableRow(tableId: string | undefined) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (rowId: string) => api.delete<TableDetail>(`/tables/${tableId}/rows/${rowId}`),
+    onSuccess: (table) => qc.setQueryData(["table", tableId], table),
   });
 }
 

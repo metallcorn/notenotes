@@ -383,7 +383,7 @@ async def list_items_in_folder(ctx: ToolContext, args: dict[str, Any]) -> dict[s
     folder_id, space_id = await _resolve_folder(ctx, args.get("folder_id"))
 
     query = select(Item).where(
-        Item.space_id == space_id, Item.material_type.in_(("note", "list", "ticket")), Item.deleted_at.is_(None)
+        Item.space_id == space_id, Item.material_type.in_(("note", "list", "ticket", "table")), Item.deleted_at.is_(None)
     )
     query = query.where(Item.folder_id == folder_id) if folder_id else query.where(Item.folder_id.is_(None))
     items = (await ctx.db.execute(query)).scalars().all()
@@ -441,7 +441,7 @@ async def list_items_by_tag(ctx: ToolContext, args: dict[str, Any]) -> dict[str,
         .where(
             ItemTag.tag_id == tag.id,
             ItemTag.user_id == ctx.user_id,
-            Item.material_type.in_(("note", "list", "ticket")),
+            Item.material_type.in_(("note", "list", "ticket", "table")),
             Item.deleted_at.is_(None),
             Space.is_vault.is_(False),
         )
@@ -476,7 +476,7 @@ async def list_all_items(ctx: ToolContext, args: dict[str, Any]) -> dict[str, An
         .join(SpaceMember, SpaceMember.space_id == Item.space_id)
         .where(
             SpaceMember.user_id == ctx.user_id,
-            Item.material_type.in_(("note", "list", "ticket")),
+            Item.material_type.in_(("note", "list", "ticket", "table")),
             Item.deleted_at.is_(None),
             # Сейф не должен даже засветиться в перечислении — не только
             # содержимое скрыто, сам факт его существования ассистенту

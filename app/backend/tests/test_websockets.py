@@ -57,6 +57,20 @@ async def test_list_ws_broadcasts_entry_change(live_server, auth_client, test_us
         assert "Milk" in msg
 
 
+async def test_table_ws_broadcasts_row_change(live_server, auth_client, test_user):
+    r = await auth_client.post("/api/spaces", json={"name": "WS table space"})
+    space_id = r.json()["id"]
+    r = await auth_client.post("/api/tables", json={"space_id": space_id, "title": "T", "columns": [{"name": "A"}]})
+    table_id = r.json()["id"]
+    col_id = r.json()["columns"][0]["id"]
+
+    uri = f"{live_server}/api/tables/{table_id}/ws"
+    async with websockets.connect(uri, extra_headers=_cookie_header(test_user.id)) as ws:
+        await auth_client.post(f"/api/tables/{table_id}/rows", json={"cells": {col_id: "Squat"}})
+        msg = await ws.recv()
+        assert "Squat" in msg
+
+
 async def test_collab_ws_seed_and_sync_between_two_clients(live_server, auth_client, test_user):
     r = await auth_client.post("/api/spaces", json={"name": "WS collab space"})
     space_id = r.json()["id"]

@@ -188,7 +188,7 @@ function CreatedItemLinks({
 }: {
   message: DialogMessage;
   results: DialogMessage[];
-  onOpenItem: (id: string, materialType: "note" | "list") => void;
+  onOpenItem: (id: string, materialType: "note" | "list" | "table") => void;
 }) {
   // update_note/append_to_note — не только create_note/create_list: реальная
   // жалоба — после того как ассистент ОБНОВИЛ уже существующую заметку
@@ -196,23 +196,40 @@ function CreatedItemLinks({
   // не было вовсе, только сам текст ответа — единственный способ перейти к
   // заметке. Форма результата тула та же ({id, title}), фильтр просто шире.
   const links = message.tool_calls
-    .filter((tc) => ["create_note", "create_list", "update_note", "append_to_note"].includes(tc.name))
+    .filter((tc) =>
+      [
+        "create_note",
+        "create_list",
+        "update_note",
+        "append_to_note",
+        "create_table",
+        "add_table_row",
+        "update_table_row",
+        "delete_table_row",
+        "add_table_column",
+      ].includes(tc.name),
+    )
     .map((tc) => {
       const result = results.find((r) => r.tool_call_id === tc.id);
       if (!result) return null;
       try {
         const parsed = JSON.parse(result.content);
         if (!parsed.id || parsed.error) return null;
+        const materialType: "note" | "list" | "table" = tc.name === "create_list"
+          ? "list"
+          : tc.name.startsWith("create_table") || tc.name.endsWith("table_row") || tc.name === "add_table_column"
+            ? "table"
+            : "note";
         return {
           id: parsed.id as string,
           title: (parsed.title as string) || "без названия",
-          materialType: (tc.name === "create_list" ? "list" : "note") as "note" | "list",
+          materialType,
         };
       } catch {
         return null;
       }
     })
-    .filter((x): x is { id: string; title: string; materialType: "note" | "list" } => x !== null);
+    .filter((x): x is { id: string; title: string; materialType: "note" | "list" | "table" } => x !== null);
 
   if (links.length === 0) return null;
 
@@ -236,7 +253,7 @@ const _MARKDOWN_IMAGE_RE = /!\[[^\]]*\]\(([^)]+)\)/g;
 interface ImageSourceNote {
   id: string;
   title: string;
-  materialType: "note" | "list";
+  materialType: "note" | "list" | "table";
   text: string;
 }
 
@@ -264,7 +281,7 @@ function collectImageSourceNotes(message: DialogMessage, results: DialogMessage[
           .map((item) => ({
             id: item.id as string,
             title: (item.title as string) || "без названия",
-            materialType: (item.material_type === "list" ? "list" : "note") as "note" | "list",
+            materialType: (item.material_type === "list" ? "list" : "note") as "note" | "list" | "table",
             text: (item.content as string) ?? (item.excerpt as string) ?? "",
           }));
       } catch {
@@ -280,7 +297,7 @@ function ImageSourceLinks({
 }: {
   message: DialogMessage;
   results: DialogMessage[];
-  onOpenItem: (id: string, materialType: "note" | "list") => void;
+  onOpenItem: (id: string, materialType: "note" | "list" | "table") => void;
 }) {
   const shownUrls = Array.from(message.content.matchAll(_MARKDOWN_IMAGE_RE)).map((m) => m[1]);
   // Галерея (2+ картинки) рендерится отдельным компонентом ImageGalleryLinks
@@ -319,7 +336,7 @@ function ImageGalleryLinks({
 }: {
   message: DialogMessage;
   results: DialogMessage[];
-  onOpenItem: (id: string, materialType: "note" | "list") => void;
+  onOpenItem: (id: string, materialType: "note" | "list" | "table") => void;
 }) {
   const urls = Array.from(message.content.matchAll(_MARKDOWN_IMAGE_RE)).map((m) => m[1]);
   // Ровно одна картинка — та ветка у ImageSourceLinks (дедуп, без номеров).
@@ -369,10 +386,10 @@ function NoteResultLinks({
 }: {
   message: DialogMessage & { cardToolCalls: ToolCall[] };
   results: DialogMessage[];
-  onOpenItem: (id: string, materialType: "note" | "list") => void;
+  onOpenItem: (id: string, materialType: "note" | "list" | "table") => void;
 }) {
   const notes = useMemo(() => {
-    const byId = new Map<string, { id: string; title: string; materialType: "note" | "list" }>();
+    const byId = new Map<string, { id: string; title: string; materialType: "note" | "list" | "table" }>();
     // Только get_note, не search_base: реальный случай — поиск "Поищи
     // записки про больницы" разошёлся тремя параллельными search_base на
     // разные формулировки, один запрос широким OR-фоллбэком зацепил
@@ -750,7 +767,7 @@ function TicketResultCards({
 }: {
   message: DialogMessage & { cardToolCalls: ToolCall[] };
   results: DialogMessage[];
-  onOpenItem: (id: string, materialType: "note" | "list") => void;
+  onOpenItem: (id: string, materialType: "note" | "list" | "table") => void;
 }) {
   const [qrTicket, setQrTicket] = useState<TicketResult | null>(null);
   const [previewTicket, setPreviewTicket] = useState<TicketResult | null>(null);
@@ -1020,7 +1037,7 @@ export default function AssistantChat({
 }: {
   dialogId: string;
   onBack: () => void;
-  onOpenItem: (id: string, materialType: "note" | "list") => void;
+  onOpenItem: (id: string, materialType: "note" | "list" | "table") => void;
   // Мини-чат "спроси ассистента в заметке" (NoteAssistantModal.tsx) — та же
   // отрисовка сообщений/карточек/suggest_replies, что и у обычного
   // диалога, плюс одна дополнительная кнопка на ответах ассистента. Не

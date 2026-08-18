@@ -163,7 +163,7 @@ async def list_items(
     if space_id is not None:
         await ensure_space_access(db, space_id, user.id)
         query = select(Item).where(
-            Item.space_id == space_id, Item.material_type.in_(("note", "list", "ticket")), Item.deleted_at.is_(None)
+            Item.space_id == space_id, Item.material_type.in_(("note", "list", "ticket", "table")), Item.deleted_at.is_(None)
         )
     elif tag_id is not None:
         # Тег — сущность пользователя (Tag.user_id), не спейса: заметки под
@@ -178,7 +178,7 @@ async def list_items(
             .join(Space, Space.id == Item.space_id)
             .where(
                 SpaceMember.user_id == user.id,
-                Item.material_type.in_(("note", "list", "ticket")),
+                Item.material_type.in_(("note", "list", "ticket", "table")),
                 Item.deleted_at.is_(None),
                 # Кросс-спейсовый список (по тегу, не по конкретному спейсу)
                 # — та же логика, что в search.py/list_all_items: сейф не
@@ -242,7 +242,7 @@ async def list_recent_items(
         .join(Space, Space.id == Item.space_id)
         .where(
             SpaceMember.user_id == user.id,
-            Item.material_type.in_(("note", "list", "ticket")),
+            Item.material_type.in_(("note", "list", "ticket", "table")),
             Item.deleted_at.is_(None),
             # Тот же принцип, что у поиска и list_all_items — сейф не
             # должен светиться в кросс-спейсовой ленте.
@@ -428,8 +428,8 @@ async def move_item_space(
     участникам целевого спейса, нужно уведомить оба спейса по WS), которые
     было бы менее явно размазывать по общему PATCH."""
     item = await _get_accessible_item(db, user, item_id)
-    if item.material_type not in ("note", "list", "ticket"):
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Перенос доступен только для заметок, списков и билетов")
+    if item.material_type not in ("note", "list", "ticket", "table"):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Перенос доступен только для заметок, списков, билетов и таблиц")
 
     if payload.space_id == item.space_id:
         return await _serialize(db, item, user.id)
