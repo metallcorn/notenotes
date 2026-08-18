@@ -27,11 +27,21 @@ logger = logging.getLogger(__name__)
 # Произвольные файлы (ТЗ §9 — файл как item — придёт в Фазе 2; пока это
 # просто вложение к заметке). Тип не ограничиваем: файл никогда не
 # исполняется, только отдаётся обратно через авторизованный FileResponse.
-# 300 МБ хватает на видео с телефона в разумном качестве (диск — 27 ГБ
-# свободно, не узкое место); раньше было 25 МБ — заимствовано у лимита
-# Whisper API для голосовых сообщений, для видео категорически мало.
+# 300 МБ — потолок для видео/аудио (телефонное видео, часовая диктофонная
+# запись встречи — реальный названный случай на 50 МБ, диск — 27 ГБ
+# свободно, не узкое место). Для остальных файлов (документы, картинки,
+# что угодно ещё) — отдельный, более узкий MAX_GENERIC_UPLOAD_BYTES:
+# баланс между "не дать превратить заметки в файлообменник, который
+# незаметно съест диск" и "не мешать хранить то, что реально нужно" —
+# см. также _MAX_NOTE_ATTACHMENTS_BYTES в routers/items.py (общий вес
+# вложений одной заметки), видео/аудио туда сознательно не считаются.
 MAX_UPLOAD_BYTES = 300 * 1024 * 1024
+MAX_GENERIC_UPLOAD_BYTES = 20 * 1024 * 1024
 _STREAM_CHUNK_BYTES = 1024 * 1024
+
+
+def _is_media_content_type(content_type: str) -> bool:
+    return content_type.startswith("video/") or content_type.startswith("audio/")
 
 # Реальная жалоба: "широкий набор файлов" должен получить хоть какое-то
 # превью, не только картинки/видео/PDF. ВИЗУАЛЬНЫЙ рендер офисных форматов
@@ -210,13 +220,16 @@ async def create_upload(
     # ограничен 768 МБ (docker-compose.yml.j2), а с потолком 300 МБ на
     # аплоад чтение целиком в bytes перед записью держало бы это в памяти
     # одним куском на весь запрос, легко несколько таких параллельно — OOM.
+    per_file_limit = MAX_UPLOAD_BYTES if _is_media_content_type(content_type) else MAX_GENERIC_UPLOAD_BYTES
     total = 0
     try:
         with dest.open("wb") as out:
             while chunk := await file.read(_STREAM_CHUNK_BYTES):
                 total += len(chunk)
-                if total > MAX_UPLOAD_BYTES:
-                    raise HTTPException(status.HTTP_400_BAD_REQUEST, "Файл больше 300 МБ")
+                if total > per_file_limit:
+                    raise HTTPException(
+                        status.HTTP_400_BAD_REQUEST, f"Файл больше {per_file_limit // (1024 * 1024)} МБ"
+                    )
                 out.write(chunk)
     except HTTPException:
         dest.unlink(missing_ok=True)

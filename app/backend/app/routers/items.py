@@ -34,6 +34,39 @@ _MIN_CONTENT_FOR_AUTOTAG = 20
 # найти реально используемые в ней файлы при переносе в другой спейс.
 _UPLOAD_URL_RE = re.compile(r"/api/uploads/([0-9a-fA-F-]{36})")
 
+# Общий вес вложений одной заметки — защита от использования заметок как
+# файлообменника (реальный запрос), не архитектурное ограничение. Видео/
+# аудио сюда сознательно не считаются — у них уже свой потолок 300 МБ НА
+# ФАЙЛ (uploads.py, MAX_UPLOAD_BYTES), и одна честная часовая запись
+# встречи (реальный названный случай — 50 МБ) сама по себе легко
+# превышала бы общий лимит заметки, если бы считалась сюда же. Для
+# vault-заметок content на сервере — заглушка "🔒 Зашифровано" (реальный
+# markdown с ссылками на /api/uploads/ существует только расшифрованным на
+# клиенте), так что скан здесь просто ничего не найдёт — сервер не может
+# проверить то, что не может прочитать, и не пытается.
+_MAX_NOTE_ATTACHMENTS_BYTES = 100 * 1024 * 1024
+
+
+async def _check_note_attachments_size(db: AsyncSession, content: str) -> None:
+    upload_ids = {uuid.UUID(m) for m in _UPLOAD_URL_RE.findall(content)}
+    if not upload_ids:
+        return
+    result = await db.execute(select(Upload).where(Upload.id.in_(upload_ids)))
+    from app.routers.uploads import _is_media_content_type, _upload_path
+
+    total = 0
+    for upload in result.scalars():
+        if _is_media_content_type(upload.content_type):
+            continue
+        path = _upload_path(upload.id)
+        if path.is_file():
+            total += path.stat().st_size
+    if total > _MAX_NOTE_ATTACHMENTS_BYTES:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"Общий размер вложений заметки превышает {_MAX_NOTE_ATTACHMENTS_BYTES // (1024 * 1024)} МБ",
+        )
+
 
 async def _tags_for_item(db: AsyncSession, item_id: uuid.UUID, user_id: uuid.UUID) -> list[ItemTagOut]:
     result = await db.execute(
@@ -320,6 +353,7 @@ async def update_item(
     if "title" in fields and payload.title is not None:
         item.title = payload.title
     if "content" in fields and payload.content is not None:
+        await _check_note_attachments_size(db, payload.content)
         item.content = payload.content
     if "folder_id" in fields:
         if payload.folder_id is not None:

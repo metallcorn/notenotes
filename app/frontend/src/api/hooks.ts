@@ -26,6 +26,8 @@ import type {
   Notification,
   Skill,
   Space,
+  SpaceInvite,
+  SpaceMember,
   Tag,
   UploadResult,
   UrlCheckFetchResult,
@@ -171,6 +173,64 @@ export function useUpdateSpace() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ id, name }: { id: string; name: string }) => api.patch<Space>(`/spaces/${id}`, { name }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["spaces"] }),
+  });
+}
+
+// --- space members / invites ----------------------------------------------
+
+export function useSpaceMembers(spaceId: string | undefined) {
+  return useQuery<SpaceMember[]>({
+    queryKey: ["space-members", spaceId],
+    queryFn: () => api.get<SpaceMember[]>(`/spaces/${spaceId}/members`),
+    enabled: !!spaceId,
+  });
+}
+
+export function useAddSpaceMember(spaceId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (username: string) => api.post<SpaceMember>(`/spaces/${spaceId}/members`, { username }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["space-members", spaceId] }),
+  });
+}
+
+export function useRemoveSpaceMember(spaceId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (userId: string) => api.delete<void>(`/spaces/${spaceId}/members/${userId}`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["space-members", spaceId] }),
+  });
+}
+
+export function useSpaceInvites(spaceId: string | undefined) {
+  return useQuery<SpaceInvite[]>({
+    queryKey: ["space-invites", spaceId],
+    queryFn: () => api.get<SpaceInvite[]>(`/spaces/${spaceId}/invites`),
+    enabled: !!spaceId,
+  });
+}
+
+export function useCreateSpaceInvite(spaceId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.post<SpaceInvite>(`/spaces/${spaceId}/invites`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["space-invites", spaceId] }),
+  });
+}
+
+export function useRevokeSpaceInvite(spaceId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (inviteId: string) => api.delete<void>(`/spaces/${spaceId}/invites/${inviteId}`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["space-invites", spaceId] }),
+  });
+}
+
+export function useAcceptSpaceInvite() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (token: string) => api.post<Space>(`/spaces/invites/${token}/accept`),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["spaces"] }),
   });
 }

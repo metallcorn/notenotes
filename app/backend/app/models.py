@@ -104,6 +104,24 @@ class SpaceMember(Base):
     joined_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class SpaceInvite(Base):
+    """Ссылка-приглашение в шареный спейс — отдельно от InviteCode
+    (та — про регистрацию нового пользователя вообще, эта — про то, чтобы
+    ВСТУПИТЬ уже зарегистрированному в конкретный спейс). Добавление по
+    нику происходит без этой таблицы, напрямую (см. routers/spaces.py) —
+    ссылка нужна только когда заранее неизвестно, кто именно перейдёт."""
+
+    __tablename__ = "space_invites"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    space_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("spaces.id", ondelete="CASCADE"), index=True)
+    created_by_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    token: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
 class Folder(Base):
     __tablename__ = "folders"
 

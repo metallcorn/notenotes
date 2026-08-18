@@ -18,6 +18,10 @@ export function useNotificationSync() {
         const data: { kind?: string } = JSON.parse(event.data);
         if (data.kind === "notifications") {
           qc.invalidateQueries({ queryKey: ["notifications"] });
+          // Приглашение в спейс (type="space_invite") приходит тем же
+          // каналом — новый спейс должен появиться в списке сразу, не
+          // ждать следующего обычного рефетча.
+          qc.invalidateQueries({ queryKey: ["spaces"] });
         }
       } catch {
         // нераспознанное сообщение — игнорируем

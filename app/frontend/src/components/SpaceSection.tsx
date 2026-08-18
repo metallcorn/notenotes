@@ -1,10 +1,11 @@
 import { useState } from "react";
-import { KeyRound, Lock, Pencil } from "lucide-react";
+import { KeyRound, Lock, Pencil, Users } from "lucide-react";
 import type { Space } from "../api/types";
 import { useUpdateSpace } from "../api/hooks";
 import { useVaultUnlocked } from "../lib/vaultSession";
 import FolderTree from "./FolderTree";
 import PromptDialog from "./PromptDialog";
+import SpaceMembersModal from "./SpaceMembersModal";
 import VaultChangePasswordModal from "./VaultChangePasswordModal";
 import VaultUnlockOverlay from "./VaultUnlockOverlay";
 
@@ -26,6 +27,7 @@ export default function SpaceSection({
   const updateSpace = useUpdateSpace();
   const [renaming, setRenaming] = useState(false);
   const [changingPassword, setChangingPassword] = useState(false);
+  const [managingMembers, setManagingMembers] = useState(false);
   const unlocked = useVaultUnlocked(space.is_vault ? space.id : undefined);
 
   return (
@@ -54,6 +56,13 @@ export default function SpaceSection({
             <KeyRound size={12} />
           </button>
         )}
+        <button
+          title="Участники спейса"
+          onClick={() => setManagingMembers(true)}
+          className="flex h-6 w-6 shrink-0 items-center justify-center text-slate-400 hover:text-slate-700"
+        >
+          <Users size={12} />
+        </button>
         <button
           title="Переименовать спейс"
           onClick={() => setRenaming(true)}
@@ -95,6 +104,10 @@ export default function SpaceSection({
           spaceName={space.name}
           onClose={() => setChangingPassword(false)}
         />
+      )}
+
+      {managingMembers && (
+        <SpaceMembersModal spaceId={space.id} spaceName={space.name} onClose={() => setManagingMembers(false)} />
       )}
     </div>
   );

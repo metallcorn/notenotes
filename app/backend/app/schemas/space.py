@@ -45,6 +45,27 @@ class VaultRotateItemIn(BaseModel):
     vault: dict
 
 
+class SpaceMemberOut(BaseModel):
+    user_id: uuid.UUID
+    username: str
+    name: str
+    joined_at: datetime
+
+
+class SpaceMemberAddIn(BaseModel):
+    username: str = Field(min_length=1, max_length=64)
+
+
+class SpaceInviteOut(BaseModel):
+    model_config = {"from_attributes": True}
+
+    id: uuid.UUID
+    token: str
+    created_at: datetime
+    expires_at: datetime
+    revoked_at: datetime | None
+
+
 class VaultRotatePasswordIn(BaseModel):
     """Смена пароля сейфа — клиент уже расшифровал всё старым ключом и
     зашифровал новым (сервер не может это сделать сам, у него никогда не

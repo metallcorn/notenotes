@@ -39,6 +39,21 @@ export interface VaultUnlockInfo {
   vault_verifier: string;
 }
 
+export interface SpaceMember {
+  user_id: string;
+  username: string;
+  name: string;
+  joined_at: string;
+}
+
+export interface SpaceInvite {
+  id: string;
+  token: string;
+  created_at: string;
+  expires_at: string;
+  revoked_at: string | null;
+}
+
 export interface Folder {
   id: string;
   space_id: string;

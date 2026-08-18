@@ -4,6 +4,7 @@ import { useMe } from "./api/hooks";
 import { useBoundedRestoring } from "./lib/useBoundedRestoring";
 import LoginPage from "./pages/LoginPage";
 import RegisterPage from "./pages/RegisterPage";
+import InviteAcceptPage from "./pages/InviteAcceptPage";
 import AppShell from "./pages/AppShell";
 import FeedbackWidget from "./components/FeedbackWidget";
 import ErrorBoundary from "./components/ErrorBoundary";
@@ -94,6 +95,14 @@ export default function App() {
             <RedirectIfAuthed>
               <RegisterPage />
             </RedirectIfAuthed>
+          }
+        />
+        <Route
+          path="/invites/:token"
+          element={
+            <RequireAuth>
+              <InviteAcceptPage />
+            </RequireAuth>
           }
         />
         <Route
