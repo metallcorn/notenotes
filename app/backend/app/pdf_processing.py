@@ -9,7 +9,7 @@ from pathlib import Path
 import pymupdf
 from sqlalchemy import select
 
-from app import realtime
+from app import collab, realtime
 from app.core.config import get_settings
 from app.db import async_session
 from app.document_reflow import reflow_document_text
@@ -99,15 +99,22 @@ async def _replace_document_card(upload_id: uuid.UUID, new_card_html: str) -> No
             result = await db.execute(select(Item).where(Item.content.like(f"%{upload_id}%")))
             items = result.scalars().all()
             touched_spaces = set()
+            touched_item_ids = []
             for item in items:
                 new_content, n = pattern.subn(new_card_html, item.content)
                 if n:
                     item.content = new_content
                     touched_spaces.add(item.space_id)
+                    touched_item_ids.append(item.id)
             if touched_spaces:
                 await db.commit()
                 for space_id in touched_spaces:
                     await realtime.notify_space(space_id, "items")
+                # Заметка могла быть открыта с живой коллаборацией — её
+                # Y.Doc ничего не знает про эту прямую правку в БД, см.
+                # collab.invalidate_room.
+                for item_id in touched_item_ids:
+                    await collab.invalidate_room(item_id)
                 return
         if attempt < _REPLACE_RETRY_ATTEMPTS - 1:
             await asyncio.sleep(_REPLACE_RETRY_DELAY_SECONDS)

@@ -79,8 +79,8 @@ export default function SpaceSection({
           auto" средствами CSS, а не JS-измерением, и не размонтирует
           содержимое — оно просто визуально скрыто, пока свёрнуто. */}
       <div
-        className="ml-3 grid transition-[grid-template-rows] duration-200 ease-out"
-        style={{ gridTemplateRows: collapsed ? "0fr" : "1fr" }}
+        className="ml-3 grid"
+        style={{ gridTemplateRows: collapsed ? "0fr" : "1fr", transition: "grid-template-rows 200ms ease-out" }}
       >
         <div className="overflow-hidden">
           {space.is_vault && !unlocked && <VaultUnlockOverlay spaceId={space.id} spaceName={space.name} compact />}

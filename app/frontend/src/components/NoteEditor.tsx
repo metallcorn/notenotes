@@ -103,7 +103,7 @@ export default function NoteEditor({
   // highlightEntryId у ListEditor.tsx.
   highlightAnchorId?: string | null;
 }) {
-  const { data: item, isError } = useItem(itemId);
+  const { data: item, isError, refetch: refetchItem } = useItem(itemId);
   const updateItem = useUpdateItem();
   const deleteItem = useDeleteItem(item?.space_id);
   const uploadFile = useUploadFile(item?.space_id);
@@ -324,12 +324,23 @@ export default function NoteEditor({
   // ПОЛНОСТЬЮ отключаемся от предыдущей коллаборативной заметки (если
   // была), и только потом подключаемся к новой — строго по очереди,
   // никогда одновременно (см. обсуждение гонки при быстром переключении).
+  // Реальный найденный баг: раньше эффект зависел от ВСЕГО массива spaces —
+  // react-query переспрашивает его при возврате фокуса на вкладку (в т.ч.
+  // ровно после закрытия нативного диалога выбора файла, как при вставке
+  // картинки), и даже при абсолютно тех же данных возвращает НОВУЮ ссылку
+  // на массив, из-за чего эффект перезапускался целиком — отключал и
+  // заново подключал коллаборацию у уже открытой заметки, сбрасывая
+  // курсор ровно в момент, когда пользователь только что вставил файл и
+  // собирался печатать дальше. Эффект должен реагировать только на
+  // изменение ОДНОГО конкретного примитива (та самая заметка стала/
+  // перестала быть vault), а не на переспрос всего списка спейсов.
+  const currentSpaceIsVault = spaces?.find((s) => s.id === item?.space_id)?.is_vault ?? null;
+
   useEffect(() => {
     if (!item || !editor) return;
     const token = ++switchTokenRef.current;
     const isStale = () => switchTokenRef.current !== token;
-    const space = spaces?.find((s) => s.id === item.space_id);
-    const collabEligible = !!space && !space.is_vault;
+    const collabEligible = currentSpaceIsVault === false;
 
     (async () => {
       if (collabProviderRef.current) {
@@ -381,15 +392,62 @@ export default function NoteEditor({
       setStatus("idle");
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [item?.id, editor, spaces]);
+  }, [item?.id, editor, currentSpaceIsVault]);
 
   // Заблокировать редактирование, пока совместная заметка подключается
   // или если связь оборвалась — осознанное решение (см. обсуждение):
   // проще и безопаснее, чем тихо давать печатать локально без синка.
   useEffect(() => {
     if (!editor) return;
-    editor.setEditable(collabStatus !== "connecting" && collabStatus !== "disconnected");
+    editor.setEditable(collabStatus !== "connecting" && collabStatus !== "disconnected" && collabStatus !== "stale");
   }, [editor, collabStatus]);
+
+  // Сервер разорвал комнату сам (app/collab.py::invalidate_room) — фоновый
+  // воркер поменял content заметки напрямую в БД, в обход Yjs (закончилось
+  // распознавание PDF/картинки/билета в открытой прямо сейчас заметке).
+  // Переподключаемся с ЗАНОВО запрошенным содержимым, а не тем, что было
+  // на момент предыдущего подключения — иначе следующий же автосейв из
+  // устаревшего Yjs-состояния молча затёр бы готовый результат обратно.
+  useEffect(() => {
+    if (collabStatus !== "stale" || !editor || !item) return;
+    const token = ++switchTokenRef.current;
+    const isStaleAttempt = () => switchTokenRef.current !== token;
+
+    (async () => {
+      if (collabProviderRef.current) {
+        detachCollab(editor, collabProviderRef.current);
+        collabProviderRef.current = null;
+        collabItemIdRef.current = null;
+      }
+      const fresh = await refetchItem();
+      const freshContent = fresh.data?.content ?? "";
+      if (isStaleAttempt()) return;
+
+      setCollabStatus("connecting");
+      const provider = new CollabProvider(item.id, (s) => {
+        if (!isStaleAttempt()) setCollabStatus(s);
+      });
+      try {
+        await attachCollab(editor, editorExtensions, provider, freshContent, {
+          name: me?.name ?? "?",
+          color: cursorColorForUser(me?.id),
+        });
+      } catch {
+        provider.disconnect();
+        if (!isStaleAttempt()) setCollabStatus("disconnected");
+        return;
+      }
+      if (isStaleAttempt()) {
+        provider.disconnect();
+        return;
+      }
+      collabProviderRef.current = provider;
+      collabItemIdRef.current = item.id;
+      setContent(freshContent);
+      savedRef.current = { ...savedRef.current, content: freshContent };
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [collabStatus]);
 
   // Компонент размонтировался (переключились на другой viewMode —
   // Активность/Корзина/Ассистент — сам NoteEditor размонтируется) — не
@@ -908,9 +966,9 @@ export default function NoteEditor({
           />
           <div className="flex shrink-0 items-center gap-1">
             <span className="mr-1 flex items-center gap-1 whitespace-nowrap text-xs text-slate-400">
-              {collabStatus === "connecting" && (
+              {(collabStatus === "connecting" || collabStatus === "stale") && (
                 <>
-                  <Spinner size={12} /> Подключение…
+                  <Spinner size={12} /> {collabStatus === "stale" ? "Обновляем…" : "Подключение…"}
                 </>
               )}
               {collabStatus === "disconnected" && (

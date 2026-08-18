@@ -79,6 +79,34 @@ async def leave_room(item_id: uuid.UUID, room: CollabRoom, websocket: WebSocket)
             del _rooms[item_id]
 
 
+# Код закрытия, которым сервер разрывает соединение сам (не клиент) —
+# клиент должен отличить это от обрыва связи и переподключиться заново,
+# а не просто показать "нет связи" (см. collabProvider.ts).
+INVALIDATED_CLOSE_CODE = 4409
+
+
+async def invalidate_room(item_id: uuid.UUID) -> None:
+    """Реальный найденный баг: фоновые воркеры (vision.py/pdf_processing.py/
+    tickets.py) меняют item.content НАПРЯМУЮ в БД, в обход Yjs целиком —
+    если в этот момент у заметки открыта живая комната, её Y.Doc ничего не
+    узнаёт об этом изменении: результат распознавания не появляется на
+    экране, а следующее же локальное сохранение (автосейв из устаревшего
+    Yjs-состояния) молча ЗАТЁРЛО БЫ готовый результат обратно плейсхолдером.
+    Единственный безопасный вариант без обучения бэкенда понимать
+    ProseMirror-структуру документа (сознательный принцип этого модуля,
+    см. докстринг) — разорвать комнату целиком: все подключённые клиенты
+    переподключатся заново и пройдут посев с УЖЕ обновлённым content."""
+    async with _rooms_lock:
+        room = _rooms.pop(item_id, None)
+    if room is None:
+        return
+    for ws in list(room.clients):
+        try:
+            await ws.close(code=INVALIDATED_CLOSE_CODE)
+        except Exception:
+            pass
+
+
 async def wait_for_seed(room: CollabRoom) -> None:
     if room.seed_done.is_set():
         return

@@ -11,7 +11,16 @@ const MSG_AWARENESS = 2;
 const MSG_SEED_REQUEST = 3;
 const MSG_SEED_COMPLETE = 4;
 
-export type CollabStatus = "connecting" | "connected" | "disconnected";
+// Сервер сам рвёт соединение этим кодом (app/collab.py::INVALIDATED_CLOSE_CODE),
+// когда фоновый воркер (распознавание PDF/картинки/билета) поменял content
+// заметки напрямую в БД, в обход Yjs — комната на сервере уже уничтожена,
+// клиент должен не просто показать "нет связи", а переподключиться заново
+// СВЕЖИМ содержимым заметки (см. onSeeded в NoteEditor.tsx), иначе есть
+// риск затереть автосейвом только что прилетевший результат распознавания
+// устаревшим содержимым.
+const INVALIDATED_CLOSE_CODE = 4409;
+
+export type CollabStatus = "connecting" | "connected" | "disconnected" | "stale";
 
 // Одно на одну заметку, живёт ровно пока эта заметка открыта в редакторе
 // (создаётся/уничтожается из NoteEditor.tsx при переключении). doc/awareness
@@ -120,12 +129,12 @@ export class CollabProvider {
         }
       };
 
-      ws.onclose = () => {
+      ws.onclose = (event) => {
         if (!settled) {
           settled = true;
           reject(new Error("collab-ws-closed"));
         } else {
-          this.onStatus("disconnected");
+          this.onStatus(event.code === INVALIDATED_CLOSE_CODE ? "stale" : "disconnected");
         }
       };
     });

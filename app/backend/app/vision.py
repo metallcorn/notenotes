@@ -10,9 +10,10 @@ from pathlib import Path
 import httpx
 from sqlalchemy import select
 
-from app import realtime
+from app import collab, realtime
 from app.core.config import get_settings
 from app.db import async_session
+from app.document_reflow import reflow_document_text
 from app.models import Item, Upload
 from app.rotation import correct_orientation
 
@@ -146,14 +147,21 @@ async def _replace_in_referencing_items(upload_id: uuid.UUID, old: str, new: str
             result = await db.execute(select(Item).where(Item.content.like(f"%{upload_id}%")))
             items = result.scalars().all()
             touched_spaces = set()
+            touched_item_ids = []
             for item in items:
                 if old in item.content:
                     item.content = item.content.replace(old, new)
                     touched_spaces.add(item.space_id)
+                    touched_item_ids.append(item.id)
             if touched_spaces:
                 await db.commit()
                 for space_id in touched_spaces:
                     await realtime.notify_space(space_id, "items")
+                # Заметка могла быть открыта с живой коллаборацией — её
+                # Y.Doc ничего не знает про эту прямую правку в БД, см.
+                # collab.invalidate_room.
+                for item_id in touched_item_ids:
+                    await collab.invalidate_room(item_id)
                 return
         if attempt < _REPLACE_RETRY_ATTEMPTS - 1:
             await asyncio.sleep(_REPLACE_RETRY_DELAY_SECONDS)
@@ -243,14 +251,11 @@ async def _process(upload_id: uuid.UUID) -> None:
 
     # Билеты идут в tickets.py за структурированным извлечением — там
     # своя, ещё более конкретная раскладка по полям, причёсывать текстом
-    # тут смысла нет. Реальная жалоба: reflow здесь применялся КО ВСЕМ
-    # картинкам без разбора (не только сканам документов) — второй
-    # последовательный вызов LLM удваивал время распознавания даже для
-    # обычных фото, где причёсывать особо нечего (проблема многоколоночной
-    # вёрстки, ради которой заводился reflow, — это про сканы документов/
-    # PDF, см. pdf_processing.py, там он и остаётся). Для отдельно
-    # загруженных картинок больше не запускаем — _PROMPT ниже и так просит
-    # модель формировать таблицы за один проход.
+    # тут смысла нет. Для остального (в т.ч. сфотографированные документы —
+    # реально частый случай, не реже PDF) — тот же проход причёсывания
+    # вёрстки, что и у pdf_processing.py.
+    if not is_ticket and description.strip():
+        description = await reflow_document_text(description)
 
     async with async_session() as db:
         upload = await db.get(Upload, upload_id)
