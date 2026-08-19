@@ -76,6 +76,37 @@ async def test_move_item_between_spaces(auth_client):
     assert r.json()["space_id"] == space_b
 
 
+async def test_move_item_into_folder_of_target_space_in_one_step(auth_client):
+    # Реальная жалоба: раньше move всегда сбрасывал в корень целевого
+    # спейса, раскладывать по папке приходилось отдельным шагом ПОСЛЕ
+    # переноса — теперь можно одним действием (см. MoveItemModal).
+    space_a = await _make_space(auth_client, name="A")
+    space_b = await _make_space(auth_client, name="B")
+    folder_id = (await auth_client.post("/api/folders", json={"space_id": space_b, "name": "Концерты"})).json()["id"]
+    item_id = (
+        await auth_client.post("/api/items", json={"space_id": space_a, "title": "T", "content": "x"})
+    ).json()["id"]
+
+    r = await auth_client.post(f"/api/items/{item_id}/move", json={"space_id": space_b, "folder_id": folder_id})
+    assert r.status_code == 200
+    assert r.json()["space_id"] == space_b
+    assert r.json()["folder_id"] == folder_id
+
+
+async def test_move_item_rejects_folder_from_wrong_space(auth_client):
+    space_a = await _make_space(auth_client, name="A")
+    space_b = await _make_space(auth_client, name="B")
+    foreign_folder_id = (await auth_client.post("/api/folders", json={"space_id": space_a, "name": "Чужая"})).json()["id"]
+    item_id = (
+        await auth_client.post("/api/items", json={"space_id": space_a, "title": "T", "content": "x"})
+    ).json()["id"]
+
+    r = await auth_client.post(
+        f"/api/items/{item_id}/move", json={"space_id": space_b, "folder_id": foreign_folder_id}
+    )
+    assert r.status_code == 400
+
+
 async def test_share_requires_note_in_public_pages_space(auth_client):
     normal_space = await _make_space(auth_client, name="Normal")
     pub_space = await _make_space(auth_client, name="Pub", is_public_pages=True)

@@ -607,8 +607,8 @@ export function useUpdateItem() {
 export function useMoveItemSpace() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, space_id }: { id: string; space_id: string }) =>
-      api.post<Item>(`/items/${id}/move`, { space_id }),
+    mutationFn: ({ id, space_id, folder_id }: { id: string; space_id: string; folder_id?: string | null }) =>
+      api.post<Item>(`/items/${id}/move`, { space_id, folder_id: folder_id ?? null }),
     onSuccess: (item) => {
       qc.setQueryData(["item", item.id], item);
       // Широко, а не по конкретному spaceId: перенос задевает СРАЗУ два

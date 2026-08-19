@@ -42,6 +42,7 @@ import CodeBlockToolbar from "./CodeBlockToolbar";
 import TableToolbar from "./TableToolbar";
 import Spinner from "./Spinner";
 import ConfirmDialog from "./ConfirmDialog";
+import MoveItemModal from "./MoveItemModal";
 import ReminderModal from "./ReminderModal";
 import NoteAssistantModal from "./NoteAssistantModal";
 import ShareNoteModal from "./ShareNoteModal";
@@ -139,6 +140,7 @@ export default function NoteEditor({
   const [tagQuery, setTagQuery] = useState("");
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [pendingSpaceId, setPendingSpaceId] = useState<string | null>(null);
+  const [showMoveModal, setShowMoveModal] = useState(false);
   const [showColorPicker, setShowColorPicker] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [reminderModalOpen, setReminderModalOpen] = useState(false);
@@ -1201,31 +1203,23 @@ export default function NoteEditor({
           </select>
 
           {/* Перенос ИЗ сейфа обычным move не поддерживается (нужна расшифровка
-              на клиенте перед сохранением plaintext — вне скоупа) — селектор
+              на клиенте перед сохранением plaintext — вне скоупа) — кнопку
               для сейфовой заметки прячем целиком. Перенос В сейф — поддержан
               (migrateItemToVault ниже, шифрует перед move), но только для
               заметок (не списков/билетов) и только в УЖЕ разблокированный
               сейф — просить пароль сейфа посреди переноса не делаем, сейф
               нужно открыть заранее в сайдбаре. */}
           {!isVaultNote &&
-            (spaces ?? []).filter((s) => !s.is_vault || (item.material_type === "note" && getVaultKey(s.id)))
-              .length > 1 && (
-              <select
-                value={item.space_id}
-                onChange={(e) => {
-                  if (e.target.value !== item.space_id) setPendingSpaceId(e.target.value);
-                }}
-                title="Перенести в другой спейс"
-                className="rounded border px-1.5 py-1 text-xs text-slate-600"
+            (spaces ?? []).filter(
+              (s) => s.id !== item.space_id && (!s.is_vault || (item.material_type === "note" && getVaultKey(s.id)))
+            ).length > 0 && (
+              <button
+                onClick={() => setShowMoveModal(true)}
+                title="Переместить в другой спейс или папку"
+                className="rounded border px-1.5 py-1 text-xs text-slate-600 hover:bg-slate-50"
               >
-                {(spaces ?? [])
-                  .filter((s) => !s.is_vault || (item.material_type === "note" && getVaultKey(s.id)))
-                  .map((space) => (
-                    <option key={space.id} value={space.id}>
-                      {space.is_vault ? `🔒 ${space.name}` : space.name}
-                    </option>
-                  ))}
-              </select>
+                Переместить…
+              </button>
             )}
 
           <div className="relative">
@@ -1433,37 +1427,49 @@ export default function NoteEditor({
 
       {pendingSpaceId &&
         (() => {
+          // Единственный оставшийся producer pendingSpaceId — выбор
+          // сейф-спейса в MoveItemModal (onSelectVaultSpace ниже): обычный
+          // перенос в другой спейс/папку теперь идёт напрямую через
+          // moveItemSpace, без промежуточного confirm-диалога.
           const targetSpace = (spaces ?? []).find((s) => s.id === pendingSpaceId);
-          const toVault = !!targetSpace?.is_vault;
           return (
             <ConfirmDialog
-              title={
-                toVault
-                  ? `Перенести заметку в сейф «${targetSpace?.name ?? ""}»? Текст и вложенные файлы будут зашифрованы, папка сбросится.`
-                  : `Перенести заметку в спейс «${targetSpace?.name ?? ""}»? Папка сбросится, файлы внутри заметки останутся доступны.`
-              }
+              title={`Перенести заметку в сейф «${targetSpace?.name ?? ""}»? Текст и вложенные файлы будут зашифрованы, папка сбросится.`}
               confirmLabel="Перенести"
               onConfirm={async () => {
                 const spaceId = pendingSpaceId;
                 setPendingSpaceId(null);
-                if (toVault) {
-                  // Миграция шифрует item.content с сервера, не live-состояние
-                  // редактора — несохранённые правки потерялись бы, а
-                  // следующий автосейв мог бы затереть уже зашифрованную
-                  // заметку обратно plaintext'ом. Сначала досохраняем.
-                  if (title !== savedRef.current.title || content !== savedRef.current.content) {
-                    await updateItem.mutateAsync({ id: item.id, title, content });
-                    savedRef.current = { title, content };
-                  }
-                  await migrateItemToVault.mutateAsync({ item: { ...item, title, content }, targetSpaceId: spaceId });
-                } else {
-                  await moveItemSpace.mutateAsync({ id: item.id, space_id: spaceId });
+                // Миграция шифрует item.content с сервера, не live-состояние
+                // редактора — несохранённые правки потерялись бы, а
+                // следующий автосейв мог бы затереть уже зашифрованную
+                // заметку обратно plaintext'ом. Сначала досохраняем.
+                if (title !== savedRef.current.title || content !== savedRef.current.content) {
+                  await updateItem.mutateAsync({ id: item.id, title, content });
+                  savedRef.current = { title, content };
                 }
+                await migrateItemToVault.mutateAsync({ item: { ...item, title, content }, targetSpaceId: spaceId });
               }}
               onCancel={() => setPendingSpaceId(null)}
             />
           );
         })()}
+
+      {showMoveModal && (
+        <MoveItemModal
+          spaces={(spaces ?? []).filter(
+            (s) => s.id !== item.space_id && (!s.is_vault || (item.material_type === "note" && getVaultKey(s.id)))
+          )}
+          onSelectVaultSpace={(spaceId) => {
+            setShowMoveModal(false);
+            setPendingSpaceId(spaceId);
+          }}
+          onMove={(spaceId, folderId) => {
+            setShowMoveModal(false);
+            moveItemSpace.mutate({ id: item.id, space_id: spaceId, folder_id: folderId });
+          }}
+          onClose={() => setShowMoveModal(false)}
+        />
+      )}
 
       {reminderModalOpen && (
         <ReminderModal

@@ -34,6 +34,10 @@ class ItemUpdate(BaseModel):
 
 class ItemMoveSpace(BaseModel):
     space_id: uuid.UUID
+    # Опционально — сразу разложить в папку целевого спейса одним
+    # действием, а не переносить заметку "в корень" и потом отдельно
+    # искать её там, чтобы разложить (реальная жалоба на неудобство).
+    folder_id: uuid.UUID | None = None
 
 
 class ItemOut(BaseModel):

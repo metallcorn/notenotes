@@ -462,10 +462,16 @@ async def move_item_space(
 
     old_space_id = item.space_id
     item.space_id = payload.space_id
-    # Папки принадлежат спейсу (Folder.space_id) — в целевом старой папки
-    # не существует. Сбрасываем в корень, как и при создании новой заметки;
-    # пользователь разложит заново вручную, если нужно.
-    item.folder_id = None
+    # Папки принадлежат спейсу (Folder.space_id) — старая папка в целевом
+    # спейсе не существует. По умолчанию сбрасываем в корень (как раньше),
+    # но если вызывающий уже знает папку ЦЕЛЕВОГО спейса (см. MoveItemModal
+    # на фронте — реальная жалоба на неудобство "перенести и разложить" в
+    # два отдельных шага) — раскладываем сразу одним действием.
+    if payload.folder_id is not None:
+        target_folder = await db.get(Folder, payload.folder_id)
+        if target_folder is None or target_folder.space_id != payload.space_id:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Папка вне целевого спейса")
+    item.folder_id = payload.folder_id
 
     upload_ids = {uuid.UUID(m) for m in _UPLOAD_URL_RE.findall(item.content)}
     if upload_ids:
