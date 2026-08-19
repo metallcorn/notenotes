@@ -158,6 +158,72 @@ async def test_assistant_append_to_note_invalidates_live_collab_room(
             assert e.code == collab.INVALIDATED_CLOSE_CODE
 
 
+async def test_revert_version_invalidates_live_collab_room(live_server, auth_client, test_user, monkeypatch):
+    # Реальный найденный баг: revert_version (кнопка "Восстановить" в
+    # истории версий) пишет item.content НАПРЯМУЮ, в обход Yjs — тот же
+    # класс, что уже был закрыт для update_note/append_to_note/
+    # vision.py/pdf_processing.py/tickets.py, но сюда чинку тогда не
+    # довели. Без invalidate_room восстановленная версия никогда не
+    # долетала до заметки с открытой живой коллаборацией: следующий же
+    # автосейв из устаревшего Y.Doc молча затирал её обратно.
+    monkeypatch.setattr(collab, "_INVALIDATE_DEBOUNCE_SECONDS", 0)
+    r = await auth_client.post("/api/spaces", json={"name": "WS collab revert space"})
+    space_id = r.json()["id"]
+    r = await auth_client.post("/api/items", json={"space_id": space_id, "title": "T", "content": "hello"})
+    item_id = r.json()["id"]
+    r = await auth_client.patch(f"/api/items/{item_id}", json={"content": "changed"})
+    assert r.status_code == 200
+    r = await auth_client.get(f"/api/items/{item_id}/versions")
+    version_id = r.json()[0]["id"]
+
+    uri = f"{live_server}/api/items/{item_id}/collab"
+    async with websockets.connect(uri, extra_headers=_cookie_header(test_user.id)) as ws:
+        msg = await ws.recv()
+        assert msg[0] == 3  # MSG_SEED_REQUEST — клиент уже зарегистрирован в комнате
+
+        r = await auth_client.post(f"/api/items/{item_id}/versions/{version_id}/revert")
+        assert r.status_code == 200
+
+        try:
+            await ws.recv()
+            assert False, "ожидали, что откат версии разорвёт живую комнату"
+        except websockets.exceptions.ConnectionClosedError as e:
+            assert e.code == collab.INVALIDATED_CLOSE_CODE
+
+
+async def test_insert_url_check_block_invalidates_live_collab_room(
+    live_server, auth_client, test_user, db_session, monkeypatch
+):
+    from app.tools.url_check import insert_url_check_block
+
+    monkeypatch.setattr(collab, "_INVALIDATE_DEBOUNCE_SECONDS", 0)
+    r = await auth_client.post("/api/spaces", json={"name": "WS collab url-check space"})
+    space_id = r.json()["id"]
+    r = await auth_client.post("/api/items", json={"space_id": space_id, "title": "T", "content": "hello"})
+    item_id = r.json()["id"]
+
+    uri = f"{live_server}/api/items/{item_id}/collab"
+    async with websockets.connect(uri, extra_headers=_cookie_header(test_user.id)) as ws:
+        msg = await ws.recv()
+        assert msg[0] == 3  # MSG_SEED_REQUEST
+
+        ctx = ToolContext(db=db_session, user_id=test_user.id, space_id=uuid.UUID(space_id))
+        # Loopback — url_check.check_url блокирует его как SSRF (see
+        # test_url_checks.py) и отдаёт {"error": ...} без единого реального
+        # сетевого запроса — детерминированно, нас интересует только сам
+        # факт записи блока в content, не результат фетча.
+        await insert_url_check_block(
+            ctx,
+            {"item_id": item_id, "url": "http://127.0.0.1:8000/", "fields": [{"path": "$.x", "label": "X"}]},
+        )
+
+        try:
+            await ws.recv()
+            assert False, "ожидали, что вставка блока проверки ссылки разорвёт живую комнату"
+        except websockets.exceptions.ConnectionClosedError as e:
+            assert e.code == collab.INVALIDATED_CLOSE_CODE
+
+
 async def test_collab_ws_rejects_vault_space(live_server, auth_client, test_user):
     r = await auth_client.post(
         "/api/spaces", json={"name": "WS vault", "is_vault": True, "vault_salt": "s", "vault_verifier": "v"}

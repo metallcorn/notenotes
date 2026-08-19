@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app import realtime
+from app import collab, realtime
 from app.autotag import enqueue_autotag, suggest_tags_now
 from app.db import get_db
 from app.deps import ensure_space_access, get_current_user, is_vault_space
@@ -674,6 +674,14 @@ async def revert_version(
     await db.commit()
     await db.refresh(item)
     await realtime.notify_space(item.space_id, "items")
+    # Реальный найденный баг: этот эндпоинт пишет item.content НАПРЯМУЮ, в
+    # обход Yjs, точно тем же способом, что уже был найден и исправлен для
+    # vision.py/pdf_processing.py/tickets.py/tools/notes.py — но сюда чинку
+    # тогда не довели. Без invalidate_room у заметки с открытой живой
+    # коллаборацией результат отката никогда не долетал до редактора: он
+    # продолжал показывать устаревший Y.Doc, и ближайший автосейв из него
+    # молча затирал только что восстановленную версию обратно.
+    await collab.invalidate_room(item.id)
     return await _serialize(db, item, user.id)
 
 

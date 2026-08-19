@@ -4,7 +4,7 @@ import json
 from datetime import datetime, timezone
 from typing import Any
 
-from app import realtime
+from app import collab, realtime
 from app.llm.base import ToolDefinition
 from app.models import ItemVersion
 from app.tools.notes import _get_item_cross_space
@@ -131,6 +131,11 @@ async def insert_url_check_block(ctx: ToolContext, args: dict[str, Any]) -> dict
     await ctx.db.commit()
     await ctx.db.refresh(item)
     await realtime.notify_space(item.space_id, "items")
+    # Тот же баг, что уже был найден и закрыт для update_note/append_to_note
+    # (tools/notes.py) и routers/items.py::revert_version — пишет content
+    # напрямую, в обход Yjs; без этого блок проверки ссылки не долетал бы
+    # до заметки с открытой живой коллаборацией.
+    await collab.invalidate_room(item.id)
     return {
         "id": str(item.id),
         "title": item.title,
