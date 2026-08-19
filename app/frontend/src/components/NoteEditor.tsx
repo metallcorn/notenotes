@@ -13,6 +13,7 @@ import { Suspense, lazy, useEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent } from "react";
 import { ChevronLeft, Code2, Eye, Globe, History, Palette, Pin, PinOff, Sparkles, Tag as TagIcon, Trash2, Users, WifiOff } from "lucide-react";
 import { uiStorage, type ContentWidth } from "../lib/storage";
+import { useVersionCheck } from "../lib/useVersionCheck";
 import { getVaultKey } from "../lib/vaultSession";
 import { downloadFile, inlineImages, sanitizeFilename, wrapHtmlDocument } from "../lib/export";
 import {
@@ -630,6 +631,21 @@ export default function NoteEditor({
   // Автосохранение с дебаунсом. Каждое изменение title/content создаёт
   // на бэкенде запись в item_versions — поэтому не сохраняем на каждый
   // символ, а ждём паузы в наборе.
+  //
+  // Реальный найденный инцидент (2026-08-19): устаревшая открытая вкладка
+  // (старый JS-бандл, загруженный до сегодняшних деплоев) молча продолжала
+  // слать автосейв СВОИМ давно не обновлявшимся локальным состоянием —
+  // трижды за день затирала то, что только что восстановили в свежей
+  // вкладке. updateAvailableRef — тот же сигнал, что показывает баннер в
+  // AppShell.tsx, здесь используется как физический стоп-кран: устаревший
+  // клиент попросту перестаёт писать на сервер, даже если баннер никто не
+  // заметил.
+  const updateAvailable = useVersionCheck();
+  const updateAvailableRef = useRef(updateAvailable);
+  useEffect(() => {
+    updateAvailableRef.current = updateAvailable;
+  }, [updateAvailable]);
+
   useEffect(() => {
     if (!item) return;
     if (title === savedRef.current.title && content === savedRef.current.content) {
@@ -639,6 +655,7 @@ export default function NoteEditor({
     pendingRef.current = { id: item.id, title, content };
     setStatus("saving");
     const timer = setTimeout(() => {
+      if (updateAvailableRef.current) return;
       updateItem.mutate({ id: item.id, title, content });
       savedRef.current = { title, content };
       pendingRef.current = null;
@@ -653,7 +670,7 @@ export default function NoteEditor({
   useEffect(() => {
     return () => {
       const pending = pendingRef.current;
-      if (pending) {
+      if (pending && !updateAvailableRef.current) {
         updateItem.mutate({ id: pending.id, title: pending.title, content: pending.content });
         pendingRef.current = null;
       }
@@ -1069,8 +1086,16 @@ export default function NoteEditor({
                   <Users size={12} />
                 </span>
               )}
-              {!collabStatus && status === "saving" && <Spinner size={12} />}
-              {!collabStatus && (status === "saving" ? "Сохраняем…" : status === "saved" ? "Сохранено" : "")}
+              {updateAvailable ? (
+                <span className="text-amber-600" title="Правки не сохраняются — обновите страницу (баннер сверху)">
+                  Не сохраняется — обновите вкладку
+                </span>
+              ) : (
+                <>
+                  {!collabStatus && status === "saving" && <Spinner size={12} />}
+                  {!collabStatus && (status === "saving" ? "Сохраняем…" : status === "saved" ? "Сохранено" : "")}
+                </>
+              )}
             </span>
             <div className="flex overflow-hidden rounded border">
               <button
