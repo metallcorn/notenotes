@@ -347,6 +347,22 @@ class TelegramLinkCode(Base):
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
+class EmailInbox(Base):
+    """Персональный адрес для приёма почты (см. routers/mail.py,
+    routers/mail_webhook.py) — тот же принцип, что TelegramLink: постоянная
+    1:1-привязка к пользователю, отдельный личный спейс создаётся один раз
+    при первой генерации адреса. local_part — непубличный случайный токен
+    (не сам email пользователя), спам-защита через неугадываемость, как и
+    у Telegram-deep-link/SpaceInvite.token."""
+
+    __tablename__ = "email_inboxes"
+
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    local_part: Mapped[str] = mapped_column(String(32), unique=True, index=True)
+    space_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("spaces.id", ondelete="CASCADE"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class LinkPreview(Base):
     """Кэш метаданных сайта для карточек ссылок в редакторе (Slack-style
     unfurl). Не items: это не пользовательский контент, а служебные данные

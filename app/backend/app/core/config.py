@@ -69,6 +69,16 @@ class Settings(BaseSettings):
     telegram_bot_username: str = ""
     telegram_webhook_secret: str = ""
 
+    # Приём почты на персональный адрес как заметки (ТЗ, Фаза 2 «Каналы») —
+    # Mailgun inbound-parse webhook, EU-регион. Порт 25 не нужен: почта идёт
+    # на MX Mailgun, они шлют нам обычный HTTPS POST через уже существующий
+    # Caddy-домен (см. routers/mail_webhook.py). mail_domain — поддомен,
+    # подключённый в Mailgun (например mail.notenotes.metallcorn.online),
+    # используется только для сборки полного адреса local_part@mail_domain.
+    mailgun_api_key: str = ""
+    mailgun_webhook_signing_key: str = ""
+    mail_domain: str = ""
+
     # Web Push (уведомления вне открытой вкладки/закрытого приложения) —
     # VAPID-пара, сгенерированная один раз (не платформенный ключ вендора,
     # self-hosted). Приватный ключ и публичный — оба "raw" urlsafe-base64

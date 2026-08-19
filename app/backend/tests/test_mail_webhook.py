@@ -1,0 +1,94 @@
+import hashlib
+import hmac
+
+from app.core.config import get_settings
+
+_SIGNING_KEY = "test-mailgun-signing-key"
+
+
+def _signed_form(**fields) -> dict:
+    timestamp = "1700000000"
+    token = "abc123token"
+    signature = hmac.new(_SIGNING_KEY.encode(), f"{timestamp}{token}".encode(), hashlib.sha256).hexdigest()
+    return {"timestamp": timestamp, "token": token, "signature": signature, **fields}
+
+
+async def test_webhook_creates_note_for_known_address(client, db_session, test_user, monkeypatch):
+    from app.models import EmailInbox, Space, SpaceMember
+
+    monkeypatch.setattr(get_settings(), "mailgun_webhook_signing_key", _SIGNING_KEY)
+
+    space = Space(name="Почта", owner_id=test_user.id)
+    db_session.add(space)
+    await db_session.flush()
+    db_session.add(SpaceMember(space_id=space.id, user_id=test_user.id))
+    db_session.add(EmailInbox(user_id=test_user.id, local_part="mytoken123", space_id=space.id))
+    await db_session.commit()
+
+    form = _signed_form(
+        recipient="mytoken123@mail.notenotes.example",
+        subject="Важное письмо",
+        **{"stripped-text": "Содержимое письма"},
+    )
+    r = await client.post("/api/mail/webhook", data=form)
+    assert r.status_code == 200 and r.json() == {"ok": True}
+
+    from sqlalchemy import select
+    from app.models import Item
+
+    item = (await db_session.execute(select(Item).where(Item.space_id == space.id))).scalar_one()
+    assert item.title == "Важное письмо"
+    assert item.content == "Содержимое письма"
+
+
+async def test_webhook_rejects_bad_signature(client, monkeypatch):
+    monkeypatch.setattr(get_settings(), "mailgun_webhook_signing_key", _SIGNING_KEY)
+
+    form = {
+        "timestamp": "1700000000",
+        "token": "abc123token",
+        "signature": "not-the-real-signature",
+        "recipient": "mytoken123@mail.notenotes.example",
+    }
+    r = await client.post("/api/mail/webhook", data=form)
+    assert r.status_code == 401
+
+
+async def test_webhook_unknown_local_part_returns_200_without_creating(client, db_session, monkeypatch):
+    monkeypatch.setattr(get_settings(), "mailgun_webhook_signing_key", _SIGNING_KEY)
+
+    form = _signed_form(recipient="doesnotexist@mail.notenotes.example", subject="X")
+    r = await client.post("/api/mail/webhook", data=form)
+    assert r.status_code == 200 and r.json() == {"ok": True}
+
+    from sqlalchemy import select, func
+    from app.models import Item
+
+    count = (await db_session.execute(select(func.count()).select_from(Item))).scalar_one()
+    assert count == 0
+
+
+async def test_webhook_saves_attachment_and_links_it(client, db_session, test_user, monkeypatch):
+    from app.models import EmailInbox, Space, SpaceMember
+
+    monkeypatch.setattr(get_settings(), "mailgun_webhook_signing_key", _SIGNING_KEY)
+
+    space = Space(name="Почта", owner_id=test_user.id)
+    db_session.add(space)
+    await db_session.flush()
+    db_session.add(SpaceMember(space_id=space.id, user_id=test_user.id))
+    db_session.add(EmailInbox(user_id=test_user.id, local_part="mytoken123", space_id=space.id))
+    await db_session.commit()
+
+    form = _signed_form(recipient="mytoken123@mail.notenotes.example", subject="С вложением", **{"attachment-count": "1"})
+    files = {"attachment-1": ("photo.png", b"\x89PNG fake bytes", "image/png")}
+    r = await client.post("/api/mail/webhook", data=form, files=files)
+    assert r.status_code == 200
+
+    from sqlalchemy import select
+    from app.models import Item, Upload
+
+    item = (await db_session.execute(select(Item).where(Item.space_id == space.id))).scalar_one()
+    upload = (await db_session.execute(select(Upload).where(Upload.space_id == space.id))).scalar_one()
+    assert upload.filename == "photo.png"
+    assert f"/api/uploads/{upload.id}" in item.content

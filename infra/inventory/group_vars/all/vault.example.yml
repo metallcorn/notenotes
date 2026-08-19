@@ -44,6 +44,14 @@ vault_telegram_bot_token: "ЗАМЕНИ"     # токен от @BotFather
 vault_telegram_bot_username: "ЗАМЕНИ"  # username бота без @, например notenotes_bot
 vault_telegram_webhook_secret: "ЗАМЕНИ"
 
+# Приём почты на персональный адрес как заметки — Mailgun inbound-parse
+# webhook (EU-регион, app.eu.mailgun.com). API-ключ и HTTP webhook signing
+# key берутся из панели Mailgun после подключения домена (Sending → API
+# Keys — это ДВА РАЗНЫХ ключа, не перепутать). mail_domain не секрет,
+# задаётся обычной переменной в main.yml, не здесь.
+vault_mailgun_api_key: "ЗАМЕНИ"
+vault_mailgun_webhook_signing_key: "ЗАМЕНИ"
+
 # Web Push (уведомления вне открытой вкладки/закрытого приложения) —
 # self-hosted VAPID-пара, не платформенный ключ вендора. Сгенерировать:
 #   python3 -c "

@@ -1212,6 +1212,39 @@ export function useTelegramUnlink() {
   });
 }
 
+// --- mail (приём почты как заметок) -----------------------------------------
+
+export function useMailStatus() {
+  return useQuery<{ address: string | null }>({
+    queryKey: ["mail-status"],
+    queryFn: () => api.get<{ address: string | null }>("/mail/status"),
+  });
+}
+
+export function useGenerateMailAddress() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.post<{ address: string | null }>("/mail/generate"),
+    onSuccess: (data) => qc.setQueryData(["mail-status"], data),
+  });
+}
+
+export function useRegenerateMailAddress() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.post<{ address: string | null }>("/mail/regenerate"),
+    onSuccess: (data) => qc.setQueryData(["mail-status"], data),
+  });
+}
+
+export function useDisableMailInbox() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.delete("/mail/inbox"),
+    onSuccess: () => qc.setQueryData(["mail-status"], { address: null }),
+  });
+}
+
 // --- notifications ---------------------------------------------------------
 
 export function useNotifications() {

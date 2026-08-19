@@ -4,9 +4,13 @@ import {
   useAddMemory,
   useCreateInviteCode,
   useDeleteMemory,
+  useDisableMailInbox,
+  useGenerateMailAddress,
   useInviteCodes,
+  useMailStatus,
   useMe,
   useMemories,
+  useRegenerateMailAddress,
   useSkills,
   useTelegramLinkCode,
   useTelegramStatus,
@@ -50,12 +54,17 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
   const telegramUnlink = useTelegramUnlink();
   const { data: inviteCodes } = useInviteCodes();
   const createInviteCode = useCreateInviteCode();
+  const { data: mailStatus } = useMailStatus();
+  const generateMailAddress = useGenerateMailAddress();
+  const regenerateMailAddress = useRegenerateMailAddress();
+  const disableMailInbox = useDisableMailInbox();
 
   const [instructions, setInstructions] = useState(me?.custom_instructions ?? "");
   const [saved, setSaved] = useState(false);
   const [customVoiceId, setCustomVoiceId] = useState("");
   const [telegramDeepLink, setTelegramDeepLink] = useState<string | null>(null);
   const [copiedCodeId, setCopiedCodeId] = useState<string | null>(null);
+  const [mailCopied, setMailCopied] = useState(false);
   const [mediaCacheLimitMb, setMediaCacheLimitMbState] = useState(DEFAULT_MEDIA_CACHE_LIMIT_MB);
   const [mediaCacheSaved, setMediaCacheSaved] = useState(false);
   const [newMemoryText, setNewMemoryText] = useState("");
@@ -334,6 +343,69 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
             )}
             {telegramLinkCode.isError && (
               <div className="mt-1 text-xs text-red-600">Telegram-бот пока не настроен на сервере.</div>
+            )}
+          </div>
+
+          <div className="mb-6">
+            <div className="mb-1 text-sm font-medium text-slate-900">Почта</div>
+            <div className="mb-2 text-xs text-slate-400">
+              Пересылайте важные письма на личный адрес — они появятся в отдельном спейсе «Почта» как заметки.
+            </div>
+            {mailStatus?.address ? (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between gap-2 rounded border px-3 py-1.5 text-sm">
+                  <span className="truncate font-mono text-slate-900">{mailStatus.address}</span>
+                  <button
+                    onClick={() => {
+                      navigator.clipboard.writeText(mailStatus.address!).then(() => {
+                        setMailCopied(true);
+                        setTimeout(() => setMailCopied(false), 1500);
+                      });
+                    }}
+                    title="Скопировать"
+                    className="flex shrink-0 items-center gap-1 text-xs text-slate-500 hover:text-slate-900"
+                  >
+                    {mailCopied ? (
+                      <>
+                        <Check size={12} /> Скопировано
+                      </>
+                    ) : (
+                      <>
+                        <Copy size={12} /> Копировать
+                      </>
+                    )}
+                  </button>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => {
+                      if (window.confirm("Старый адрес перестанет принимать письма. Продолжить?")) {
+                        regenerateMailAddress.mutate();
+                      }
+                    }}
+                    disabled={regenerateMailAddress.isPending}
+                    className="rounded border border-slate-300 px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                  >
+                    {regenerateMailAddress.isPending ? <Spinner size={12} /> : "Пересоздать"}
+                  </button>
+                  <button
+                    onClick={() => disableMailInbox.mutate()}
+                    disabled={disableMailInbox.isPending}
+                    className="rounded border border-slate-300 px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                  >
+                    {disableMailInbox.isPending ? <Spinner size={12} /> : "Отключить"}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <button
+                onClick={() => generateMailAddress.mutate()}
+                disabled={generateMailAddress.isPending}
+                className="flex items-center gap-2 rounded bg-slate-900 px-3 py-1.5 text-sm text-white disabled:opacity-50"
+              >
+                {generateMailAddress.isPending && <Spinner size={14} className="text-white" />}
+                Создать адрес
+              </button>
             )}
           </div>
 

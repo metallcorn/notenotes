@@ -28,6 +28,8 @@ from app.routers import (
     items,
     link_preview,
     lists,
+    mail,
+    mail_webhook,
     memories,
     notifications,
     public,
@@ -102,6 +104,8 @@ app.include_router(tables.router)
 app.include_router(memories.router)
 app.include_router(skills.router)
 app.include_router(telegram.router)
+app.include_router(mail.router)
+app.include_router(mail_webhook.router)
 app.include_router(link_preview.router)
 app.include_router(url_checks.router)
 
