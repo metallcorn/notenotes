@@ -2,6 +2,7 @@ import hashlib
 import hmac
 import logging
 import uuid
+from email.utils import parseaddr
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -10,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.db import get_db
-from app.models import EmailInbox, Upload
+from app.models import EmailInbox, Folder, Upload
 from app.routers.items import create_item_row
 from app.routers.uploads import MAX_GENERIC_UPLOAD_BYTES, _upload_path
 
@@ -24,6 +25,28 @@ def _verify_signature(timestamp: str, token: str, signature: str) -> bool:
         return False
     expected = hmac.new(signing_key.encode(), f"{timestamp}{token}".encode(), hashlib.sha256).hexdigest()
     return hmac.compare_digest(expected, signature)
+
+
+def _sender_folder_name(from_header: str, sender: str) -> str:
+    """Имя папки для писем от этого адресата — приоритет отображаемому
+    имени ("Иван Иванов <ivan@example.com>"), иначе сам email. Та же
+    логика, что у Telegram-форвардов (_forward_sender_name в
+    telegram_bot.py): письма от одного человека группируются, не сыплются
+    плоско в спейс."""
+    display_name, email_addr = parseaddr(from_header)
+    return (display_name or email_addr or sender or "Без отправителя").strip()[:255]
+
+
+async def _get_or_create_folder(db: AsyncSession, space_id: uuid.UUID, name: str) -> uuid.UUID:
+    existing = (
+        await db.execute(select(Folder).where(Folder.space_id == space_id, Folder.parent_id.is_(None), Folder.name == name))
+    ).scalar_one_or_none()
+    if existing is not None:
+        return existing.id
+    folder = Folder(space_id=space_id, parent_id=None, name=name)
+    db.add(folder)
+    await db.flush()
+    return folder.id
 
 
 async def _save_attachment(
@@ -59,6 +82,9 @@ async def webhook(request: Request, db: AsyncSession = Depends(get_db)) -> dict:
         # Адрес когда-то удалён/невалиден — не ретраить, но и не создавать.
         return {"ok": True}
 
+    folder_name = _sender_folder_name(str(form.get("from", "")), str(form.get("sender", "")))
+    folder_id = await _get_or_create_folder(db, inbox.space_id, folder_name)
+
     title = str(form.get("subject", "")).strip() or "Письмо без темы"
     content = str(form.get("stripped-text", "") or form.get("body-plain", "")).strip()
 
@@ -80,7 +106,13 @@ async def webhook(request: Request, db: AsyncSession = Depends(get_db)) -> dict:
         content = f"{content}\n\n" + "\n".join(links) if content else "\n".join(links)
 
     await create_item_row(
-        db, space_id=inbox.space_id, author_id=inbox.user_id, material_type="note", title=title, content=content
+        db,
+        space_id=inbox.space_id,
+        author_id=inbox.user_id,
+        material_type="note",
+        title=title,
+        content=content,
+        folder_id=folder_id,
     )
 
     return {"ok": True}

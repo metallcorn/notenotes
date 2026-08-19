@@ -68,6 +68,38 @@ async def test_webhook_unknown_local_part_returns_200_without_creating(client, d
     assert count == 0
 
 
+async def test_webhook_groups_notes_by_sender_folder(client, db_session, test_user, monkeypatch):
+    from app.models import EmailInbox, Folder, Item, Space, SpaceMember
+
+    monkeypatch.setattr(get_settings(), "mailgun_webhook_signing_key", _SIGNING_KEY)
+
+    space = Space(name="Почта", owner_id=test_user.id)
+    db_session.add(space)
+    await db_session.flush()
+    db_session.add(SpaceMember(space_id=space.id, user_id=test_user.id))
+    db_session.add(EmailInbox(user_id=test_user.id, local_part="mytoken123", space_id=space.id))
+    await db_session.commit()
+
+    for subject in ("Письмо 1", "Письмо 2"):
+        form = _signed_form(
+            recipient="mytoken123@mail.notenotes.example",
+            subject=subject,
+            **{"from": "Иван Иванов <ivan@example.com>"},
+        )
+        r = await client.post("/api/mail/webhook", data=form)
+        assert r.status_code == 200
+
+    from sqlalchemy import select
+
+    folders = (await db_session.execute(select(Folder).where(Folder.space_id == space.id))).scalars().all()
+    assert len(folders) == 1
+    assert folders[0].name == "Иван Иванов"
+
+    items = (await db_session.execute(select(Item).where(Item.space_id == space.id))).scalars().all()
+    assert len(items) == 2
+    assert all(item.folder_id == folders[0].id for item in items)
+
+
 async def test_webhook_saves_attachment_and_links_it(client, db_session, test_user, monkeypatch):
     from app.models import EmailInbox, Space, SpaceMember
 
