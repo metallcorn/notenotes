@@ -1209,18 +1209,15 @@ export default function NoteEditor({
               заметок (не списков/билетов) и только в УЖЕ разблокированный
               сейф — просить пароль сейфа посреди переноса не делаем, сейф
               нужно открыть заранее в сайдбаре. */}
-          {!isVaultNote &&
-            (spaces ?? []).filter(
-              (s) => s.id !== item.space_id && (!s.is_vault || (item.material_type === "note" && getVaultKey(s.id)))
-            ).length > 0 && (
-              <button
-                onClick={() => setShowMoveModal(true)}
-                title="Переместить в другой спейс или папку"
-                className="rounded border px-1.5 py-1 text-xs text-slate-600 hover:bg-slate-50"
-              >
-                Переместить…
-              </button>
-            )}
+          {!isVaultNote && (
+            <button
+              onClick={() => setShowMoveModal(true)}
+              title="Переместить в другой спейс или папку"
+              className="rounded border px-1.5 py-1 text-xs text-slate-600 hover:bg-slate-50"
+            >
+              Переместить…
+            </button>
+          )}
 
           <div className="relative">
             <button
@@ -1457,8 +1454,10 @@ export default function NoteEditor({
       {showMoveModal && (
         <MoveItemModal
           spaces={(spaces ?? []).filter(
-            (s) => s.id !== item.space_id && (!s.is_vault || (item.material_type === "note" && getVaultKey(s.id)))
+            (s) => !s.is_vault || (item.material_type === "note" && getVaultKey(s.id))
           )}
+          currentSpaceId={item.space_id}
+          currentFolderId={item.folder_id}
           onSelectVaultSpace={(spaceId) => {
             setShowMoveModal(false);
             setPendingSpaceId(spaceId);
