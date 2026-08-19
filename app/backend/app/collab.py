@@ -54,6 +54,20 @@ class CollabRoom:
 _rooms: dict[uuid.UUID, CollabRoom] = {}
 _rooms_lock = asyncio.Lock()
 
+# Реальный найденный риск (не гипотетический — уже происходит в проде):
+# альбом из нескольких фото в Telegram создаёт ОДНУ заметку, но каждое фото
+# распознаётся своим отдельным vision-вызовом и по завершении САМОСТОЯТЕЛЬНО
+# зовёт invalidate_room — если у заметки открыта живая комната, она рвётся
+# несколько раз подряд за секунды. Каждый разрыв сам по себе безопасен
+# (клиент переподключается со свежим content), но клиент реконнектится
+# асинхронно (сначала GET, потом WS) — второй разрыв, прилетевший ПОКА
+# первый реконнект ещё в процессе, ловит переходное состояние. Схлопываем
+# несколько invalidate_room подряд за это окно в ОДИН реальный разрыв уже
+# ПОСЛЕ того, как поток завершений выдохся — тому же принципу, что и
+# debounce автосейва на фронте, только для обратного потока.
+_INVALIDATE_DEBOUNCE_SECONDS = 2.0
+_pending_invalidations: dict[uuid.UUID, asyncio.Task] = {}
+
 
 async def join_room(item_id: uuid.UUID, websocket: WebSocket) -> tuple[CollabRoom, bool]:
     """Регистрирует клиента в комнате заметки, создавая её при первом
@@ -95,7 +109,23 @@ async def invalidate_room(item_id: uuid.UUID) -> None:
     Единственный безопасный вариант без обучения бэкенда понимать
     ProseMirror-структуру документа (сознательный принцип этого модуля,
     см. докстринг) — разорвать комнату целиком: все подключённые клиенты
-    переподключатся заново и пройдут посев с УЖЕ обновлённым content."""
+    переподключатся заново и пройдут посев с УЖЕ обновлённым content.
+
+    Не рвёт немедленно — см. _pending_invalidations выше: несколько вызовов
+    подряд для ОДНОЙ заметки (типичный случай — альбом из нескольких фото)
+    схлопываются в один реальный разрыв после того, как поток утих."""
+    existing = _pending_invalidations.get(item_id)
+    if existing is not None and not existing.done():
+        existing.cancel()
+    _pending_invalidations[item_id] = asyncio.create_task(_invalidate_after_debounce(item_id))
+
+
+async def _invalidate_after_debounce(item_id: uuid.UUID) -> None:
+    try:
+        await asyncio.sleep(_INVALIDATE_DEBOUNCE_SECONDS)
+    except asyncio.CancelledError:
+        return
+    _pending_invalidations.pop(item_id, None)
     async with _rooms_lock:
         room = _rooms.pop(item_id, None)
     if room is None:
