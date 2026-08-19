@@ -63,6 +63,8 @@ import { DetectedAddressLinks } from "../extensions/DetectedAddressLinks";
 import { ReminderAnchor } from "../extensions/ReminderAnchor";
 import { ImageOcrResult } from "../extensions/ImageOcrResult";
 import { SlashCommand } from "../extensions/SlashCommand";
+import { TableEmbed } from "../extensions/TableEmbed";
+import InsertTableModal from "./InsertTableModal";
 import { CollabProvider, type CollabStatus } from "../lib/collabProvider";
 import { attachCollab, detachCollab } from "../lib/collabState";
 
@@ -140,6 +142,8 @@ export default function NoteEditor({
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [reminderModalOpen, setReminderModalOpen] = useState(false);
   const [reminderAnchorPos, setReminderAnchorPos] = useState<number | null>(null);
+  const [insertTableModalOpen, setInsertTableModalOpen] = useState(false);
+  const [insertTablePos, setInsertTablePos] = useState<number | null>(null);
   const [assistantModalOpen, setAssistantModalOpen] = useState(false);
   const [assistantRange, setAssistantRange] = useState<{ from: number; to: number } | null>(null);
   const [assistantSelectionText, setAssistantSelectionText] = useState<string | null>(null);
@@ -202,6 +206,7 @@ export default function NoteEditor({
       DetectedAddressLinks,
       ReminderAnchor,
       ImageOcrResult,
+      TableEmbed,
       LinkExtension.configure({ HTMLAttributes: { target: "_blank", rel: "noopener noreferrer" } }),
       Table.configure({ resizable: false }),
       TableRow,
@@ -213,6 +218,10 @@ export default function NoteEditor({
         onCreateReminder: (pos: number) => {
           setReminderAnchorPos(pos);
           setReminderModalOpen(true);
+        },
+        onInsertTable: (pos: number) => {
+          setInsertTablePos(pos);
+          setInsertTableModalOpen(true);
         },
       }),
     ],
@@ -1246,6 +1255,15 @@ export default function NoteEditor({
             onInsertImage={() => imageInputRef.current?.click()}
             onInsertFile={() => fileInputRef.current?.click()}
             onOpenRecorder={isVaultNote ? undefined : openRecorder}
+            onInsertTable={
+              isVaultNote
+                ? undefined
+                : () => {
+                    if (!editor) return;
+                    setInsertTablePos(editor.state.selection.from);
+                    setInsertTableModalOpen(true);
+                  }
+            }
             uploadProgress={uploadProgress}
             uploadBatch={uploadBatch}
             contentWidth={contentWidth}
@@ -1407,6 +1425,24 @@ export default function NoteEditor({
             );
           }}
           onCancel={() => setReminderModalOpen(false)}
+        />
+      )}
+
+      {insertTableModalOpen && (
+        <InsertTableModal
+          spaceId={item.space_id}
+          folderId={item.folder_id}
+          onInsert={(tableId) => {
+            setInsertTableModalOpen(false);
+            const pos = insertTablePos;
+            if (editor && pos !== null) {
+              editor
+                .chain()
+                .insertContentAt(pos, [{ type: "tableEmbed", attrs: { tableId } }, { type: "paragraph" }])
+                .run();
+            }
+          }}
+          onCancel={() => setInsertTableModalOpen(false)}
         />
       )}
 

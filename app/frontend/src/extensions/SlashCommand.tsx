@@ -3,7 +3,11 @@ import Suggestion from "@tiptap/suggestion";
 import { ReactRenderer } from "@tiptap/react";
 import SlashMenuList, { type SlashCommandItem, type SlashMenuListHandle } from "../components/SlashMenuList";
 
-function buildItems(onInsertImage: () => void, onCreateReminder: (pos: number) => void): SlashCommandItem[] {
+function buildItems(
+  onInsertImage: () => void,
+  onCreateReminder: (pos: number) => void,
+  onInsertTable: (pos: number) => void,
+): SlashCommandItem[] {
   return [
     {
       title: "Заголовок 1",
@@ -88,12 +92,26 @@ function buildItems(onInsertImage: () => void, onCreateReminder: (pos: number) =
         onCreateReminder(editor.state.selection.from);
       },
     },
+    {
+      title: "Таблица",
+      // Живая rich-таблица (свои типизированные столбцы, CSV-экспорт,
+      // WS-синк) — не путать с "Простая сетка" выше (голый TipTap-грид без
+      // связи с бэкендом). Тот же приём, что "Напоминание": слэш-команда
+      // не вставляет узел сама, а открывает модалку выбора "новая/
+      // существующая" (InsertTableModal.tsx через NoteEditor.tsx).
+      aliases: ["table", "данные", "бд", "database"],
+      run: (editor, range) => {
+        editor.chain().focus().deleteRange(range).run();
+        onInsertTable(editor.state.selection.from);
+      },
+    },
   ];
 }
 
 export interface SlashCommandOptions {
   onInsertImage: () => void;
   onCreateReminder: (pos: number) => void;
+  onInsertTable: (pos: number) => void;
 }
 
 export const SlashCommand = Extension.create<SlashCommandOptions>({
@@ -103,11 +121,12 @@ export const SlashCommand = Extension.create<SlashCommandOptions>({
     return {
       onInsertImage: () => {},
       onCreateReminder: () => {},
+      onInsertTable: () => {},
     };
   },
 
   addProseMirrorPlugins() {
-    const items = buildItems(this.options.onInsertImage, this.options.onCreateReminder);
+    const items = buildItems(this.options.onInsertImage, this.options.onCreateReminder, this.options.onInsertTable);
 
     return [
       Suggestion<SlashCommandItem, SlashCommandItem>({

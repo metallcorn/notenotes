@@ -21,6 +21,7 @@ import {
   Strikethrough,
   StretchHorizontal,
   Table as TableIcon,
+  TableProperties,
   Undo2,
 } from "lucide-react";
 import type { ContentWidth } from "../lib/storage";
@@ -61,6 +62,7 @@ export default function EditorToolbar({
   onInsertImage,
   onInsertFile,
   onOpenRecorder,
+  onInsertTable,
   uploadProgress,
   uploadBatch,
   contentWidth,
@@ -73,6 +75,7 @@ export default function EditorToolbar({
   onInsertImage: () => void;
   onInsertFile: () => void;
   onOpenRecorder?: () => void;
+  onInsertTable?: () => void;
   uploadProgress: number | null;
   uploadBatch: { current: number; total: number } | null;
   contentWidth: ContentWidth;
@@ -171,12 +174,17 @@ export default function EditorToolbar({
         <Minus size={16} />
       </ToolbarButton>
       <ToolbarButton
-        title="Таблица"
+        title="Простая сетка"
         active={editor.isActive("table")}
         onClick={() => editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()}
       >
         <TableIcon size={16} />
       </ToolbarButton>
+      {onInsertTable && (
+        <ToolbarButton title="Таблица" onClick={onInsertTable}>
+          <TableProperties size={16} />
+        </ToolbarButton>
+      )}
       <span className="mx-1 h-4 w-px shrink-0 bg-slate-300" />
       <ToolbarButton title="Картинка" disabled={uploading} onClick={onInsertImage}>
         {uploading ? <Spinner size={16} /> : <ImageIcon size={16} />}
