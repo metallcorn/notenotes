@@ -1342,7 +1342,7 @@ export default function NoteEditor({
         {showTableToolbar && editor && <TableToolbar editor={editor} />}
         <div className="flex min-h-0 flex-1 overflow-hidden">
           <div
-            className="min-h-0 flex-1 overflow-y-auto p-4"
+            className="relative min-h-0 flex-1 overflow-y-auto p-4"
             onMouseDown={(e) => {
               // Реальный найденный баг: EditorContent рендерит собственную
               // обёртку с классом .tiptap, а ВНУТРИ неё — настоящий
@@ -1390,6 +1390,23 @@ export default function NoteEditor({
                   <AiMenu onAction={applyAiAction} onOpenAssistant={openAssistant} loading={aiLoading} />
                 </div>
               </BubbleMenu>
+            )}
+            {(collabStatus === "connecting" || collabStatus === "stale") && (
+              // Реальная жалоба: рестарт backend'а (деплой) рвёт живую
+              // коллаборацию у всех открытых заметок разом — пока клиент
+              // переподключается, редактор показывал ЧТО ЕСТЬ ПРЯМО СЕЙЧАС
+              // (иногда пусто на переходный момент), без разницы "ещё
+              // грузится" vs "и правда пусто" — выглядело как потеря
+              // контента. Непрозрачная плашка поверх (не просто спиннер в
+              // углу статуса, как раньше) однозначно говорит "подожди",
+              // пока идёт reconnect+refetch (см. эффект выше на collabStatus
+              // === "stale"/"disconnected").
+              <div className="absolute inset-0 z-10 space-y-3 bg-white p-4">
+                <div className="h-4 w-4/5 animate-pulse rounded bg-slate-200" />
+                <div className="h-4 w-full animate-pulse rounded bg-slate-200" />
+                <div className="h-4 w-11/12 animate-pulse rounded bg-slate-200" />
+                <div className="h-4 w-3/5 animate-pulse rounded bg-slate-200" />
+              </div>
             )}
             <EditorContent
               editor={editor}
