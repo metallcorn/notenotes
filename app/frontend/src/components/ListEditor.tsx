@@ -1,5 +1,5 @@
 import { FormEvent, ReactNode, useEffect, useRef, useState } from "react";
-import { ChevronLeft, History, Plus, Trash2, X } from "lucide-react";
+import { ArrowDown, ChevronLeft, History, Plus, Trash2, X } from "lucide-react";
 import { useAddListEntry, useDeleteItem, useDeleteListEntry, useList, useUpdateItem, useUpdateListEntry } from "../api/hooks";
 import type { ListEntry } from "../api/types";
 import { useListSync } from "../lib/useListSync";
@@ -191,6 +191,7 @@ export default function ListEditor({
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [syncedId, setSyncedId] = useState<string | null>(null);
+  const newEntryInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (list && syncedId !== list.id) {
@@ -263,7 +264,19 @@ export default function ListEditor({
 
       <div className="flex-1 overflow-y-auto p-3">
         {list.entries.length === 0 ? (
-          <div className="p-3 text-sm text-slate-400">Пока пусто — добавь первый пункт</div>
+          // Реальная жалоба: пустой список выглядел как "тут ничего не
+          // работает" — не было понятно, что пункты добавляются полем
+          // ввода СНИЗУ, а не кликом по самой пустой области списка.
+          <button
+            onClick={() => newEntryInputRef.current?.focus()}
+            className="flex h-full w-full flex-col items-center justify-center gap-2 p-3 text-center text-sm text-slate-400"
+          >
+            <div>Пока пусто</div>
+            <div className="flex items-center gap-1 text-xs">
+              Введите текст пункта в поле внизу
+              <ArrowDown size={14} className="animate-bounce" />
+            </div>
+          </button>
         ) : (
           <ul className="space-y-0.5">
             {list.entries.map((entry) => (
@@ -281,6 +294,7 @@ export default function ListEditor({
 
       <form onSubmit={handleAddEntry} className="flex gap-2 border-t p-3">
         <input
+          ref={newEntryInputRef}
           value={newEntryText}
           onChange={(e) => setNewEntryText(e.target.value)}
           placeholder="Новый пункт…"
