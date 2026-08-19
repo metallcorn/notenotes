@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app import realtime
 from app.core.config import get_settings
 from app.db import get_db
-from app.deps import ensure_space_access, get_current_user
+from app.deps import ensure_space_access, get_current_user, space_member_ids
 from app.models import Item, Notification, User
 from app.schemas.notification import NotificationCreateIn, NotificationOut
 from app.security import decode_session_token
@@ -51,6 +51,7 @@ async def create_notification(
         trigger_at = trigger_at.replace(tzinfo=timezone.utc)
 
     notification_payload: dict = {}
+    recipient_ids = [user.id]
     if payload.item_id:
         try:
             item_id = uuid.UUID(payload.item_id)
@@ -63,19 +64,29 @@ async def create_notification(
         notification_payload = {
             "item_id": str(item.id), "space_id": str(item.space_id), "material_type": item.material_type
         }
+        # Права на спейс общие для всех участников — напоминание в общей
+        # заметке должно сработать у каждого из них, не только у автора
+        # (тот же fan-out, что tools/reminders.py::create_reminder).
+        recipient_ids = await space_member_ids(db, item.space_id)
+        if user.id not in recipient_ids:
+            recipient_ids.append(user.id)
 
-    notification = Notification(
-        user_id=user.id,
-        type="reminder",
-        title=payload.title,
-        body=payload.body,
-        payload=notification_payload,
-        trigger_at=trigger_at,
-    )
-    db.add(notification)
+    own_notification: Notification | None = None
+    for recipient_id in recipient_ids:
+        notification = Notification(
+            user_id=recipient_id,
+            type="reminder",
+            title=payload.title,
+            body=payload.body,
+            payload=notification_payload,
+            trigger_at=trigger_at,
+        )
+        db.add(notification)
+        if recipient_id == user.id:
+            own_notification = notification
     await db.commit()
-    await db.refresh(notification)
-    return notification
+    await db.refresh(own_notification)
+    return own_notification
 
 
 @router.delete("/{notification_id}", status_code=status.HTTP_204_NO_CONTENT)

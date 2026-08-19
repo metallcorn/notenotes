@@ -6,6 +6,7 @@ from typing import Any
 
 from sqlalchemy import select
 
+from app.deps import space_member_ids
 from app.llm.base import ToolDefinition
 from app.models import Notification
 from app.tools.notes import _get_item_cross_space
@@ -25,7 +26,9 @@ CREATE_REMINDER = ToolDefinition(
         "по явному согласию (как /remind в Slack — спрашивает, прежде чем поставить). Можно "
         "привязать к конкретной заметке/списку (item_id) и, если это список, к конкретному пункту "
         "(entry_id из get_list) — клик по уведомлению откроет ровно эту заметку или этот пункт, а "
-        "не список целиком."
+        "не список целиком. Если заметка лежит в спейсе с другими участниками — напоминание "
+        "получат ВСЕ участники этого спейса, не только тот, кто его поставил (права на спейс общие) "
+        "— полезно упомянуть это пользователю при подтверждении, если у спейса есть другие люди."
     ),
     parameters={
         "type": "object",
@@ -63,6 +66,7 @@ async def create_reminder(ctx: ToolContext, args: dict[str, Any]) -> dict[str, A
         trigger_at = trigger_at.replace(tzinfo=timezone.utc)
 
     payload: dict[str, Any] = {}
+    recipient_ids = [ctx.user_id]
     item_id_raw = args.get("item_id")
     if item_id_raw:
         item = await _get_item_cross_space(ctx, item_id_raw)
@@ -77,18 +81,32 @@ async def create_reminder(ctx: ToolContext, args: dict[str, Any]) -> dict[str, A
                 raise ToolError("Пункт списка не найден")
             payload["entry_id"] = str(entry_id_raw)
 
-    notification = Notification(
-        user_id=ctx.user_id,
-        type="reminder",
-        title=title,
-        body=str(args.get("body", "")).strip(),
-        payload=payload,
-        trigger_at=trigger_at,
-    )
-    ctx.db.add(notification)
+        # Заметка/список могут быть общими на весь спейс — права на спейс
+        # распространяются на всех его участников, значит и напоминание,
+        # поставленное в такой заметке, должно сработать у каждого, а не
+        # только у автора (реальный запрос: раньше срабатывало молча только
+        # у того, кто поставил, даже если заметку вместе редактируют).
+        recipient_ids = await space_member_ids(ctx.db, item.space_id)
+        if ctx.user_id not in recipient_ids:
+            recipient_ids.append(ctx.user_id)
+
+    body = str(args.get("body", "")).strip()
+    own_notification: Notification | None = None
+    for recipient_id in recipient_ids:
+        notification = Notification(
+            user_id=recipient_id,
+            type="reminder",
+            title=title,
+            body=body,
+            payload=payload,
+            trigger_at=trigger_at,
+        )
+        ctx.db.add(notification)
+        if recipient_id == ctx.user_id:
+            own_notification = notification
     await ctx.db.commit()
-    await ctx.db.refresh(notification)
-    return {"id": str(notification.id), "title": title, "trigger_at": trigger_at.isoformat()}
+    await ctx.db.refresh(own_notification)
+    return {"id": str(own_notification.id), "title": title, "trigger_at": trigger_at.isoformat()}
 
 
 # "Выполнено" — независимая ось от trigger_at (ТЗ живой жалобы: время

@@ -38,6 +38,17 @@ async def ensure_space_access(db: AsyncSession, space_id: uuid.UUID, user_id: uu
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Спейс не найден")
 
 
+async def space_member_ids(db: AsyncSession, space_id: uuid.UUID) -> list[uuid.UUID]:
+    """Все участники спейса (владелец включён — у него тоже есть строка в
+    space_members, см. auth.py::register). Используется там, где право на
+    спейс должно распространяться на всех, кто в нём состоит — например,
+    напоминание, поставленное в общей заметке, должно сработать у каждого
+    участника, а не только у того, кто его создал (ТЗ: права на спейс
+    общие для всех участников)."""
+    result = await db.execute(select(SpaceMember.user_id).where(SpaceMember.space_id == space_id))
+    return list(result.scalars().all())
+
+
 async def is_vault_space(db: AsyncSession, space_id: uuid.UUID) -> bool:
     """Сейф (Space.is_vault) — бэкенд никогда не видит plaintext его
     заметок (E2E-шифрование на клиенте), поэтому вся обработка, которой
