@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { Check, Copy } from "lucide-react";
+import { Check, Copy, Maximize2, X } from "lucide-react";
 
 // Общий рендер распознанного текста (OCR картинки — vision.py, PDF —
 // pdf_processing.py) — раньше показывался ПЛОСКИМ текстом в обеих
@@ -189,5 +189,87 @@ export function ExpandedTextPanel({ anchorRef, text }: { anchorRef: React.RefObj
       </ReactMarkdown>
     </div>,
     document.body,
+  );
+}
+
+// Реальная жалоба: распознавание с причёсанной вёрсткой (document_reflow.py)
+// получилось настолько хорошим, что документ реально приятно читать
+// целиком — а единственный способ увидеть текст, спойлер-попап ExpandedTextPanel
+// (max-height 384px, text-xs), рассчитан на "глянуть пару строк", не на
+// чтение. Отдельная типографика для полноэкранного режима — крупнее и
+// просторнее компактного попапа, не переиспользуем recognizedTextMarkdownComponents.
+const readerMarkdownComponents: Components = {
+  h1: (props) => <h1 className="mb-3 mt-6 text-2xl font-semibold first:mt-0" {...props} />,
+  h2: (props) => <h2 className="mb-2 mt-5 text-xl font-semibold first:mt-0" {...props} />,
+  h3: (props) => <h3 className="mb-2 mt-4 text-lg font-semibold first:mt-0" {...props} />,
+  p: (props) => <p className="mb-4 leading-relaxed last:mb-0" {...props} />,
+  ul: (props) => <ul className="mb-4 list-disc space-y-1 pl-6 last:mb-0" {...props} />,
+  ol: (props) => <ol className="mb-4 list-decimal space-y-1 pl-6 last:mb-0" {...props} />,
+  table: (props) => (
+    <div className="mb-4 overflow-x-auto">
+      <table className="border-collapse text-sm" {...props} />
+    </div>
+  ),
+  th: (props) => <th className="border border-slate-300 bg-slate-100 px-2 py-1.5 text-left font-medium" {...props} />,
+  td: (props) => <td className="border border-slate-300 px-2 py-1.5" {...props} />,
+  code: (props) => <code className="rounded bg-slate-100 px-1.5 py-0.5 text-sm" {...props} />,
+  pre: (props) => <pre className="mb-4 overflow-x-auto rounded bg-slate-100 p-3 text-sm last:mb-0" {...props} />,
+  a: ({ node: _node, ...props }) => (
+    <a {...props} target="_blank" rel="noopener noreferrer" className="text-blue-600 underline" />
+  ),
+};
+
+function FullscreenTextReader({ text, onClose }: { text: string; onClose: () => void }) {
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") onClose();
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [onClose]);
+
+  return createPortal(
+    <div className="fixed inset-0 z-50 flex flex-col bg-white">
+      <div className="flex items-center justify-between gap-2 border-b px-4 py-2.5 sm:px-6">
+        <div className="text-sm font-medium text-slate-500">Распознанный текст</div>
+        <div className="flex items-center gap-1">
+          <RecognizedTextCopyButtons text={text} />
+          <button
+            onClick={onClose}
+            title="Закрыть (Esc)"
+            className="flex h-9 w-9 shrink-0 items-center justify-center text-slate-400 hover:text-slate-700"
+          >
+            <X size={18} />
+          </button>
+        </div>
+      </div>
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        <div className="mx-auto max-w-2xl px-4 py-8 text-base text-slate-800 sm:px-6">
+          <ReactMarkdown remarkPlugins={[remarkGfm]} components={readerMarkdownComponents}>
+            {text}
+          </ReactMarkdown>
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
+// Кнопка-триггер — самодостаточная (сама держит состояние открыт/закрыт),
+// чтобы обеим карточкам (DocumentAttachmentCard/ImageOcrResultCard)
+// достаточно было воткнуть один компонент, не заводя своё состояние.
+export function ReadFullscreenButton({ text }: { text: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <button
+        onClick={() => setOpen(true)}
+        title="Читать целиком"
+        className="flex h-9 w-9 shrink-0 items-center justify-center text-slate-400 hover:text-slate-700"
+      >
+        <Maximize2 size={14} />
+      </button>
+      {open && <FullscreenTextReader text={text} onClose={() => setOpen(false)} />}
+    </>
   );
 }

@@ -3,7 +3,7 @@ import { NodeViewWrapper } from "@tiptap/react";
 import type { NodeViewProps } from "@tiptap/react";
 import { ChevronDown, ChevronUp, Download, File, FileText, RotateCw, X } from "lucide-react";
 import { useReprocessUpload } from "../api/hooks";
-import { ExpandedTextPanel, RecognizedTextCopyButtons } from "./RecognizedTextView";
+import { ExpandedTextPanel, ReadFullscreenButton, RecognizedTextCopyButtons } from "./RecognizedTextView";
 import Spinner from "./Spinner";
 
 const UPLOAD_ID_RE = /\/api\/uploads\/([0-9a-f-]{36})/i;
@@ -145,6 +145,7 @@ export default function DocumentAttachmentCard({ node, editor }: NodeViewProps) 
             </button>
           )}
           {text && <RecognizedTextCopyButtons text={text} />}
+          {text && <ReadFullscreenButton text={text} />}
         </div>
 
         {processing ? (

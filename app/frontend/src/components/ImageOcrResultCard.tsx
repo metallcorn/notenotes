@@ -2,7 +2,7 @@ import { useRef, useState } from "react";
 import { NodeViewWrapper } from "@tiptap/react";
 import type { NodeViewProps } from "@tiptap/react";
 import { ChevronDown, ChevronUp } from "lucide-react";
-import { ExpandedTextPanel, RecognizedTextCopyButtons } from "./RecognizedTextView";
+import { ExpandedTextPanel, ReadFullscreenButton, RecognizedTextCopyButtons } from "./RecognizedTextView";
 
 // Тот же спойлер-паттерн, что DocumentAttachmentCard.tsx использует для
 // распознанного текста PDF — свёрнуто по умолчанию, картинка (обычный
@@ -33,6 +33,7 @@ export default function ImageOcrResultCard({ node }: NodeViewProps) {
             {expanded ? "Скрыть распознанный текст" : "Показать распознанный текст"}
           </button>
           <RecognizedTextCopyButtons text={text} />
+          <ReadFullscreenButton text={text} />
         </div>
         {expanded && <ExpandedTextPanel anchorRef={cardRef} text={text} />}
       </div>
