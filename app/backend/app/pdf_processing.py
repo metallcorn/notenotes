@@ -275,3 +275,20 @@ async def run_worker() -> None:
             logger.exception("Необработанная ошибка при OCR PDF %s", upload_id)
         finally:
             _queue.task_done()
+
+
+async def resume_pending() -> None:
+    """Реальный найденный гап: в отличие от vision.py/transcription.py, этот
+    модуль не имел resume-на-старте — enqueue_ocr() кладёт id в
+    ПРОЦЕССНУЮ (не персистентную) очередь, поэтому любой рестарт backend'а
+    между enqueue и завершением OCR оставлял upload.transcription_status
+    навсегда в "pending" без единого способа доиграть автоматически."""
+    async with async_session() as db:
+        result = await db.execute(
+            select(Upload.id).where(
+                Upload.content_type == "application/pdf",
+                Upload.transcription_status.in_(["pending", "processing"]),
+            )
+        )
+        for row in result.all():
+            enqueue_ocr(row[0])

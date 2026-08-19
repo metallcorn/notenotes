@@ -11,7 +11,7 @@ from app.autotag import run_worker as run_autotag_worker
 from app.cleanup import run_periodic_sweep
 from app.note_recording import resume_pending as resume_note_recording, run_worker as run_note_recording_worker
 from app.notification_dispatch import run_dispatch_worker as run_notification_dispatch_worker
-from app.pdf_processing import run_worker as run_pdf_worker
+from app.pdf_processing import resume_pending as resume_pdf_ocr, run_worker as run_pdf_worker
 from app.telegram_bot import register_webhook as register_telegram_webhook, run_worker as run_telegram_worker
 from app.tickets import run_worker as run_ticket_worker
 from app.transcription import resume_pending as resume_transcription, run_worker as run_transcription_worker
@@ -59,6 +59,7 @@ async def lifespan(app: FastAPI):
     await resume_transcription()
     await resume_vision()
     await resume_stuck_replacements()
+    await resume_pdf_ocr()
     await resume_note_recording()
     await register_telegram_webhook()
     try:
