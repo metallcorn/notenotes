@@ -60,21 +60,44 @@ def _strip_outer_fence(text: str) -> str:
     return text
 
 
-async def reflow_document_text(raw: str) -> str:
-    """Второй, отдельный LLM-проход поверх уже извлечённого/распознанного
-    текста (не вместо OCR/PyMuPDF-извлечения, а ПОСЛЕ) — только причёсывает
-    вёрстку, не читает текст заново. При любой ошибке или пустом ключе —
-    отдаёт исходный текст как есть, это улучшение, а не обязательный шаг."""
-    settings = get_settings()
-    if not settings.llm_api_key or not raw.strip():
-        return raw
+def _split_into_chunks(raw: str, max_chars: int) -> list[str]:
+    """Реальный найденный баг: raw[:_MAX_CHARS] молча ОБРЕЗАЛ документ —
+    для 24-страничного regulamin'а это значило "причёсаны первые ~5
+    страниц, остальные 19 исчезли без следа" (transcription_status при
+    этом всё равно "done", никакой видимой ошибки). КРИТИЧНО из промпта
+    выше ("ни одного слова не теряй") нарушалось на уровне ДО модели, не
+    ею. Бьём на куски по границам абзацев (не жёстко по символам — не
+    разрубать предложение/таблицу посередине без крайней необходимости),
+    каждый прогоняем через reflow отдельно — дороже (несколько LLM-вызовов
+    на длинный документ вместо одного), но ничего не теряет."""
+    if len(raw) <= max_chars:
+        return [raw]
+    chunks: list[str] = []
+    current = ""
+    for paragraph in raw.split("\n\n"):
+        candidate = f"{current}\n\n{paragraph}" if current else paragraph
+        if len(candidate) > max_chars and current:
+            chunks.append(current)
+            current = paragraph
+        else:
+            current = candidate
+        # Один абзац сам по себе длиннее лимита (гигантская таблица) —
+        # не оставляем его целиком непричёсанным, режем жёстко по символам,
+        # это крайний случай, а не типичный путь.
+        while len(current) > max_chars:
+            chunks.append(current[:max_chars])
+            current = current[max_chars:]
+    if current:
+        chunks.append(current)
+    return chunks
 
-    client = get_llm_client()
+
+async def _reflow_chunk(client, raw: str) -> str:
     try:
         response = await client.chat(
             [
                 Message(role="system", content=_PROMPT),
-                Message(role="user", content=raw[:_MAX_CHARS]),
+                Message(role="user", content=raw),
             ],
             [],
         )
@@ -84,3 +107,20 @@ async def reflow_document_text(raw: str) -> str:
 
     reflowed = _strip_outer_fence(response.message.content.strip())
     return reflowed or raw
+
+
+async def reflow_document_text(raw: str) -> str:
+    """Второй, отдельный LLM-проход поверх уже извлечённого/распознанного
+    текста (не вместо OCR/PyMuPDF-извлечения, а ПОСЛЕ) — только причёсывает
+    вёрстку, не читает текст заново. При любой ошибке или пустом ключе —
+    отдаёт исходный текст как есть, это улучшение, а не обязательный шаг.
+    Длинные документы бьются на куски (см. _split_into_chunks) — каждый
+    прогоняется через reflow отдельно, ни один не отбрасывается."""
+    settings = get_settings()
+    if not settings.llm_api_key or not raw.strip():
+        return raw
+
+    client = get_llm_client()
+    chunks = _split_into_chunks(raw, _MAX_CHARS)
+    reflowed_chunks = [await _reflow_chunk(client, chunk) for chunk in chunks]
+    return "\n\n".join(reflowed_chunks)
