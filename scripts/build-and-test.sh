@@ -18,6 +18,13 @@ sudo rsync -a --delete \
   --exclude=node_modules --exclude=dist --exclude=__pycache__ --exclude=.venv --exclude='*.pyc' \
   "$REPO_ROOT/app/" /srv/notenotes/app/
 
+echo "==> Frontend-тесты (vitest) — до сборки образа, чтобы не ждать зря при падении"
+sudo docker run --rm \
+  -v "$REPO_ROOT/app/frontend:/app/frontend" \
+  -w /app/frontend \
+  node:20-alpine sh -c "npm install --silent && npm run test"
+echo "==> Frontend-тесты прошли"
+
 echo "==> Сборка образа backend (не трогает работающий контейнер)"
 (cd /srv/notenotes/compose && sudo docker compose build backend)
 

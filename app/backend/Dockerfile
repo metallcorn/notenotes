@@ -2,10 +2,12 @@
 # чтобы эта стадия могла увидеть app/frontend.
 FROM node:20-alpine AS frontend-builder
 WORKDIR /app/frontend
-COPY app/frontend/package.json app/frontend/package-lock.json* ./
-# npm ci потребовал бы закоммиченный package-lock.json — его пока нет
-# (нет локального Node, чтобы его сгенерировать). Как появится — переключить.
-RUN npm install
+COPY app/frontend/package.json app/frontend/package-lock.json ./
+# package-lock.json теперь закоммичен (появился при установке vitest/RTL для
+# фронтенд-тестов, 2026-08-19) — npm ci быстрее и, в отличие от npm install,
+# гарантированно ставит РОВНО то, что в лок-файле, не пересчитывая дерево
+# зависимостей заново при каждой сборке.
+RUN npm ci
 COPY app/frontend/ ./
 # Лимит памяти: vite build рядом с Postgres на 4 ГБ RAM — точка риска (CLAUDE.md).
 ENV NODE_OPTIONS=--max-old-space-size=1024

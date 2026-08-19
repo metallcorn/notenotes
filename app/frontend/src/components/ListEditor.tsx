@@ -18,7 +18,7 @@ import VersionHistoryPanel from "./VersionHistoryPanel";
 const _MD_LINK_RE = /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g;
 const _BARE_URL_RE = /(https?:\/\/\S+)/g;
 
-function renderEntryText(text: string): ReactNode[] {
+export function renderEntryText(text: string): ReactNode[] {
   const nodes: ReactNode[] = [];
   let lastIndex = 0;
   let key = 0;

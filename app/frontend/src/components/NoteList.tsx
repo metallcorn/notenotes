@@ -87,7 +87,7 @@ function NoteTemplateMenu({
   );
 }
 
-function previewText(content: string): string {
+export function previewText(content: string): string {
   return content
     .replace(/<[^>]+>/g, " ")
     .replace(/!\[[^\]]*\]\([^)]*\)/g, " ")
@@ -98,7 +98,7 @@ function previewText(content: string): string {
     .slice(0, 120);
 }
 
-function listProgress(content: string): string {
+export function listProgress(content: string): string {
   const lines = content.split("\n").filter(Boolean);
   if (lines.length === 0) return "Пусто";
   const done = lines.filter((l) => l.startsWith("[x]")).length;
