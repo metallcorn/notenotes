@@ -10,7 +10,9 @@ async def test_generate_creates_inbox_and_space(auth_client, db_session, test_us
     r = await auth_client.post("/api/mail/generate")
     assert r.status_code == 200
     address = r.json()["address"]
-    assert address is not None and address.endswith("@" + address.split("@", 1)[1])
+    assert address is not None
+    local_part = address.split("@", 1)[0]
+    assert local_part.count("-") == 2  # три слова через дефис, набираемо по памяти
 
     inbox = await db_session.get(EmailInbox, test_user.id)
     assert inbox is not None
