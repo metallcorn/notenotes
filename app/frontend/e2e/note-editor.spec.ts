@@ -45,6 +45,36 @@ test("создаёт заметку, вставляет заголовок че�
   await expect(reloadedEditor.locator("p", { hasText: "Обычный текст под заголовком" })).toBeVisible();
 });
 
+test("заметка из одной картинки без единого слова текста переживает reload", async ({ page }) => {
+  // Реальный найденный баг (2026-08-19, дважды за день): заметка, чьё ЕДИНСТВЕННОЕ
+  // содержимое — атом-узел без текста (картинка/встроенная таблица/вложение),
+  // при пересоздании Yjs-комнаты (что происходит на каждом reload — предыдущее
+  // соединение закрывается, следующее открытие снова "сеятель" свежей комнаты)
+  // "сеялась" пустой из-за эвристики, угадывавшей пустоту по структуре
+  // документа вместо исходной строки (см. lib/collabState.ts). Заводим заметку
+  // напрямую через API (без реальной загрузки файла — не важно, что картинка
+  // битая, важно, что markdown непустой и это ОДИН атом-узел без текста),
+  // открываем её (это и есть свежий "посев" комнаты) и проверяем, что
+  // содержимое остаётся на месте после reload.
+  const spacesResp = await page.request.get("/api/spaces");
+  const spaces = await spacesResp.json();
+  const spaceId = spaces[0].id;
+
+  const createResp = await page.request.post("/api/items", {
+    data: { space_id: spaceId, title: "", content: "![тест](https://example.com/x.png)" },
+  });
+  const item = await createResp.json();
+
+  await page.goto(`/?item=${item.id}`);
+  const editor = page.locator(".ProseMirror");
+  await expect(editor.locator("img")).toBeVisible();
+
+  await page.reload();
+
+  const reloadedEditor = page.locator(".ProseMirror");
+  await expect(reloadedEditor.locator("img")).toBeVisible();
+});
+
 test("маркированный список через / создаёт настоящий <ul><li>", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: "+ Заметка" }).click();

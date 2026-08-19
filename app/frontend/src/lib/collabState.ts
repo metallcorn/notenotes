@@ -46,25 +46,6 @@ function isManagedCollabPlugin(plugin: Plugin): boolean {
   return MANAGED_KEYS.includes(keyString(plugin));
 }
 
-function isDocMeaningfullyEmpty(doc: import("@tiptap/pm/model").Node): boolean {
-  // Реальный найденный баг (2026-08-19, живая потеря контента при вставке
-  // встроенной таблицы): заметка из ОДНОГО атом-узла (картинка, встроенная
-  // таблица, вложение, билет, виджет ссылки — group:"block", atom:true)
-  // не содержит ни единого символа текста, но это самый настоящий контент,
-  // не пустая заметка. Markdown-круговорот (item.content, которым сеется
-  // комната при пересоздании) к тому же не умеет сохранять пустой
-  // абзац-компаньон рядом с атомом — после него у распарсенного документа
-  // childCount оказывается РОВНО 1 (один атом), что раньше неотличимо
-  // совпадало с "childCount<=1" пустой заметки. Итог: при любом
-  // пересидинге комнаты (переподключение из-за обрыва связи, invalidate_room
-  // от фонового воркера/ассистента) такая заметка "сеялась" пустой —
-  // единственный узел реального контента никогда не попадал в Yjs, и
-  // следующий же автосейв затирал его на сервере тоже.
-  if (doc.childCount === 0) return true;
-  if (doc.childCount === 1 && doc.firstChild?.isAtom) return false;
-  return doc.textContent.trim().length === 0 && doc.childCount <= 1;
-}
-
 // y-prosemirror по умолчанию рисует курсор/выделение чужими цветами очень
 // ярко (defaultSelectionBuilder — заливка с alpha 0x70, почти непрозрачная)
 // — реальная жалоба: "не оч красиво, не в общем дизайне продукта". Вместо
@@ -122,6 +103,27 @@ export async function attachCollab(
     // чтобы распарсить markdown в ProseMirror-узел тем же способом, каким
     // это уже делает обычная загрузка заметки (editor.commands.setContent);
     // сразу уничтожается, на экране никогда не появляется.
+    //
+    // Реальный найденный баг (2026-08-19, дважды за один день, две разные
+    // формы): здесь раньше стояла эвристика isDocMeaningfullyEmpty,
+    // угадывавшая "пусто ли это" по СТРУКТУРЕ распарсенного документа
+    // (childCount/textContent) — сначала не считала контентом заметку из
+    // одного атом-узла (картинка/встроенная таблица/вложение/билет) без
+    // единого символа текста, потом (после первого фикса) всё равно
+    // ошиблась на заметке "пустой абзац + картинка", оставшейся после
+    // ручного удаления текста. Каждый раз итог один: при пересидинге
+    // комнаты (обрыв связи, invalidate_room от фонового воркера/ассистента)
+    // реальный контент такой заметки не попадал в Yjs вообще, и следующий
+    // же автосейв стирал его на сервере тоже — угадывать по структуре
+    // документа принципиально ненадёжно, у атом-узлов бесконечно много
+    // комбинаций с текстом/друг с другом. Полагаемся вместо этого на
+    // ИСХОДНУЮ СТРОКУ: "нечего сеять" — только когда сам markdown с сервера
+    // (не его распарсенная структура) пуст или состоит из пробельных
+    // символов. Любой непустой markdown сеется как есть, без исключений.
+    if (!seedMarkdown.trim()) {
+      provider.markSeedComplete();
+      return;
+    }
     const temp = new Editor({
       extensions,
       content: seedMarkdown,
@@ -129,11 +131,7 @@ export async function attachCollab(
     });
     const parsedDoc = temp.state.doc;
     temp.destroy();
-    if (isDocMeaningfullyEmpty(parsedDoc)) {
-      provider.markSeedComplete();
-    } else {
-      prosemirrorToYXmlFragment(parsedDoc, fragment);
-    }
+    prosemirrorToYXmlFragment(parsedDoc, fragment);
   });
 
   const { doc, mapping } = initProseMirrorDoc(fragment, editor.schema);
