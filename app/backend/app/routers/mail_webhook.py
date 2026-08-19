@@ -11,9 +11,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.db import get_db
-from app.models import EmailInbox, Folder, Upload
+from app.models import EmailInbox, Folder, Upload, User
+from app.pdf_processing import AUTO_OCR_MAX_PDF_BYTES
+from app.pdf_processing import enqueue_ocr as enqueue_pdf_ocr
+from app.pdf_processing import extract_text as extract_pdf_text
+from app.pdf_processing import serialize_document_attachment
 from app.routers.items import create_item_row
-from app.routers.uploads import MAX_GENERIC_UPLOAD_BYTES, _upload_path
+from app.routers.uploads import MAX_GENERIC_UPLOAD_BYTES, _extract_text_preview, _upload_path
+from app.transcription import enqueue_transcription
+from app.transcription import placeholder_text as video_placeholder_text
+from app.vision import enqueue_vision
+from app.vision import placeholder_text as image_placeholder_text
 
 router = APIRouter(prefix="/api/mail", tags=["mail"])
 logger = logging.getLogger(__name__)
@@ -61,6 +69,44 @@ async def _save_attachment(
     return upload
 
 
+async def _attachment_block(upload: Upload, data: bytes, auto_process: bool) -> str:
+    """Markdown-блок для одного вложения — та же логика по типам, что у
+    Telegram-документов/фото/видео (telegram_bot.py::_handle_document/
+    _handle_photo/_handle_video). Реальная жалоба: раньше вложения письма
+    падали как голые markdown-ссылки [filename](url) — ни OCR PDF, ни
+    распознавание фото/видео никогда не запускались, потому что ничего не
+    ставило файл в очередь vision/pdf_processing/transcription."""
+    content_type = upload.content_type
+    url = f"/api/uploads/{upload.id}"
+
+    if content_type.startswith("image/"):
+        enqueue_vision(upload.id)
+        return f"![]({url})\n\n{image_placeholder_text(upload.id)}\n"
+
+    if content_type.startswith("video/") or content_type.startswith("audio/"):
+        enqueue_transcription(upload.id)
+        return (
+            f'<video src="{url}" controls preload="metadata" style="max-width: 100%; max-height: 70vh;"></video>\n\n'
+            f"{video_placeholder_text(upload.id)}\n"
+        )
+
+    is_pdf = content_type == "application/pdf" or upload.filename.lower().endswith(".pdf")
+    if is_pdf:
+        text_layer = extract_pdf_text(data)
+        if auto_process and (text_layer or len(data) <= AUTO_OCR_MAX_PDF_BYTES):
+            upload.transcription_status = "pending"
+            enqueue_pdf_ocr(upload.id)
+            return f"{serialize_document_attachment(url, upload.filename, '', processing=True)}\n"
+        return f"{serialize_document_attachment(url, upload.filename, text_layer or '')}\n"
+
+    text_preview = None
+    try:
+        text_preview = _extract_text_preview(_upload_path(upload.id), content_type, upload.filename)
+    except Exception:
+        logger.exception("Не удалось извлечь текст из вложения письма %s (id=%s)", upload.filename, upload.id)
+    return f"{serialize_document_attachment(url, upload.filename, text_preview or '')}\n"
+
+
 @router.post("/webhook")
 async def webhook(request: Request, db: AsyncSession = Depends(get_db)) -> dict:
     settings = get_settings()
@@ -89,21 +135,24 @@ async def webhook(request: Request, db: AsyncSession = Depends(get_db)) -> dict:
     content = str(form.get("stripped-text", "") or form.get("body-plain", "")).strip()
 
     attachment_count = int(form.get("attachment-count", 0) or 0)
-    links: list[str] = []
-    for i in range(1, attachment_count + 1):
-        file = form.get(f"attachment-{i}")
-        if file is None or not hasattr(file, "read"):
-            continue
-        data = await file.read()
-        if len(data) > MAX_GENERIC_UPLOAD_BYTES:
-            continue
-        upload = await _save_attachment(
-            db, inbox.space_id, inbox.user_id, data, file.filename or f"attachment-{i}", file.content_type or "application/octet-stream"
-        )
-        links.append(f"[{upload.filename}](/api/uploads/{upload.id})")
+    blocks: list[str] = []
+    if attachment_count:
+        user = await db.get(User, inbox.user_id)
+        auto_process = user is not None and user.auto_process_uploads
+        for i in range(1, attachment_count + 1):
+            file = form.get(f"attachment-{i}")
+            if file is None or not hasattr(file, "read"):
+                continue
+            data = await file.read()
+            if len(data) > MAX_GENERIC_UPLOAD_BYTES:
+                continue
+            upload = await _save_attachment(
+                db, inbox.space_id, inbox.user_id, data, file.filename or f"attachment-{i}", file.content_type or "application/octet-stream"
+            )
+            blocks.append(await _attachment_block(upload, data, auto_process))
 
-    if links:
-        content = f"{content}\n\n" + "\n".join(links) if content else "\n".join(links)
+    if blocks:
+        content = f"{content}\n\n" + "\n\n".join(blocks) if content else "\n\n".join(blocks)
 
     await create_item_row(
         db,

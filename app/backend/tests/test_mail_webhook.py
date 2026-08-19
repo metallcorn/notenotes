@@ -100,6 +100,35 @@ async def test_webhook_groups_notes_by_sender_folder(client, db_session, test_us
     assert all(item.folder_id == folders[0].id for item in items)
 
 
+async def test_webhook_queues_pdf_attachment_for_ocr(client, db_session, test_user, monkeypatch):
+    # Реальная жалоба: вложения письма падали голыми markdown-ссылками —
+    # ничего не ставило PDF в очередь распознавания, как это делает
+    # обычная загрузка (routers/uploads.py) и Telegram-бот.
+    from app.models import EmailInbox, Item, Space, SpaceMember, Upload
+
+    monkeypatch.setattr(get_settings(), "mailgun_webhook_signing_key", _SIGNING_KEY)
+
+    space = Space(name="Почта", owner_id=test_user.id)
+    db_session.add(space)
+    await db_session.flush()
+    db_session.add(SpaceMember(space_id=space.id, user_id=test_user.id))
+    db_session.add(EmailInbox(user_id=test_user.id, local_part="mytoken123", space_id=space.id))
+    await db_session.commit()
+
+    form = _signed_form(recipient="mytoken123@mail.notenotes.example", subject="Счёт", **{"attachment-count": "1"})
+    files = {"attachment-1": ("invoice.pdf", b"%PDF-1.4 fake bytes", "application/pdf")}
+    r = await client.post("/api/mail/webhook", data=form, files=files)
+    assert r.status_code == 200
+
+    from sqlalchemy import select
+
+    upload = (await db_session.execute(select(Upload).where(Upload.space_id == space.id))).scalar_one()
+    assert upload.transcription_status == "pending"
+
+    item = (await db_session.execute(select(Item).where(Item.space_id == space.id))).scalar_one()
+    assert f'data-url="/api/uploads/{upload.id}"' in item.content
+
+
 async def test_webhook_saves_attachment_and_links_it(client, db_session, test_user, monkeypatch):
     from app.models import EmailInbox, Space, SpaceMember
 
