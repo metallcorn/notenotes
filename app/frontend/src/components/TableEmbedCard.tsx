@@ -62,7 +62,7 @@ export default function TableEmbedCard({ node, editor, getPos }: NodeViewProps) 
 
   return (
     <NodeViewWrapper as="div" className="my-1">
-      <div className="overflow-hidden rounded border bg-white">
+      <div data-testid="table-embed-card" className="overflow-hidden rounded border bg-white">
         <div data-drag-handle draggable className="flex items-center gap-2 border-b bg-slate-50 px-3 py-2">
           <TableIcon size={15} className="shrink-0 text-slate-400" />
           <input

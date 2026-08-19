@@ -45,12 +45,14 @@ const SlashMenuList = forwardRef<SlashMenuListHandle, Props>(({ items, command }
 
   if (items.length === 0) {
     return (
-      <div className="w-56 rounded border bg-white p-2 text-xs text-slate-400 shadow-lg">Ничего не найдено</div>
+      <div data-testid="slash-command-menu" className="w-56 rounded border bg-white p-2 text-xs text-slate-400 shadow-lg">
+        Ничего не найдено
+      </div>
     );
   }
 
   return (
-    <div className="w-56 overflow-hidden rounded border bg-white py-1 shadow-lg">
+    <div data-testid="slash-command-menu" className="w-56 overflow-hidden rounded border bg-white py-1 shadow-lg">
       {items.map((item, i) => (
         <button
           key={item.title}

@@ -11,5 +11,8 @@ export default defineConfig({
     environment: "jsdom",
     setupFiles: ["./src/setupTests.ts"],
     css: false,
+    // e2e/ — Playwright-тесты (свой test-раннер, свои фикстуры, живой
+    // браузер) — vitest иначе пытается их же собрать своим раннером и падает.
+    exclude: ["e2e/**", "node_modules/**"],
   },
 });

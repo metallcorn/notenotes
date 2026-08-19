@@ -500,10 +500,18 @@ export function useItem(id: string | undefined) {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      if (!raw.data) {
-        setData(undefined);
-        return;
-      }
+      // Реальный найденный баг (2026-08-19, живая потеря контента при
+      // вставке встроенной таблицы): раньше здесь стояло setData(undefined)
+      // при пустом raw.data — но raw.data кратковременно пуст не только при
+      // смене id, а и при обычном фоновом рефетче ТОГО ЖЕ id (например,
+      // после WS-сигнала "items" от useSpaceSync — сервер уведомляет об
+      // изменении, react-query рефетчит). effectiveData ниже уже отдельно
+      // защищает от показа item'а с ЧУЖИМ id (data?.id === id) — обнулять
+      // data здесь дополнительно было лишним и опасным: ItemView.tsx на
+      // секунду видел undefined, монтировал скелет вместо редактора,
+      // NoteEditor размонтировался и терял несохранённый ввод/только что
+      // вставленный узел.
+      if (!raw.data) return;
       const resolved = await decryptItemVault(raw.data);
       if (!cancelled) setData(resolved);
     })();

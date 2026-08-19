@@ -79,7 +79,7 @@ def _set_session_cookie(response: Response, user_id) -> None:
         value=create_session_token(user_id),
         max_age=settings.session_ttl_days * 24 * 3600,
         httponly=True,
-        secure=True,
+        secure=settings.session_cookie_secure,
         samesite="lax",
         path="/",
     )

@@ -13,6 +13,12 @@ class Settings(BaseSettings):
     secret_key: str
     session_cookie_name: str = "notenotes_session"
     session_ttl_days: int = 30
+    # Только для Playwright E2E (scripts/e2e-test.sh) — тот бэкенд сидит на
+    # голом http://, а Secure-кука на http:// браузер молча не сохранит и
+    # не пришлёт обратно (тот же эффект, что раньше ловили на httpx-клиенте
+    # в pytest — см. auth.py). В проде app.env этот флаг не задаёт, дефолт
+    # остаётся True.
+    session_cookie_secure: bool = True
 
     # Фаза 2: AI-ассистент (ТЗ §10a/§10b). llm_provider — единственная точка
     # переключения (см. app/llm/factory.py); Mistral выбран первым как самый
