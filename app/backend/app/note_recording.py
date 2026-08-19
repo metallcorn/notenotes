@@ -7,7 +7,7 @@ from pathlib import Path
 
 from sqlalchemy import select
 
-from app import realtime
+from app import collab, realtime
 from app.asr.deepgram import DeepgramClient
 from app.core.config import get_settings
 from app.db import async_session
@@ -54,14 +54,21 @@ async def _replace_in_referencing_items(upload_id: uuid.UUID, old: str, new: str
         result = await db.execute(select(Item).where(Item.content.like(f"%{upload_id}%")))
         items = result.scalars().all()
         touched_spaces = set()
+        touched_item_ids = []
         for item in items:
             if old in item.content:
                 item.content = item.content.replace(old, new)
                 touched_spaces.add(item.space_id)
+                touched_item_ids.append(item.id)
         if touched_spaces:
             await db.commit()
             for space_id in touched_spaces:
                 await realtime.notify_space(space_id, "items")
+            # Заметка могла быть открыта с живой коллаборацией — её Y.Doc
+            # ничего не знает про эту прямую правку в БД, см.
+            # collab.invalidate_room (та же причина, что в vision.py).
+            for item_id in touched_item_ids:
+                await collab.invalidate_room(item_id)
 
 
 async def _process(upload_id: uuid.UUID) -> None:

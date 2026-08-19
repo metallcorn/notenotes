@@ -356,26 +356,23 @@ export default function NoteEditor({
     if (!item || !editor) return;
     const token = ++switchTokenRef.current;
     const isStale = () => switchTokenRef.current !== token;
-    // ВРЕМЕННО ОТКЛЮЧЕНО (2026-08-19): реальная потеря данных на живой
-    // заметке "Подарок на день рождения" — двое одновременно редактировали, у
-    // одного (iPhone Safari) браузер свернулся в фон, через пару секунд
-    // экран ВТОРОГО участника опустел, и пустой контент реально сохранился
-    // в БД (подтверждено историей версий — content метался между пустым и
-    // заполненным >20 раз за вечер). Вероятный механизм: комната Yjs
-    // (app/collab.py) эфемерна и живёт, пока жив хотя бы один клиент;
-    // фоновая отправка на мобильном сети рвёт WS без явного закрытия,
-    // клиент не переподключается сам (реконнект в этом файле, ниже,
-    // срабатывает только на INVALIDATED_CLOSE_CODE от invalidate_room, не
-    // на обычный обрыв связи) — если из-за этого клиент всё же
-    // пересоздаёт соединение и становится "сеятелем" заново с пустым/
-    // устаревшим состоянием, эта пустота уходит остальным участникам
-    // комнаты как обычный CRDT-апдейт и правда перезаписывает их экран.
-    // Не до конца локализовано (нужно живое воспроизведение на два
-    // устройства, которого у меня здесь нет) — до починки безопаснее
-    // вернуться к обычному per-save автосохранению (тот же путь, что
-    // работал для всех заметок до этой фичи), чем оставлять фичу в проде.
-    // См. [[project_realtime_collab_data_loss]] в памяти сессий.
-    const collabEligible = false; // см. комментарий выше — сознательно, не забыто
+    // 2026-08-19: живое совместное редактирование ненадолго отключалось —
+    // заметку "Подарок на день рождения" правили одновременно в двух браузерах И
+    // через Telegram-ассистента, и она несколько раз опустела. Найденная и
+    // закрытая причина: ассистентские тулы update_note/append_to_note
+    // (tools/notes.py), и два фоновых воркера (note_recording.py,
+    // transcription.py — доделывают расшифровку поверх плейсхолдера) писали
+    // в item.content НАПРЯМУЮ, в обход Yjs, и не звали
+    // collab.invalidate_room — точно тот же класс бага, что раньше уже был
+    // найден и исправлен для vision.py/pdf_processing.py/tickets.py, просто
+    // пропущенный в 4 остальных местах. Без invalidate_room открытая с живой
+    // коллаборацией заметка не узнавала о чужой правке, и следующий же
+    // автосейв из УСТАРЕВШЕГО Yjs-состояния молча затирал её обратно —
+    // отсюда и метания content между версиями. Второй, отдельный источник
+    // риска — гонка при переключении между заметками (см. isFirstLoadOfThisItem
+    // ниже) — тоже сужена. См. [[project_realtime_collab_data_loss]] в
+    // памяти сессий.
+    const collabEligible = currentSpaceIsVault === false;
 
     (async () => {
       if (collabProviderRef.current) {
@@ -402,9 +399,25 @@ export default function NoteEditor({
       // совпадает) — текущее содержимое редактора может быть тем, что
       // пользователь уже успел ввести, а не мусором от предыдущей
       // заметки: берём его за основу вместо ответа сервера.
+      // Реальный найденный баг (2026-08-19): этот же код срабатывал и при
+      // ПЕРЕКЛЮЧЕНИИ между двумя разными существующими заметками, не только
+      // при создании новой — редактор один на все заметки, и между тем, как
+      // сменился itemId, и тем, как этот эффект реально дошёл до этой
+      // строки, DOM редактора ещё показывает содержимое ПРЕДЫДУЩЕЙ заметки.
+      // Если оно было непустым, код ниже принимал его за "непойманную
+      // правку" уже НОВОЙ заметки и сохранял его поверх неё — чужой текст
+      // (или пустота, если предыдущая заметка была пуста) затирал реальное
+      // содержимое. Это и есть один из механизмов, приведших к потере
+      // контента в живой заметке (см. [[project_realtime_collab_data_loss]]
+      // в памяти сессий). Ограничиваем защиту её изначальным смыслом:
+      // "пользователь напечатал в СОВСЕМ НОВУЮ заметку до ответа сервера" —
+      // сервер для такой заметки ещё гарантированно ничего не знает, то есть
+      // item.content с сервера пуст. Если сервер уже прислал непустой
+      // content — значит редактор точно показывает не эту заметку, и его
+      // содержимое надо просто отбросить, не сохранять.
       const isFirstLoadOfThisItem = loadedItemIdRef.current !== item.id;
-      const liveMarkdown = isFirstLoadOfThisItem ? editor.storage.markdown.getMarkdown() : "";
-      const hasUnseenLocalEdit = isFirstLoadOfThisItem && liveMarkdown.trim() !== "";
+      const liveMarkdown = isFirstLoadOfThisItem && !item.content.trim() ? editor.storage.markdown.getMarkdown() : "";
+      const hasUnseenLocalEdit = liveMarkdown.trim() !== "";
       const effectiveContent = hasUnseenLocalEdit ? liveMarkdown : item.content;
 
       setTitle(item.title);
@@ -464,18 +477,29 @@ export default function NoteEditor({
     editor.setEditable(collabStatus !== "connecting" && collabStatus !== "disconnected" && collabStatus !== "stale");
   }, [editor, collabStatus]);
 
-  // Сервер разорвал комнату сам (app/collab.py::invalidate_room) — фоновый
-  // воркер поменял content заметки напрямую в БД, в обход Yjs (закончилось
-  // распознавание PDF/картинки/билета в открытой прямо сейчас заметке).
-  // Переподключаемся с ЗАНОВО запрошенным содержимым, а не тем, что было
-  // на момент предыдущего подключения — иначе следующий же автосейв из
-  // устаревшего Yjs-состояния молча затёр бы готовый результат обратно.
+  // Переподключение к живой коллаборации. Два повода:
+  //  - "stale" — сервер сам разорвал комнату (app/collab.py::invalidate_room,
+  //    фоновый воркер/ассистент поменял content в обход Yjs) — переподключаемся
+  //    сразу, без задержки.
+  //  - "disconnected" — обычный обрыв WS (реальный случай: мобильная сеть
+  //    рвёт соединение при сворачивании браузера в фон, без явного закрытия)
+  //    — раньше на этот случай реконнекта не было вообще: заметка молча
+  //      становилась read-only и не восстанавливалась сама, пока пользователь
+  //      не откроет её заново. Теперь пробуем сами, с небольшой задержкой
+  //      (не долбим сервер, если сеть правда легла надолго).
+  // В обоих случаях содержимое запрашивается ЗАНОВО с сервера, а не берётся
+  // из состояния на момент предыдущего подключения — иначе следующий же
+  // автосейв из устаревшего Yjs-состояния молча затёр бы то, что реально
+  // изменилось, пока связи не было.
   useEffect(() => {
-    if (collabStatus !== "stale" || !editor || !item) return;
+    if ((collabStatus !== "stale" && collabStatus !== "disconnected") || !editor || !item) return;
     const token = ++switchTokenRef.current;
     const isStaleAttempt = () => switchTokenRef.current !== token;
+    const reconnectDelayMs = collabStatus === "disconnected" ? 2000 : 0;
 
-    (async () => {
+    const timer = setTimeout(() => {
+      if (isStaleAttempt()) return;
+      void (async () => {
       if (collabProviderRef.current) {
         detachCollab(editor, collabProviderRef.current);
         collabProviderRef.current = null;
@@ -507,7 +531,9 @@ export default function NoteEditor({
       collabItemIdRef.current = item.id;
       setContent(freshContent);
       savedRef.current = { ...savedRef.current, content: freshContent };
-    })();
+      })();
+    }, reconnectDelayMs);
+    return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [collabStatus]);
 

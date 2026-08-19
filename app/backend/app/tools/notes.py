@@ -7,7 +7,7 @@ from typing import Any
 from fastapi import HTTPException
 from sqlalchemy import func, select
 
-from app import realtime
+from app import collab, realtime
 from app.deps import ensure_space_access, is_vault_space
 from app.llm.base import ToolDefinition
 from app.models import Folder, Item, ItemTag, ItemVersion, Space, SpaceMember, Tag
@@ -194,6 +194,14 @@ async def update_note(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
     await ctx.db.commit()
     await ctx.db.refresh(item)
     await realtime.notify_space(item.space_id, "items")
+    # Заметка могла быть открыта с живой коллаборацией (Yjs) — её Y.Doc
+    # ничего не знает про эту правку в обход WS-протокола, см.
+    # collab.invalidate_room. Тот же баг, что уже был найден и закрыт для
+    # фоновых воркеров (vision.py/pdf_processing.py/tickets.py), но не для
+    # правок самого ассистента — реальный случай потери контента: заметку
+    # редактировали и в браузере, и через ассистента одновременно.
+    if content_changed:
+        await collab.invalidate_room(item.id)
     return {"id": str(item.id), "title": item.title}
 
 
@@ -232,6 +240,8 @@ async def append_to_note(ctx: ToolContext, args: dict[str, Any]) -> dict[str, An
     await ctx.db.commit()
     await ctx.db.refresh(item)
     await realtime.notify_space(item.space_id, "items")
+    # См. комментарий в update_note выше — та же причина.
+    await collab.invalidate_room(item.id)
     return {"id": str(item.id), "title": item.title, "content": item.content}
 
 

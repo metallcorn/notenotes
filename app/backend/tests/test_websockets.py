@@ -1,7 +1,12 @@
+import uuid
+
 import y_py as Y
 import websockets
 
+from app import collab
 from app.security import create_session_token
+from app.tools.notes import append_to_note, update_note
+from app.tools.registry import ToolContext
 
 
 def _cookie_header(user_id) -> list[tuple[str, str]]:
@@ -95,6 +100,55 @@ async def test_collab_ws_seed_and_sync_between_two_clients(live_server, auth_cli
             doc2 = Y.YDoc()
             Y.apply_update(doc2, msg2[1:])
             assert str(doc2.get_text("content")) == "seeded content"
+
+
+async def test_assistant_update_note_invalidates_live_collab_room(live_server, auth_client, test_user, db_session):
+    # Реальный найденный баг (2026-08-19): заметку одновременно правили в
+    # браузере (живая коллаборация) и через Telegram-ассистента — тул
+    # update_note писал в item.content напрямую, в обход Yjs, не разрывая
+    # комнату, и следующий же автосейв из устаревшего Yjs-состояния молча
+    # затирал правку ассистента обратно. Та же причина, что была уже
+    # исправлена для vision.py/pdf_processing.py/tickets.py — здесь
+    # проверяем, что update_note теперь тоже зовёт collab.invalidate_room.
+    r = await auth_client.post("/api/spaces", json={"name": "WS collab assistant space"})
+    space_id = r.json()["id"]
+    r = await auth_client.post("/api/items", json={"space_id": space_id, "title": "T", "content": "hello"})
+    item_id = r.json()["id"]
+
+    uri = f"{live_server}/api/items/{item_id}/collab"
+    async with websockets.connect(uri, extra_headers=_cookie_header(test_user.id)) as ws:
+        msg = await ws.recv()
+        assert msg[0] == 3  # MSG_SEED_REQUEST — клиент уже зарегистрирован в комнате
+
+        ctx = ToolContext(db=db_session, user_id=test_user.id, space_id=uuid.UUID(space_id))
+        await update_note(ctx, {"item_id": item_id, "content": "changed via assistant"})
+
+        try:
+            await ws.recv()
+            assert False, "ожидали, что правка ассистента разорвёт живую комнату"
+        except websockets.exceptions.ConnectionClosedError as e:
+            assert e.code == collab.INVALIDATED_CLOSE_CODE
+
+
+async def test_assistant_append_to_note_invalidates_live_collab_room(live_server, auth_client, test_user, db_session):
+    r = await auth_client.post("/api/spaces", json={"name": "WS collab assistant space 2"})
+    space_id = r.json()["id"]
+    r = await auth_client.post("/api/items", json={"space_id": space_id, "title": "T", "content": "hello"})
+    item_id = r.json()["id"]
+
+    uri = f"{live_server}/api/items/{item_id}/collab"
+    async with websockets.connect(uri, extra_headers=_cookie_header(test_user.id)) as ws:
+        msg = await ws.recv()
+        assert msg[0] == 3  # MSG_SEED_REQUEST
+
+        ctx = ToolContext(db=db_session, user_id=test_user.id, space_id=uuid.UUID(space_id))
+        await append_to_note(ctx, {"item_id": item_id, "text": "дописано ассистентом"})
+
+        try:
+            await ws.recv()
+            assert False, "ожидали, что правка ассистента разорвёт живую комнату"
+        except websockets.exceptions.ConnectionClosedError as e:
+            assert e.code == collab.INVALIDATED_CLOSE_CODE
 
 
 async def test_collab_ws_rejects_vault_space(live_server, auth_client, test_user):
