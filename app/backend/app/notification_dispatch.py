@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from sqlalchemy import delete, select
 
 from app import realtime, telegram_bot
+from app.core.config import get_settings
 from app.db import async_session
 from app.models import Notification, PushSubscription, TelegramLink
 from app.push import send_push
@@ -35,7 +36,16 @@ async def _dispatch_one(notification: Notification, db) -> None:
         await db.execute(select(TelegramLink.chat_id).where(TelegramLink.user_id == notification.user_id))
     ).scalar_one_or_none()
     if link is not None:
-        await telegram_bot.send_message(link, text)
+        # Та же кнопка "Открыть", что веб рисует у себя в центре уведомлений
+        # (клик — чисто клиентская навигация, AppShell.tsx::openReminder) —
+        # тут ссылка холодная (?item=), без подсветки конкретного пункта
+        # списка/якоря в заметке, но открывает нужную заметку/список сразу.
+        reply_markup = None
+        item_id = (notification.payload or {}).get("item_id")
+        if item_id:
+            base_url = get_settings().public_base_url.rstrip("/")
+            reply_markup = {"inline_keyboard": [[{"text": "Открыть", "url": f"{base_url}/?item={item_id}"}]]}
+        await telegram_bot.send_message(link, text, reply_markup=reply_markup)
 
     subscriptions = (
         await db.execute(select(PushSubscription).where(PushSubscription.user_id == notification.user_id))

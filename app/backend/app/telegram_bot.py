@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import re
 import time
@@ -18,6 +19,7 @@ from app.core.config import get_settings
 from app.db import async_session
 from app.models import Folder, Item, Space, SpaceMember, TelegramLink, TelegramLinkCode, Upload, User
 from app.note_formatting import linkify_notes_content
+from app.routers.calendar import build_ics
 from app.pdf_processing import AUTO_OCR_MAX_PDF_BYTES
 from app.pdf_processing import enqueue_ocr as enqueue_pdf_ocr
 from app.pdf_processing import extract_text as extract_pdf_text
@@ -196,6 +198,50 @@ async def send_message(chat_id: int, text: str, reply_markup: dict | None = None
             await client.post(_api_url("sendMessage"), json=payload)
         except Exception:
             logger.exception("Не удалось отправить сообщение в Telegram chat_id=%s", chat_id)
+
+
+async def send_photo(chat_id: int, photo_url: str) -> None:
+    # photo — обычная URL-строка, Telegram сам её скачивает на своей
+    # стороне (тот же приём, что для link-preview у обычных ссылок) — не
+    # нужно самим качать/заливать байты картинки.
+    settings = get_settings()
+    if not settings.telegram_bot_token:
+        return
+    async with httpx.AsyncClient(timeout=30) as client:
+        try:
+            await client.post(_api_url("sendPhoto"), json={"chat_id": chat_id, "photo": photo_url})
+        except Exception:
+            logger.exception("Не удалось отправить фото в Telegram chat_id=%s", chat_id)
+
+
+async def send_media_group(chat_id: int, photo_urls: list[str]) -> None:
+    # Без caption на группе — у sendMediaGroup общий лимит подписи на всё
+    # альбом сразу, а не на каждую картинку, проще и безопаснее прислать
+    # текстовый ответ отдельным сообщением следом (см. _handle_assistant_message).
+    settings = get_settings()
+    if not settings.telegram_bot_token or not photo_urls:
+        return
+    media = [{"type": "photo", "media": url} for url in photo_urls[:10]]
+    async with httpx.AsyncClient(timeout=30) as client:
+        try:
+            await client.post(_api_url("sendMediaGroup"), json={"chat_id": chat_id, "media": media})
+        except Exception:
+            logger.exception("Не удалось отправить альбом в Telegram chat_id=%s", chat_id)
+
+
+async def send_document_bytes(chat_id: int, filename: str, content: bytes, mime_type: str) -> None:
+    settings = get_settings()
+    if not settings.telegram_bot_token:
+        return
+    async with httpx.AsyncClient(timeout=30) as client:
+        try:
+            await client.post(
+                _api_url("sendDocument"),
+                data={"chat_id": str(chat_id)},
+                files={"document": (filename, content, mime_type)},
+            )
+        except Exception:
+            logger.exception("Не удалось отправить файл в Telegram chat_id=%s", chat_id)
 
 
 async def answer_callback_query(callback_query_id: str) -> None:
@@ -769,6 +815,66 @@ async def _transcribe_voice_only(message: dict) -> str:
         return ""
 
 
+# Веб (AssistantChat.tsx) после create_note/create_list/create_table рисует
+# кнопку "Открыть «Title»", после create_maps_link — кнопку на Google Maps.
+# Тот же результат тула уже есть в истории диалога (records роли "tool",
+# content — JSON-строка) — просто раньше никто в Telegram-стороне его не
+# читал. _ITEM_LINK_TOOLS — те, что возвращают {id, title} самостоятельного
+# item'а, на который можно ссылаться через ?item= (тот же query-param,
+# что уже читает AppShell.tsx для навигации).
+_ITEM_LINK_TOOLS = {"create_note", "create_list", "create_table"}
+_IMAGE_MD_RE = re.compile(r"!\[[^\]]*\]\((/api/uploads/[^)\s]+)\)")
+
+
+def _build_action_buttons(new_records: list[dict], base_url: str) -> list[list[dict]]:
+    tool_results: dict[str, dict] = {}
+    for r in new_records:
+        if r.get("role") == "tool" and r.get("tool_call_id"):
+            try:
+                tool_results[r["tool_call_id"]] = json.loads(r.get("content") or "{}")
+            except (json.JSONDecodeError, TypeError):
+                continue
+
+    rows: list[list[dict]] = []
+    for r in new_records:
+        if r.get("role") != "assistant":
+            continue
+        for tc in r.get("tool_calls", []):
+            result = tool_results.get(tc.get("id"))
+            if not isinstance(result, dict) or result.get("error"):
+                continue
+            name = tc.get("name")
+            if name in _ITEM_LINK_TOOLS and result.get("id") and result.get("title"):
+                rows.append(
+                    [{"text": f"Открыть «{str(result['title'])[:60]}»", "url": f"{base_url}/?item={result['id']}"}]
+                )
+            elif name == "create_maps_link" and result.get("url"):
+                rows.append([{"text": "Открыть в Google Maps", "url": result["url"]}])
+    return rows
+
+
+def _find_calendar_event(new_records: list[dict]) -> dict | None:
+    for r in new_records:
+        if r.get("role") != "tool" or r.get("name") != "create_calendar_event":
+            continue
+        try:
+            result = json.loads(r.get("content") or "{}")
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if isinstance(result, dict) and result.get("title") and result.get("start") and result.get("end"):
+            return result
+    return None
+
+
+def _extract_image_paths(text: str) -> tuple[str, list[str]]:
+    """Markdown-картинки (![](/api/uploads/<id>)) Telegram не разворачивает
+    сам — вырезаем синтаксис из текста и возвращаем пути отдельно, чтобы
+    отправить их настоящими фото (см. send_photo/send_media_group)."""
+    paths = _IMAGE_MD_RE.findall(text)
+    stripped = _IMAGE_MD_RE.sub("", text).strip()
+    return stripped, paths
+
+
 async def _handle_assistant_message(db: AsyncSession, link: TelegramLink, text: str) -> None:
     dialog: Item | None = None
     if link.active_dialog_id is not None:
@@ -789,16 +895,47 @@ async def _handle_assistant_message(db: AsyncSession, link: TelegramLink, text: 
         await db.commit()
 
     user = await db.get(User, link.user_id)
+    history_len = len(dialog.properties.get("messages", []))
     records = await run_dialog_turn(db, user, dialog, text)
+    new_records = records[history_len:]
 
     last = records[-1] if records and records[-1]["role"] == "assistant" else None
     reply_text = ((last or {}).get("content") or "").strip() or "…"
     options = (last or {}).get("suggested_replies") or []
-    reply_markup = None
-    if options:
-        reply_markup = {
-            "inline_keyboard": [[{"text": opt[:64], "callback_data": f"sr:{i}"}] for i, opt in enumerate(options[:8])]
-        }
+
+    settings = get_settings()
+    base_url = settings.public_base_url.rstrip("/")
+
+    reply_text, image_paths = _extract_image_paths(reply_text)
+    if len(image_paths) == 1:
+        await send_photo(link.chat_id, f"{base_url}{image_paths[0]}")
+    elif len(image_paths) > 1:
+        await send_media_group(link.chat_id, [f"{base_url}{p}" for p in image_paths])
+    if not reply_text:
+        reply_text = "…"
+
+    # create_calendar_event не отдаёт готовую ссылку — веб сам собирает
+    # .ics на фронтенде из структурированных данных тула. Ссылка на
+    # /api/calendar/event.ics потребовала бы сессионную куку браузера,
+    # которой у обычного клика в Telegram нет — собираем те же байты
+    # (build_ics — общий код с routers/calendar.py) и шлём файлом.
+    event = _find_calendar_event(new_records)
+    if event is not None:
+        ics = build_ics(
+            str(event["title"]),
+            str(event["start"]),
+            str(event["end"]),
+            bool(event.get("all_day", False)),
+            str(event.get("location", "")),
+            str(event.get("description", "")),
+        )
+        await send_document_bytes(link.chat_id, "event.ics", ics.encode("utf-8"), "text/calendar")
+
+    action_rows = _build_action_buttons(new_records, base_url)
+    reply_rows = [[{"text": opt[:64], "callback_data": f"sr:{i}"}] for i, opt in enumerate(options[:8])]
+    keyboard = action_rows + reply_rows
+    reply_markup = {"inline_keyboard": keyboard} if keyboard else None
+
     await send_message(link.chat_id, reply_text, reply_markup=reply_markup)
 
 

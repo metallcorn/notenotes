@@ -28,16 +28,13 @@ def _ics_date(value: str, all_day: bool) -> str:
     return dt.strftime("%Y%m%dT%H%M%S")
 
 
-@router.get("/event.ics")
-async def event_ics(
-    title: str = Query(...),
-    start: str = Query(...),
-    end: str = Query(...),
-    all_day: bool = Query(False),
-    location: str = Query(""),
-    description: str = Query(""),
-    user: User = Depends(get_current_user),
-) -> Response:
+def build_ics(
+    title: str, start: str, end: str, all_day: bool = False, location: str = "", description: str = ""
+) -> str:
+    """Собирает .ics-текст события — общая логика для веб-эндпоинта ниже
+    (отдаётся по ссылке, авторизованной сессионной кукой) и для
+    telegram_bot.py (шлёт те же байты файлом — у Telegram-ссылки на
+    /event.ics нет куки браузера, поэтому там нужен сам файл, не ссылка)."""
     lines = [
         "BEGIN:VCALENDAR",
         "VERSION:2.0",
@@ -55,7 +52,20 @@ async def event_ics(
     if description:
         lines.append(f"DESCRIPTION:{_escape(description)}")
     lines += ["END:VEVENT", "END:VCALENDAR"]
-    ics = "\r\n".join(lines)
+    return "\r\n".join(lines)
+
+
+@router.get("/event.ics")
+async def event_ics(
+    title: str = Query(...),
+    start: str = Query(...),
+    end: str = Query(...),
+    all_day: bool = Query(False),
+    location: str = Query(""),
+    description: str = Query(""),
+    user: User = Depends(get_current_user),
+) -> Response:
+    ics = build_ics(title, start, end, all_day, location, description)
     return Response(
         content=ics,
         media_type="text/calendar",
