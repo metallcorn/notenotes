@@ -432,6 +432,19 @@ async def move_item_space(
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Перенос доступен только для заметок, списков, билетов и таблиц")
 
     if payload.space_id == item.space_id:
+        # Тот же спейс, но другая (в т.ч. вложенная) папка — реальный
+        # найденный баг: этот ранний return раньше отдавал item как есть,
+        # молча игнорируя folder_id, если MoveItemModal нацеливался на
+        # текущий спейс ("visually correct, but doesn't work" — клик
+        # проходил, модалка закрывалась, а заметка оставалась на месте).
+        if payload.folder_id is not None:
+            target_folder = await db.get(Folder, payload.folder_id)
+            if target_folder is None or target_folder.space_id != payload.space_id:
+                raise HTTPException(status.HTTP_400_BAD_REQUEST, "Папка вне этого спейса")
+        item.folder_id = payload.folder_id
+        await db.commit()
+        await db.refresh(item)
+        await realtime.notify_space(item.space_id, "items")
         return await _serialize(db, item, user.id)
 
     # Доступ к ЦЕЛЕВОМУ спейсу — без этого можно было бы закинуть заметку

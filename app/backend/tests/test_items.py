@@ -93,6 +93,22 @@ async def test_move_item_into_folder_of_target_space_in_one_step(auth_client):
     assert r.json()["folder_id"] == folder_id
 
 
+async def test_move_item_into_folder_of_same_space(auth_client):
+    # Реальный найденный баг: ранний return на "space_id == item.space_id"
+    # молча игнорировал folder_id — клик по вложенной папке ТЕКУЩЕГО спейса
+    # в MoveItemModal ничего не делал ("visually correct, but doesn't work").
+    space_a = await _make_space(auth_client, name="A")
+    folder_id = (await auth_client.post("/api/folders", json={"space_id": space_a, "name": "Концерты"})).json()["id"]
+    item_id = (
+        await auth_client.post("/api/items", json={"space_id": space_a, "title": "T", "content": "x"})
+    ).json()["id"]
+
+    r = await auth_client.post(f"/api/items/{item_id}/move", json={"space_id": space_a, "folder_id": folder_id})
+    assert r.status_code == 200
+    assert r.json()["space_id"] == space_a
+    assert r.json()["folder_id"] == folder_id
+
+
 async def test_move_item_rejects_folder_from_wrong_space(auth_client):
     space_a = await _make_space(auth_client, name="A")
     space_b = await _make_space(auth_client, name="B")
