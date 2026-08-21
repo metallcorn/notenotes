@@ -53,6 +53,7 @@ import ImageGallery from "./ImageGallery";
 import ImageLightbox from "./ImageLightbox";
 import PromptDialog from "./PromptDialog";
 import Spinner from "./Spinner";
+import DeliveryCard, { type DeliveryData } from "./DeliveryCard";
 
 // Живой ASR-стрим (Palabra) поверх WebSocket /api/voice/asr-stream: браузер
 // шлёт сырые PCM s16le-фреймы, сервер ретранслирует их в Palabra и гоняет
@@ -536,6 +537,54 @@ function LinkPreviewResultCards({
     <div className="mt-1.5 flex flex-col gap-1.5">
       {urls.map((url) => (
         <ChatLinkPreviewCard key={url} url={url} />
+      ))}
+    </div>
+  );
+}
+
+// Карточки доставки из вызовов track_delivery. Берём cardToolCalls (только
+// последний раунд), а не все tool_calls — как LinkPreviewResultCards, чтобы
+// не рисовать карточки для номеров, которые модель проверила и отбросила по
+// пути. Несколько посылок за ход → несколько карточек стопкой.
+function collectDeliveries(
+  message: DialogMessage & { cardToolCalls: ToolCall[] },
+  results: DialogMessage[],
+): DeliveryData[] {
+  const out: DeliveryData[] = [];
+  for (const tc of message.cardToolCalls) {
+    if (tc.name !== "track_delivery") continue;
+    const result = results.find((r) => r.tool_call_id === tc.id);
+    if (!result) continue;
+    try {
+      const parsed = JSON.parse(result.content) as DeliveryData & { error?: string };
+      if (parsed.error) continue;
+      out.push(parsed);
+    } catch {
+      // молча пропускаем — не тот формат результата
+    }
+  }
+  return out;
+}
+
+function DeliveryResultCards({
+  message,
+  results,
+}: {
+  message: DialogMessage & { cardToolCalls: ToolCall[] };
+  results: DialogMessage[];
+}) {
+  const deliveries = useMemo(
+    () => collectDeliveries(message, results),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [message.cardToolCalls, results],
+  );
+
+  if (deliveries.length === 0) return null;
+
+  return (
+    <div className="mt-1.5 flex flex-col gap-1.5">
+      {deliveries.map((d, i) => (
+        <DeliveryCard key={`${d.tracking_number ?? "d"}-${i}`} data={d} />
       ))}
     </div>
   );
@@ -1644,6 +1693,9 @@ export default function AssistantChat({
                 )}
                 {message.cardToolCalls.length > 0 && (
                   <LinkPreviewResultCards message={message} results={allToolResults} />
+                )}
+                {message.cardToolCalls.length > 0 && (
+                  <DeliveryResultCards message={message} results={allToolResults} />
                 )}
                 {message.role === "assistant" && message.content && (
                   <div className="flex items-center gap-0.5">
