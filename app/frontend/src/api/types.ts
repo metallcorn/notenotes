@@ -189,12 +189,15 @@ export interface UploadResult {
   has_thumbnail: boolean;
 }
 
-// Виджет «Проверить по ссылке» (UrlCheckCard.tsx) — ответ на кнопку
-// «Обновить».
-export interface UrlCheckFetchResult {
-  status_code: number | null;
-  body: string | null;
-  error: string | null;
+// Виджет «Проверить по ссылке» (UrlCheckCard.tsx) — состояние читается
+// с бэкенда по id (url_check_widgets), не хранится в content заметки.
+export interface UrlCheckWidgetState {
+  url: string;
+  fields: { path: string; label: string }[];
+  last_result: string | null;
+  last_fetched_at: string | null;
+  last_status: number | null;
+  has_credentials: boolean;
 }
 
 export interface ItemVersion {

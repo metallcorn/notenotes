@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, String, Text, UniqueConstraint, func
+from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -395,3 +395,30 @@ class AssistantMemory(Base):
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     content: Mapped[str] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+
+class UrlCheckWidget(Base):
+    """Состояние виджета «Проверить по ссылке» (tools/url_check.py) — url,
+    поля, заголовки авторизации И результат последнего запроса. Раньше всё
+    это (включая целиком тело последнего ответа, до 512 КБ) лежало прямо в
+    content заметки — два реальных найденных следствия: 1) заголовки
+    авторизации открытым текстом видны всем с доступом к спейсу и в
+    бэкапах; 2) каждый клик «Обновить» гонял этот блоб через Yjs и
+    создавал новый ItemVersion СО СТАРЫМ блобом внутри — чистое раздувание
+    истории версий безо всякой пользы (обновление статуса заказа — не то,
+    что нужно уметь откатывать). В заметке теперь только data-url-check-id
+    (ссылка сюда) — и создание, и «Обновить» читают/пишут эту таблицу
+    напрямую, не трогая content/Yjs/ItemVersion вообще. CASCADE на item —
+    виджет умирает вместе с заметкой."""
+
+    __tablename__ = "url_check_widgets"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    item_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("items.id", ondelete="CASCADE"), index=True)
+    url: Mapped[str] = mapped_column(Text)
+    fields: Mapped[list] = mapped_column(JSONB)
+    headers: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    last_result: Mapped[str | None] = mapped_column(Text, nullable=True)
+    last_fetched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_status: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-import json
 from datetime import datetime, timezone
 from typing import Any
 
 from app import collab, realtime
 from app.llm.base import ToolDefinition
-from app.models import ItemVersion
+from app.models import ItemVersion, UrlCheckWidget
 from app.tools.notes import _get_item_cross_space
 from app.tools.registry import ToolContext, ToolError
 from app.url_check import check_url
@@ -76,16 +75,14 @@ INSERT_URL_CHECK_BLOCK = ToolDefinition(
         "Делает свежий запрос сама, виджет появится сразу с реальными данными. "
         "ВЫЗЫВАЙ ТОЛЬКО после того, как показал пользователю предложенные поля в чате "
         "и получил явное согласие — как с create_reminder, не молча.\n\n"
-        "headers (авторизованные ссылки): виджет ПОСТОЯННЫЙ, кнопка «Обновить» "
-        "перезапрашивает URL позже — значит headers, в отличие от test_url_request, "
-        "СОХРАНЯЮТСЯ открытым текстом в самой заметке (видно всем с доступом к "
-        "спейсу, в исходнике страницы, в бэкапах). Если пользователь просит "
-        "авторизованную проверку — прежде чем звать этот тул с headers, ОБЯЗАТЕЛЬНО "
-        "явно предупреди об этом в чате именно этими словами по смыслу ('токен "
-        "сохранится в тексте заметки открытым текстом — видно всем, у кого есть "
-        "доступ к этому спейсу, и попадёт в бэкапы') и получи отдельное явное "
-        "согласие НА ЭТО, отдельно от согласия на сами поля. Без этого "
-        "предупреждения headers не передавай, даже если пользователь их дал."
+        "headers (авторизованные ссылки): url/поля/заголовки/результат живут отдельно "
+        "от текста заметки (в заметке — только непрозрачная ссылка на виджет), сам "
+        "токен не виден в содержимом заметки, в исходнике страницы и т.п. Но кнопка "
+        "«Обновить» перезапрашивает URL позже ОТ ИМЕНИ этого сохранённого токена — то "
+        "есть им сможет пользоваться (не увидеть значение, но применить для этого "
+        "запроса) кто угодно с доступом к этому спейсу. Если пользователь просит "
+        "авторизованную проверку — упомяни это коротко в чате перед вызовом (не нужен "
+        "отдельный долгий диалог, но и не молча)."
     ),
     parameters={
         "type": "object",
@@ -108,8 +105,8 @@ INSERT_URL_CHECK_BLOCK = ToolDefinition(
                 "type": "object",
                 "description": (
                     "Опционально, только после явного предупреждения пользователя (см. "
-                    "выше) и его согласия именно на хранение — заголовки авторизации, "
-                    "сохраняются с виджетом для будущих обновлений."
+                    "выше) — заголовки авторизации, сохраняются с виджетом для будущих "
+                    "обновлений."
                 ),
                 "additionalProperties": {"type": "string"},
             },
@@ -119,24 +116,12 @@ INSERT_URL_CHECK_BLOCK = ToolDefinition(
 )
 
 
-def _esc(s: str) -> str:
-    # Тот же порядок экранирования, что у serialize_document_attachment
-    # (pdf_processing.py) — весь тег должен остаться на одной строке.
-    return s.replace("&", "&amp;").replace("\n", "&#10;").replace('"', "&quot;")
-
-
-def serialize_url_check(
-    url: str, fields: list[dict], body: str | None, status_code: int | None, headers: dict[str, str] | None = None
-) -> str:
-    parts = [f'data-url="{_esc(url)}"', f'data-fields="{_esc(json.dumps(fields, ensure_ascii=False))}"']
-    if headers:
-        parts.append(f'data-headers="{_esc(json.dumps(headers, ensure_ascii=False))}"')
-    if body is not None:
-        parts.append(f'data-last-result="{_esc(body)}"')
-        parts.append(f'data-last-fetched-at="{_esc(datetime.now(timezone.utc).isoformat())}"')
-    if status_code is not None:
-        parts.append(f'data-last-status="{status_code}"')
-    return f"<div data-url-check {' '.join(parts)}></div>"
+def serialize_url_check(widget_id: object) -> str:
+    # Единственное, что живёт в content: непрозрачная ссылка на
+    # UrlCheckWidget — url/поля/заголовки/результат последнего запроса
+    # больше не проходят через content/Yjs/ItemVersion вообще (см.
+    # models.py::UrlCheckWidget про то, что это чинит).
+    return f'<div data-url-check data-url-check-id="{widget_id}"></div>'
 
 
 async def insert_url_check_block(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
@@ -161,7 +146,19 @@ async def insert_url_check_block(ctx: ToolContext, args: dict[str, Any]) -> dict
     body = result.get("body")
     status_code = result.get("status_code")
 
-    block = serialize_url_check(url, fields, body, status_code, headers)
+    widget = UrlCheckWidget(
+        item_id=item.id,
+        url=url,
+        fields=fields,
+        headers=headers,
+        last_result=body,
+        last_fetched_at=datetime.now(timezone.utc) if body is not None else None,
+        last_status=status_code,
+    )
+    ctx.db.add(widget)
+    await ctx.db.flush()
+
+    block = serialize_url_check(widget.id)
 
     ctx.db.add(ItemVersion(item_id=item.id, title=item.title, content=item.content, author_id=ctx.user_id))
     item.content = f"{item.content.rstrip()}\n\n{block}" if item.content.strip() else block
@@ -172,7 +169,8 @@ async def insert_url_check_block(ctx: ToolContext, args: dict[str, Any]) -> dict
     # Тот же баг, что уже был найден и закрыт для update_note/append_to_note
     # (tools/notes.py) и routers/items.py::revert_version — пишет content
     # напрямую, в обход Yjs; без этого блок проверки ссылки не долетал бы
-    # до заметки с открытой живой коллаборацией.
+    # до заметки с открытой живой коллаборацией. Только здесь, при создании
+    # — «Обновить» (routers/url_checks.py) больше не трогает content вовсе.
     await collab.invalidate_room(item.id)
     return {
         "id": str(item.id),

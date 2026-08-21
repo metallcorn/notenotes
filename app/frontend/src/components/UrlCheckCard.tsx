@@ -2,14 +2,9 @@ import { useRef, useState } from "react";
 import { NodeViewWrapper } from "@tiptap/react";
 import type { NodeViewProps } from "@tiptap/react";
 import { ChevronDown, ChevronUp, KeyRound, Link2, RotateCw } from "lucide-react";
-import { useCheckUrl } from "../api/hooks";
+import { useRefreshUrlCheckWidget, useUrlCheckWidget } from "../api/hooks";
 import { ExpandedTextPanel } from "./RecognizedTextView";
 import Spinner from "./Spinner";
-
-interface UrlCheckField {
-  path: string;
-  label: string;
-}
 
 // Безопасный резолвер dot-path — "passportStatus.name" по
 // {"passportStatus": {"name": "..."}} — отсутствующий/некорректный путь
@@ -39,25 +34,32 @@ function parseJsonSafe(text: string | null): unknown {
 
 // Виджет «Проверить по ссылке» — вставляется только ассистентом
 // (tools/url_check.py::insert_url_check_block, после того как пользователь
-// в чате подтвердил предложенные поля). Здесь только показ и «Обновить» —
-// прямой REST-запрос (useCheckUrl), без ассистента: обновление данных не
-// требует LLM.
-export default function UrlCheckCard({ node, editor }: NodeViewProps) {
-  const { url, fields: fieldsRaw, lastResult, lastFetchedAt, lastStatus, headers: headersRaw } = node.attrs as {
-    url: string;
-    fields: string;
-    lastResult: string | null;
-    lastFetchedAt: string | null;
-    lastStatus: number | null;
-    headers?: string;
-  };
+// в чате подтвердил предложенные поля). В content заметки лежит только id
+// узла — реальное состояние (url/поля/заголовки авторизации/результат)
+// живёт в url_check_widgets на бэкенде и подтягивается сюда при монтировании
+// (useUrlCheckWidget), а «Обновить» (useRefreshUrlCheckWidget) обновляет
+// ТОЛЬКО эту запись — ни content, ни Yjs, ни история версий не задеты.
+export default function UrlCheckCard({ node }: NodeViewProps) {
+  const { id } = node.attrs as { id: string | null };
   const [expanded, setExpanded] = useState(false);
   const cardRef = useRef<HTMLDivElement>(null);
-  const checkUrl = useCheckUrl();
+  const { data: widget, isLoading } = useUrlCheckWidget(id ?? undefined);
+  const refresh = useRefreshUrlCheckWidget(id ?? undefined);
 
-  const fields = (parseJsonSafe(fieldsRaw) as UrlCheckField[] | null) ?? [];
+  if (!id) return null;
+
+  if (isLoading || !widget) {
+    return (
+      <NodeViewWrapper as="div" className="my-1">
+        <div className="max-w-md overflow-hidden rounded border bg-slate-50 px-3 py-2 text-xs text-slate-400">
+          <Spinner size={12} className="mr-1 inline" /> Загрузка…
+        </div>
+      </NodeViewWrapper>
+    );
+  }
+
+  const { url, fields, last_result: lastResult, last_fetched_at: lastFetchedAt, last_status: lastStatus, has_credentials: hasCredentials } = widget;
   const parsed = parseJsonSafe(lastResult);
-  const headers = (parseJsonSafe(headersRaw ?? null) as Record<string, string> | null) ?? undefined;
 
   const domain = (() => {
     try {
@@ -66,18 +68,6 @@ export default function UrlCheckCard({ node, editor }: NodeViewProps) {
       return url;
     }
   })();
-
-  async function handleRefresh() {
-    const result = await checkUrl.mutateAsync({ url, headers });
-    editor
-      .chain()
-      .updateAttributes("urlCheck", {
-        lastResult: result.error ? lastResult : (result.body ?? null),
-        lastFetchedAt: result.error ? lastFetchedAt : new Date().toISOString(),
-        lastStatus: result.error ? lastStatus : (result.status_code ?? null),
-      })
-      .run();
-  }
 
   const prettyJson = parsed !== null ? JSON.stringify(parsed, null, 2) : (lastResult ?? "");
 
@@ -89,12 +79,12 @@ export default function UrlCheckCard({ node, editor }: NodeViewProps) {
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-1 truncate text-sm font-medium text-slate-800">
               {domain}
-              {headers && Object.keys(headers).length > 0 && (
+              {hasCredentials && (
                 <span
-                  title="Хранит заголовки авторизации открытым текстом — видно всем с доступом к спейсу"
+                  title="Использует сохранённые заголовки авторизации — доступны всем с доступом к спейсу для этого запроса"
                   className="shrink-0"
                 >
-                  <KeyRound size={11} className="text-amber-500" aria-label="Хранит заголовки авторизации" />
+                  <KeyRound size={11} className="text-amber-500" aria-label="Использует сохранённую авторизацию" />
                 </span>
               )}
             </div>
@@ -104,12 +94,12 @@ export default function UrlCheckCard({ node, editor }: NodeViewProps) {
             </div>
           </div>
           <button
-            onClick={handleRefresh}
-            disabled={checkUrl.isPending}
+            onClick={() => refresh.mutate()}
+            disabled={refresh.isPending}
             title="Обновить"
             className="flex h-8 w-8 shrink-0 items-center justify-center text-slate-400 hover:text-slate-700 disabled:opacity-50"
           >
-            {checkUrl.isPending ? <Spinner size={14} /> : <RotateCw size={14} />}
+            {refresh.isPending ? <Spinner size={14} /> : <RotateCw size={14} />}
           </button>
         </div>
 
@@ -124,7 +114,7 @@ export default function UrlCheckCard({ node, editor }: NodeViewProps) {
           </div>
         )}
 
-        {checkUrl.isError && <div className="border-t px-3 py-1.5 text-xs text-red-600">Не удалось обновить</div>}
+        {refresh.isError && <div className="border-t px-3 py-1.5 text-xs text-red-600">Не удалось обновить</div>}
 
         {lastResult && (
           <button

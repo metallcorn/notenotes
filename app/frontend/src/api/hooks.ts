@@ -32,7 +32,7 @@ import type {
   Tag,
   TableDetail,
   UploadResult,
-  UrlCheckFetchResult,
+  UrlCheckWidgetState,
   User,
   VaultUnlockInfo,
 } from "./types";
@@ -1171,13 +1171,24 @@ export function useReprocessUpload() {
   });
 }
 
-// Кнопка «Обновить» на виджете «Проверить по ссылке» (UrlCheckCard.tsx) —
-// прямой REST, без участия ассистента (тот нужен только один раз, при
-// создании блока, tools/url_check.py::insert_url_check_block).
-export function useCheckUrl() {
+// Виджет «Проверить по ссылке» (UrlCheckCard.tsx) — состояние (url/поля/
+// заголовки авторизации/результат) живёт на бэкенде (url_check_widgets),
+// в content заметки только id: гидратация при монтировании узла + кнопка
+// «Обновить», оба прямой REST без участия ассистента (тот нужен только
+// один раз, при создании, tools/url_check.py::insert_url_check_block).
+export function useUrlCheckWidget(id: string | undefined) {
+  return useQuery<UrlCheckWidgetState>({
+    queryKey: ["url-check-widget", id],
+    queryFn: () => api.get<UrlCheckWidgetState>(`/url-checks/${id}`),
+    enabled: !!id,
+  });
+}
+
+export function useRefreshUrlCheckWidget(id: string | undefined) {
+  const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ url, headers }: { url: string; headers?: Record<string, string> }) =>
-      api.post<UrlCheckFetchResult>("/url-checks/fetch", { url, headers }),
+    mutationFn: () => api.post<UrlCheckWidgetState>(`/url-checks/${id}/refresh`),
+    onSuccess: (data) => qc.setQueryData(["url-check-widget", id], data),
   });
 }
 

@@ -1,12 +1,14 @@
+from datetime import datetime
+
 from pydantic import BaseModel
 
 
-class UrlCheckFetchIn(BaseModel):
+class UrlCheckWidgetOut(BaseModel):
     url: str
-    headers: dict[str, str] | None = None
-
-
-class UrlCheckFetchOut(BaseModel):
-    status_code: int | None = None
-    body: str | None = None
-    error: str | None = None
+    fields: list[dict]
+    last_result: str | None = None
+    last_fetched_at: datetime | None = None
+    last_status: int | None = None
+    # Заголовки авторизации никогда не отдаются клиенту — только сам факт
+    # их наличия, для маленькой иконки-индикатора на карточке.
+    has_credentials: bool = False
