@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 from typing import Any
@@ -96,7 +97,7 @@ def identify(raw: str, carrier: str | None = None) -> tuple[str | None, str | No
 
 def _result(carrier: str, number: str, *, live: bool, status_text: str = "",
             checkpoints: list[dict] | None = None, tracking_url: str = "",
-            note: str = "", raw: Any = None) -> dict[str, Any]:
+            note: str = "") -> dict[str, Any]:
     cps = checkpoints or []
     return {
         "carrier": carrier,
@@ -119,7 +120,9 @@ _INPOST_STATUS = {
     "collected_from_sender": "Odebrano od nadawcy",
     "taken_by_courier": "W drodze",
     "adopted_at_source_branch": "W sortowni",
+    "sent_from_source_branch": "Wysłano z sortowni",
     "out_for_delivery": "W doręczeniu",
+    "stack_in_box_machine": "Włożono do paczkomatu",
     "ready_to_pickup": "Gotowa do odbioru",
     "delivered": "Doręczono",
 }
@@ -133,20 +136,48 @@ async def _inpost(number: str) -> dict[str, Any]:
         return _result("inpost", number, live=False, tracking_url=url,
                        note="ShipX не отдал статус — открой ссылку вручную")
     data = r.json()
+    # ShipX отдаёт tracking_details уже от новых к старым (см. историю
+    # правки) — реальный найденный баг: код заворачивал их в reversed(),
+    # получая порядок от старых к новым, а фронт берёт checkpoints[:5] в
+    # расчёте на "новые сверху" (тот же порядок, что у Poczta/Orlen) — итог:
+    # в карточке показывались 5 САМЫХ СТАРЫХ событий, обрезая реальную
+    # доставку, если событий было больше пяти.
     cps = [
         {"time": d.get("datetime", ""),
          "status": d.get("status", ""),
          "description": _INPOST_STATUS.get(d.get("status", ""), d.get("status", ""))}
-        for d in reversed(data.get("tracking_details", []) or [])
+        for d in (data.get("tracking_details", []) or [])
     ]
-    machine = (data.get("custom_attributes") or {}).get("target_machine_detail") or {}
+    custom_attrs = data.get("custom_attributes") or {}
+    machine = custom_attrs.get("target_machine_detail") or {}
     top = data.get("status", "")
+    note = ""
+    if machine:
+        # Реальный найденный баг (уже второй раз на тех же данных): в ответе
+        # ShipX есть не только адрес/часы, но и location_description
+        # ("в каком магазине" стоит пачкомат) и size на верхнем уровне
+        # custom_attributes ("какого размера ячейка/посылка") — ничего из
+        # этого не вытаскивалось, хотя раньше пользователь видел эти поля
+        # через сырой ответ (url_check напрямую по этому же API).
+        addr = machine.get("address") or {}
+        addr_line = ", ".join(p for p in [addr.get("line1", ""), addr.get("line2", "")] if p)
+        location_desc = machine.get("location_description", "")
+        hours = machine.get("opening_hours", "")
+        size = custom_attrs.get("size", "")
+        note = f"Paczkomat {machine.get('name', '')}".strip()
+        if location_desc:
+            note += f" ({location_desc})"
+        if addr_line:
+            note += f", {addr_line}"
+        if size:
+            note += f" · размер {size}"
+        if hours:
+            note += f" · режим работы: {hours}"
     return _result(
         "inpost", number, live=True,
         status_text=_INPOST_STATUS.get(top, top),
         checkpoints=cps, tracking_url=url,
-        note=f"Paczkomat {machine.get('name', '')}".strip() if machine else "",
-        raw=data,
+        note=note,
     )
 
 
@@ -177,10 +208,46 @@ async def _orlen(number: str) -> dict[str, Any]:
     ]
     return _result("orlen", number, live=True,
                    status_text=cps[0]["description"] if cps else data.get("status", ""),
-                   checkpoints=cps, tracking_url=url, raw=data)
+                   checkpoints=cps, tracking_url=url)
 
 
 # --- Poczta Polska (2 шага: страница → ключ → checkmailex) --------------------
+
+_HOURS_DAYS = (("businessDays", "Пн–Пт"), ("saturday", "Сб"), ("sunday", "Вс"))
+
+
+def _format_hours(desc: dict[str, Any] | None) -> str:
+    """openingHours из description отделения (тоже реально в ответе API,
+    но раньше вообще никуда не попадал — ни модели, ни в raw, см.
+    _format_office) в человеческую строку вида "Пн–Пт 08:00–22:00, Сб 08:00–22:00"."""
+    hours = (desc or {}).get("openingHours") or {}
+    parts = []
+    for key, label in _HOURS_DAYS:
+        for slot in hours.get(key) or []:
+            frm, to = slot.get("from", ""), slot.get("to", "")
+            if frm and to:
+                parts.append(f"{label} {frm[:5]}–{to[:5]}")
+    return ", ".join(parts)
+
+
+def _format_office(office: dict[str, Any] | None) -> str:
+    """Отделение/пункт из postOffice-объекта Poczta в человеческую строку.
+    Реальная жалоба: адрес доставки уже был в ответе API (recipientPostOffice/
+    postOffice каждого события), но не показывался — приходилось идти по
+    ссылке вручную, чтобы узнать, куда пришла посылка. Дальше выяснилось,
+    что то же самое было и с режимом работы (openingHours) — оба раза
+    данные реально были в ответе перевозчика, просто терялись при разборе."""
+    if not office:
+        return ""
+    name = office.get("name", "")
+    desc = office.get("description") or {}
+    street = " ".join(p for p in [desc.get("street", ""), desc.get("houseNumber", "")] if p)
+    city_line = " ".join(p for p in [desc.get("zipCode", ""), desc.get("city", "")] if p)
+    addr = ", ".join(p for p in [street, city_line] if p)
+    base = f"{name}, {addr}" if addr else name
+    hours = _format_hours(desc)
+    return f"{base} · режим работы: {hours}" if hours else base
+
 
 async def _poczta(number: str) -> dict[str, Any]:
     url = f"https://emonitoring.poczta-polska.pl/?numer={number}"
@@ -211,20 +278,33 @@ async def _poczta(number: str) -> dict[str, Any]:
         return _result("poczta", number, live=False, tracking_url=url,
                        note="Poczta отклонила запрос — открой ссылку вручную")
     data = r.json()
-    if data.get("mailStatus", -1) == -1 and not data.get("mailStatusesEx"):
+    # Реальная схема (проверено на живом номере 21.08.2026, см. историю
+    # правки): события лежат в data["mailInfo"]["events"], НЕ в
+    # data["mailStatusesEx"]/data["events"] — та схема была угадана по
+    # виджету и никогда не сверялась с реальным ответом. Из-за этого
+    # events всегда получался пустым и код тихо скатывался на хардкод
+    # "W trakcie" независимо от настоящего статуса (даже для уже
+    # доставленных посылок) — реальный баг, найденный пользователем.
+    events = (data.get("mailInfo") or {}).get("events") or []
+    if not events:
         return _result("poczta", number, live=True, status_text="Brak danych o przesyłce",
-                       tracking_url=url, raw=data)
-    # Схема успешного ответа выведена по виджету; уточнить на реальном номере.
-    events = data.get("mailStatusesEx") or data.get("events") or []
+                       tracking_url=url)
+    # События идут в хронологическом порядке (старые первыми).
     cps = [
-        {"time": e.get("date", "") or e.get("time", ""),
+        {"time": e.get("time", "") or e.get("date", ""),
          "status": str(e.get("code", "") or e.get("status", "")),
          "description": e.get("name", "") or e.get("description", "")}
         for e in events
     ]
+    # Отделение/пункт последнего события — для "Doręczona" это фактически
+    # куда пришла посылка, для "W doręczeniu" — какое отделение везёт.
+    office = _format_office(events[-1].get("postOffice")) or _format_office(
+        (data.get("mailInfo") or {}).get("recipientPostOffice")
+    )
     return _result("poczta", number, live=True,
-                   status_text=cps[-1]["description"] if cps else "W trakcie",
-                   checkpoints=list(reversed(cps)), tracking_url=url, raw=data)
+                   status_text=cps[-1]["description"],
+                   checkpoints=list(reversed(cps)), tracking_url=url,
+                   note=office)
 
 
 # --- DPD (только ссылка: WAF блокирует серверный фетч) ------------------------
@@ -242,16 +322,55 @@ _FETCH = {"inpost": _inpost, "orlen": _orlen, "poczta": _poczta, "dpd": _dpd}
 
 # --- Точка входа -------------------------------------------------------------
 
+def _looks_found(result: dict[str, Any]) -> bool:
+    """Перевозчик реально нашёл эту посылку (а не просто ответил без ошибки)."""
+    return bool(result.get("live")) and bool(result.get("checkpoints")) \
+        and result.get("status_text") != "Brak danych o przesyłce"
+
+
+async def track_any(number: str) -> dict[str, Any]:
+    """Перевозчик не указан и номер не подошёл однозначно ни под один
+    формат — вместо того чтобы сразу переспрашивать, пробуем все
+    перевозчики с живой проверкой параллельно (без dpd — у него нет живой
+    проверки, только ссылка, он не может подтвердить совпадение) и
+    возвращаем того единственного, кто реально нашёл посылку."""
+    number = re.sub(r"\s+", "", number)
+    candidates = [cid for cid in _FETCH if cid != "dpd"]
+    results = await asyncio.gather(*(_FETCH[cid](number) for cid in candidates))
+    hits = [r for r in results if _looks_found(r)]
+    if len(hits) == 1:
+        return hits[0]
+    if not hits:
+        return {
+            "need_carrier": True,
+            "number": number,
+            "supported": SUPPORTED,
+            "message": "Не нашёл посылку ни у одного перевозчика с живой проверкой "
+                       "(InPost/Poczta/Orlen). Уточни перевозчика или пришли ссылку "
+                       "отслеживания — либо это DPD (для него живой проверки нет).",
+        }
+    return {
+        "need_carrier": True,
+        "number": number,
+        "supported": [c for c in SUPPORTED if c["id"] in {h["carrier"] for h in hits}],
+        "message": "Нашлось совпадение сразу у нескольких перевозчиков — уточни, какой это трек.",
+    }
+
+
 async def track(raw: str, carrier: str | None = None) -> dict[str, Any]:
     """Главная функция. Либо нормализованный статус, либо
     {"need_carrier": True, "supported": [...]} — когда перевозчик неясен и
     его надо спросить у пользователя."""
     cid, number, ambiguous = identify(raw, carrier)
-    if ambiguous or not cid or not number:
-        return {
-            "need_carrier": True,
-            "number": number or raw,
-            "supported": SUPPORTED,
-            "message": "Не смог определить перевозчика по номеру. Уточни, чей это трек.",
-        }
-    return await _FETCH[cid](number)
+    if not ambiguous and cid and number:
+        return await _FETCH[cid](number)
+    if not carrier and number:
+        # Перевозчик не указан явно (в отличие от случая, когда указан, но
+        # неизвестен) — пробуем все, прежде чем переспрашивать.
+        return await track_any(number)
+    return {
+        "need_carrier": True,
+        "number": number or raw,
+        "supported": SUPPORTED,
+        "message": "Не смог определить перевозчика по номеру. Уточни, чей это трек.",
+    }

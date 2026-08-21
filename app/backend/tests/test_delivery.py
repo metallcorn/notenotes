@@ -4,9 +4,11 @@ routers/delivery_widgets.py). Сеть перевозчиков не трога�
 import json
 import uuid
 
+import httpx
 import pytest
 from sqlalchemy import select
 
+from app import delivery
 from app.delivery import identify
 from app.models import DeliveryWidget
 from app.tools.registry import ToolContext
@@ -31,6 +33,142 @@ def test_identify_orlen_by_url_and_by_short_number():
 
 def test_identify_poczta_by_px_number():
     assert identify("PX00000000000000000000") == ("poczta", "PX00000000000000000000", False)
+
+
+# --- _poczta(): разбор реального ответа перевозчика --------------------------
+# Реальный найденный баг: код ждал события в data["mailStatusesEx"] или
+# data["events"] на верхнем уровне ответа — эта схема была угадана по
+# JS-виджету и никогда не сверялась с настоящим ответом API. На деле
+# события лежат в data["mailInfo"]["events"], так что events всегда
+# получался пустым, и статус тихо скатывался на хардкод "W trakcie" —
+# даже для уже доставленной посылки. Ответ ниже — реальный (снят
+# 21.08.2026 на трек-номере 00559007730468902887), не выдуманный.
+_POCZTA_REAL_RESPONSE = {
+    "mailInfo": {
+        "number": "00559007730468902887",
+        "finished": True,
+        "events": [
+            {"code": "P_REJ_KN1", "name": "Przygotowana", "time": "2026-08-13T14:02:15",
+             "state": {"code": "PRZ", "name": "PRZYGOTOWANA"}, "finished": False, "canceled": False},
+            {"code": "P_NAD", "name": "Nadana", "time": "2026-08-13T15:10:50",
+             "state": {"code": "NA", "name": "NADANA"}, "finished": False, "canceled": False},
+            {"code": "P_WDML", "name": "W doręczeniu", "time": "2026-08-17T07:29:37",
+             "state": {"code": "DOR", "name": "W DORĘCZENIU"}, "finished": False, "canceled": False},
+            {"code": "P_D", "name": "Doręczona", "time": "2026-08-17T08:26:42",
+             "state": {"code": "DO", "name": "DORĘCZONA"}, "finished": True, "canceled": False,
+             "postOffice": {"name": "Placówka Pocztowa Poznań 2",
+                             "description": {"street": "ul. Przykładowa", "houseNumber": "17",
+                                              "zipCode": "60-001", "city": "Poznań",
+                                              "openingHours": {
+                                                  "businessDays": [{"from": "08:00:00", "to": "22:00:59"}],
+                                                  "saturday": [{"from": "08:00:00", "to": "22:00:59"}],
+                                              }}}},
+        ],
+    },
+    "number": "00559007730468902887",
+    "mailStatus": 0,
+}
+
+
+def _mock_poczta_client(response_json):
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "GET":
+            return httpx.Response(200, text='<html><div data-apikey="fake-key"></div></html>')
+        return httpx.Response(200, json=response_json)
+
+    original_client = httpx.AsyncClient
+
+    def factory(*args, **kwargs):
+        kwargs["transport"] = httpx.MockTransport(handler)
+        return original_client(*args, **kwargs)
+
+    return factory
+
+
+async def test_poczta_parses_real_response_shape_and_reports_delivered(monkeypatch):
+    monkeypatch.setattr(delivery.httpx, "AsyncClient", _mock_poczta_client(_POCZTA_REAL_RESPONSE))
+
+    result = await delivery._poczta("00559007730468902887")
+    assert result["live"] is True
+    assert result["status_text"] == "Doręczona"
+    # checkpoints — новые сверху (reversed относительно хронологии events)
+    assert result["checkpoints"][0]["description"] == "Doręczona"
+    assert result["checkpoints"][-1]["description"] == "Przygotowana"
+    # Реальная жалоба: куда пришла посылка и режим работы отделения были
+    # видны только по ссылке (или вообще нигде — параметр raw= в _result()
+    # молча отбрасывался, модель их не видела) — теперь сразу в note.
+    assert result["note"] == (
+        "Placówka Pocztowa Poznań 2, ul. Przykładowa 17, 60-001 Poznań "
+        "· режим работы: Пн–Пт 08:00–22:00, Сб 08:00–22:00"
+    )
+
+
+async def test_poczta_reports_no_data_when_no_events(monkeypatch):
+    monkeypatch.setattr(
+        delivery.httpx, "AsyncClient",
+        _mock_poczta_client({"mailInfo": {"number": "x", "finished": False, "events": []}, "mailStatus": -1}),
+    )
+
+    result = await delivery._poczta("00000000000000000000000")
+    assert result["status_text"] == "Brak danych o przesyłce"
+
+
+# --- _inpost(): порядок чекпоинтов и адрес пачкомата -------------------------
+# Реальный найденный баг: ShipX отдаёт tracking_details от НОВЫХ к СТАРЫМ, а
+# код заворачивал их в reversed(), получая от старых к новым. Фронт берёт
+# checkpoints[:5] в расчёте на "новые сверху" — итог: карточка показывала 5
+# самых старых событий вместо последних, и last_event_time (= checkpoints[0])
+# указывал на первое событие вместо доставки. Плюс адрес/размер/место
+# пачкомата (реально есть в ответе, custom_attributes.*) не вытаскивались —
+# модель один раз на реальном номере просто выдумала другой адрес, а другие
+# поля (location_description, size) пользователь раньше видел только через
+# сырой ответ (url_check напрямую по этому же API), в новой карточке их не
+# было вообще.
+_INPOST_REAL_RESPONSE = {
+    "status": "delivered",
+    "tracking_details": [
+        {"datetime": "2026-08-16T16:30:38.000+02:00", "status": "delivered"},
+        {"datetime": "2026-08-16T06:47:04.000+02:00", "status": "out_for_delivery"},
+        {"datetime": "2026-08-14T11:28:47.000+02:00", "status": "confirmed"},
+    ],
+    "custom_attributes": {
+        "size": "B",
+        "target_machine_detail": {
+            "name": "POZ00XX",
+            "opening_hours": "PN-SB 09-22",
+            "location_description": "w sklepie Sklep",
+            "address": {"line1": "Przykładowa 5", "line2": "60-000 Poznań"},
+        },
+    },
+}
+
+
+def _mock_inpost_client(response_json):
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=response_json)
+
+    original_client = httpx.AsyncClient
+
+    def factory(*args, **kwargs):
+        kwargs["transport"] = httpx.MockTransport(handler)
+        return original_client(*args, **kwargs)
+
+    return factory
+
+
+async def test_inpost_keeps_newest_first_order_and_reports_real_address(monkeypatch):
+    monkeypatch.setattr(delivery.httpx, "AsyncClient", _mock_inpost_client(_INPOST_REAL_RESPONSE))
+
+    result = await delivery._inpost("600000000000000000000002")
+    assert result["status_text"] == "Doręczono"
+    # новые сверху — checkpoints[0] это доставка, а не первое событие
+    assert result["checkpoints"][0]["description"] == "Doręczono"
+    assert result["checkpoints"][-1]["description"] == "Zarejestrowano"
+    assert result["last_event_time"] == "2026-08-16T16:30:38.000+02:00"
+    assert result["note"] == (
+        "Paczkomat POZ00XX (w sklepie Sklep), Przykładowa 5, 60-000 Poznań "
+        "· размер B · режим работы: PN-SB 09-22"
+    )
 
 
 def test_identify_dpd_by_url():

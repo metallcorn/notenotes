@@ -34,6 +34,26 @@ describe("DeliveryCard", () => {
     expect(link).toHaveAttribute("href", "https://inpost.pl/sledzenie-przesylek?number=600000000000000000000001");
   });
 
+  it("headerExtra рендерится рядом со ссылкой на трекинг, а не поверх неё", () => {
+    // Регрессия: раньше кнопка «Обновить» в DeliveryWidgetCard была
+    // position:absolute поверх этого же угла карточки, где рисуется
+    // ссылка «Трекинг» — визуально выглядело так, будто кнопки нет вообще.
+    render(
+      <DeliveryCard
+        data={{
+          carrier_label: "InPost",
+          live: true,
+          status_text: "Zarejestrowano",
+          tracking_url: "https://inpost.pl/sledzenie-przesylek?number=1",
+        }}
+        headerExtra={<button aria-label="Обновить">R</button>}
+      />,
+    );
+
+    expect(screen.getByRole("link", { name: /Трекинг/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Обновить" })).toBeInTheDocument();
+  });
+
   it("для need_carrier показывает подсказку и список перевозчиков", () => {
     render(
       <DeliveryCard

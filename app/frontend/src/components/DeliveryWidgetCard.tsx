@@ -39,18 +39,21 @@ export default function DeliveryWidgetCard({ node }: NodeViewProps) {
       status_text: "Статус ещё не получен",
     };
 
+  const refreshButton = (
+    <button
+      onClick={() => refresh.mutate()}
+      disabled={refresh.isPending}
+      title="Обновить"
+      className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-slate-400 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-50"
+    >
+      {refresh.isPending ? <Spinner size={13} /> : <RotateCw size={13} />}
+    </button>
+  );
+
   return (
     <NodeViewWrapper as="div" className="my-1">
-      <div className="relative max-w-md" data-drag-handle draggable>
-        <button
-          onClick={() => refresh.mutate()}
-          disabled={refresh.isPending}
-          title="Обновить"
-          className="absolute right-2 top-2 z-10 flex h-7 w-7 items-center justify-center rounded text-slate-400 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-50"
-        >
-          {refresh.isPending ? <Spinner size={13} /> : <RotateCw size={13} />}
-        </button>
-        <DeliveryCard data={data} />
+      <div className="max-w-md" data-drag-handle draggable>
+        <DeliveryCard data={data} headerExtra={refreshButton} />
         {refresh.isError && <div className="mt-1 text-xs text-red-600">Не удалось обновить</div>}
       </div>
     </NodeViewWrapper>

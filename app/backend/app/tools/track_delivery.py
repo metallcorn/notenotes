@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from app import collab, realtime
-from app.delivery import SUPPORTED, identify, track
+from app.delivery import SUPPORTED, track
 from app.llm.base import ToolDefinition
 from app.models import DeliveryWidget, ItemVersion
 from app.tools.notes import _get_item_cross_space
@@ -93,20 +93,17 @@ async def insert_delivery_block(ctx: ToolContext, args: dict[str, Any]) -> dict[
     if not raw:
         raise ToolError("Не указан трек-номер или ссылка")
     carrier_arg = args.get("carrier")
-    carrier, number, ambiguous = identify(raw, str(carrier_arg).strip().lower() if carrier_arg else None)
-    if ambiguous or not carrier or not number:
-        # Перевозчик неясен — не создаём виджет вслепую, просим уточнить
-        # (тем же способом, что track_delivery).
-        return {"need_carrier": True, "number": number or raw,
-                "supported": SUPPORTED,
-                "message": "Не смог определить перевозчика — уточни, чей это трек, и повтори."}
-
-    result = await track(number, carrier)
+    result = await track(raw, str(carrier_arg).strip().lower() if carrier_arg else None)
+    if result.get("need_carrier"):
+        # Перевозчик неясен даже после проверки по всем перевозчикам с
+        # живой проверкой (см. track_any в delivery.py) — не создаём виджет
+        # вслепую, просим уточнить (тем же способом, что track_delivery).
+        return result
 
     widget = DeliveryWidget(
         item_id=item.id,
-        carrier=carrier,
-        tracking_number=number,
+        carrier=result["carrier"],
+        tracking_number=result["tracking_number"],
         last_result=json.dumps(result, ensure_ascii=False),
         last_fetched_at=datetime.now(timezone.utc),
     )
@@ -123,4 +120,5 @@ async def insert_delivery_block(ctx: ToolContext, args: dict[str, Any]) -> dict[
     # Тот же обход Yjs, что у insert_url_check_block — иначе блок не долетит
     # до заметки с открытой живой коллаборацией.
     await collab.invalidate_room(item.id)
-    return {"id": str(item.id), "title": item.title, "carrier": carrier, "tracking_number": number}
+    return {"id": str(item.id), "title": item.title,
+            "carrier": result["carrier"], "tracking_number": result["tracking_number"]}
