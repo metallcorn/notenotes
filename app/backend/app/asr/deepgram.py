@@ -5,6 +5,21 @@ import httpx
 DEEPGRAM_API_URL = "https://api.deepgram.com/v1/listen"
 
 
+def format_diarized_utterances(utterances: list[dict]) -> str:
+    """Вынесено отдельной чистой функцией — тестируемо без реального
+    HTTP-вызова Deepgram (весь остальной класс сетевой). Двойной перенос
+    между репликами разных спикеров, не одинарный: результат вставляется
+    в markdown-карточку (serialize_image_ocr_result → ReactMarkdown) —
+    одинарный \\n там не разрывает абзац, реплики слипались в один кусок
+    текста без видимых переносов строк между говорящими."""
+    speakers = {u.get("speaker") for u in utterances if u.get("speaker") is not None}
+    if len(speakers) <= 1:
+        return " ".join(u.get("transcript", "") for u in utterances).strip()
+
+    lines = [f"Спикер {u.get('speaker', 0) + 1}: {u.get('transcript', '')}" for u in utterances]
+    return "\n\n".join(lines)
+
+
 class DeepgramClient:
     """Одноразовая (не потоковая) транскрипция целого аудио-блоба через
     Deepgram REST — подходит для записанной пользователем реплики, не для
@@ -79,5 +94,4 @@ class DeepgramClient:
         if len(speakers) <= 1:
             return " ".join(u.get("transcript", "") for u in utterances).strip()
 
-        lines = [f"Спикер {u.get('speaker', 0) + 1}: {u.get('transcript', '')}" for u in utterances]
-        return "\n".join(lines)
+        return format_diarized_utterances(utterances)

@@ -14,6 +14,7 @@ from app.asr.deepgram import DeepgramClient
 from app.core.config import get_settings
 from app.db import async_session
 from app.models import Item, Upload
+from app.vision import serialize_image_ocr_result
 
 logger = logging.getLogger(__name__)
 
@@ -158,7 +159,13 @@ async def _process(upload_id: uuid.UUID) -> None:
         logger.warning("Deepgram не распознал речь в %s (пустой транскрипт, аудио %d байт)", upload_id, len(audio_bytes))
 
     if transcript.strip():
-        formatted = f"**Расшифровка речи:**\n\n{transcript}"
+        # Та же сворачиваемая карточка (спойлер + копирование + полноэкранное
+        # чтение), что уже есть у распознавания картинок/PDF и у записи
+        # прямо в заметке (note_recording.py уже так делает) — раньше здесь
+        # был голый markdown-абзац, из всех источников распознанного текста
+        # только видео/голосовые в Telegram выглядели иначе. Суть та же
+        # самая (текст, извлечённый из медиа) — вид тоже должен быть тот же.
+        formatted = serialize_image_ocr_result(transcript)
         await _replace_in_referencing_items(upload_id, placeholder_text(upload_id), formatted)
 
 
