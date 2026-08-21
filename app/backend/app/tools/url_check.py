@@ -28,16 +28,28 @@ TEST_URL_REQUEST = ToolDefinition(
         "Делает GET-запрос по ссылке и возвращает код ответа и тело (обычно JSON) — "
         "чтобы УВИДЕТЬ реальные данные, прежде чем предлагать пользователю, какие поля "
         "показать в виджете «Проверить по ссылке». Ничего не создаёт и не сохраняет — "
-        "чисто чтение. Используй, когда пользователь просит завести отслеживание "
-        "статуса/данных по ссылке (в т.ч. если прислал команду curl — возьми из неё "
-        "ТОЛЬКО URL, без заголовков авторизации/cookie/токенов, они нигде не "
-        "сохраняются). Только публичные, не требующие авторизации ссылки — если URL "
-        "явно требует токен/сессию, которых у тебя нет, результат придёт с ошибкой "
-        "или не тем, что нужно, — сообщи об этом честно, не выдумывай данные."
+        "чисто чтение, headers сюда тоже никуда не пишутся. Используй, когда "
+        "пользователь просит завести отслеживание статуса/данных по ссылке. Если "
+        "страница требует авторизацию (login-страница вместо данных) и пользователь "
+        "САМ явно прислал заголовок/cookie/токен для этого запроса (например, из "
+        "своей команды curl) — можешь передать его в headers ЭТОГО одного вызова. "
+        "Никогда не подставляй значения заголовков, которые пользователь не давал "
+        "явно в этом разговоре (не бери из других заметок/памяти/другого сайта)."
     ),
     parameters={
         "type": "object",
-        "properties": {"url": {"type": "string", "description": "URL для запроса (только сам URL, без заголовков)"}},
+        "properties": {
+            "url": {"type": "string", "description": "URL для запроса"},
+            "headers": {
+                "type": "object",
+                "description": (
+                    "Опционально: заголовки для ЭТОГО одного запроса (например, "
+                    "Cookie/Authorization) — только если пользователь явно дал их "
+                    "значение в этом разговоре. Не сохраняются."
+                ),
+                "additionalProperties": {"type": "string"},
+            },
+        },
         "required": ["url"],
     },
 )
@@ -47,7 +59,8 @@ async def test_url_request(ctx: ToolContext, args: dict[str, Any]) -> dict[str, 
     url = str(args.get("url", "")).strip()
     if not url:
         raise ToolError("Ссылка не может быть пустой")
-    result = await check_url(url)
+    headers = args.get("headers") if isinstance(args.get("headers"), dict) else None
+    result = await check_url(url, headers)
     if "error" in result:
         return result
     body = result["body"]
@@ -62,7 +75,17 @@ INSERT_URL_CHECK_BLOCK = ToolDefinition(
         "(подтверждёнными пользователем после test_url_request) и кнопкой «Обновить». "
         "Делает свежий запрос сама, виджет появится сразу с реальными данными. "
         "ВЫЗЫВАЙ ТОЛЬКО после того, как показал пользователю предложенные поля в чате "
-        "и получил явное согласие — как с create_reminder, не молча."
+        "и получил явное согласие — как с create_reminder, не молча.\n\n"
+        "headers (авторизованные ссылки): виджет ПОСТОЯННЫЙ, кнопка «Обновить» "
+        "перезапрашивает URL позже — значит headers, в отличие от test_url_request, "
+        "СОХРАНЯЮТСЯ открытым текстом в самой заметке (видно всем с доступом к "
+        "спейсу, в исходнике страницы, в бэкапах). Если пользователь просит "
+        "авторизованную проверку — прежде чем звать этот тул с headers, ОБЯЗАТЕЛЬНО "
+        "явно предупреди об этом в чате именно этими словами по смыслу ('токен "
+        "сохранится в тексте заметки открытым текстом — видно всем, у кого есть "
+        "доступ к этому спейсу, и попадёт в бэкапы') и получи отдельное явное "
+        "согласие НА ЭТО, отдельно от согласия на сами поля. Без этого "
+        "предупреждения headers не передавай, даже если пользователь их дал."
     ),
     parameters={
         "type": "object",
@@ -81,6 +104,15 @@ INSERT_URL_CHECK_BLOCK = ToolDefinition(
                     "required": ["path", "label"],
                 },
             },
+            "headers": {
+                "type": "object",
+                "description": (
+                    "Опционально, только после явного предупреждения пользователя (см. "
+                    "выше) и его согласия именно на хранение — заголовки авторизации, "
+                    "сохраняются с виджетом для будущих обновлений."
+                ),
+                "additionalProperties": {"type": "string"},
+            },
         },
         "required": ["item_id", "url", "fields"],
     },
@@ -93,8 +125,12 @@ def _esc(s: str) -> str:
     return s.replace("&", "&amp;").replace("\n", "&#10;").replace('"', "&quot;")
 
 
-def serialize_url_check(url: str, fields: list[dict], body: str | None, status_code: int | None) -> str:
+def serialize_url_check(
+    url: str, fields: list[dict], body: str | None, status_code: int | None, headers: dict[str, str] | None = None
+) -> str:
     parts = [f'data-url="{_esc(url)}"', f'data-fields="{_esc(json.dumps(fields, ensure_ascii=False))}"']
+    if headers:
+        parts.append(f'data-headers="{_esc(json.dumps(headers, ensure_ascii=False))}"')
     if body is not None:
         parts.append(f'data-last-result="{_esc(body)}"')
         parts.append(f'data-last-fetched-at="{_esc(datetime.now(timezone.utc).isoformat())}"')
@@ -118,12 +154,14 @@ async def insert_url_check_block(ctx: ToolContext, args: dict[str, Any]) -> dict
         fields.append({"path": str(f["path"]), "label": str(f["label"])})
     if not fields:
         raise ToolError("Не удалось разобрать поля")
+    headers_raw = args.get("headers")
+    headers = {str(k): str(v) for k, v in headers_raw.items()} if isinstance(headers_raw, dict) else None
 
-    result = await check_url(url)
+    result = await check_url(url, headers)
     body = result.get("body")
     status_code = result.get("status_code")
 
-    block = serialize_url_check(url, fields, body, status_code)
+    block = serialize_url_check(url, fields, body, status_code, headers)
 
     ctx.db.add(ItemVersion(item_id=item.id, title=item.title, content=item.content, author_id=ctx.user_id))
     item.content = f"{item.content.rstrip()}\n\n{block}" if item.content.strip() else block

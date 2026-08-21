@@ -14,4 +14,4 @@ async def fetch_url_check(payload: UrlCheckFetchIn, user: User = Depends(get_cur
     REST, без участия ассистента: обновление данных не требует LLM, только
     сам GET-запрос (app/url_check.py, SSRF-safe). Ассистент нужен один раз,
     при создании блока (tools/url_check.py::insert_url_check_block)."""
-    return UrlCheckFetchOut(**await check_url(payload.url))
+    return UrlCheckFetchOut(**await check_url(payload.url, payload.headers))

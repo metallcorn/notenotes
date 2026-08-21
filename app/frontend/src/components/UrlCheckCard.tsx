@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import { NodeViewWrapper } from "@tiptap/react";
 import type { NodeViewProps } from "@tiptap/react";
-import { ChevronDown, ChevronUp, Link2, RotateCw } from "lucide-react";
+import { ChevronDown, ChevronUp, KeyRound, Link2, RotateCw } from "lucide-react";
 import { useCheckUrl } from "../api/hooks";
 import { ExpandedTextPanel } from "./RecognizedTextView";
 import Spinner from "./Spinner";
@@ -43,12 +43,13 @@ function parseJsonSafe(text: string | null): unknown {
 // прямой REST-запрос (useCheckUrl), без ассистента: обновление данных не
 // требует LLM.
 export default function UrlCheckCard({ node, editor }: NodeViewProps) {
-  const { url, fields: fieldsRaw, lastResult, lastFetchedAt, lastStatus } = node.attrs as {
+  const { url, fields: fieldsRaw, lastResult, lastFetchedAt, lastStatus, headers: headersRaw } = node.attrs as {
     url: string;
     fields: string;
     lastResult: string | null;
     lastFetchedAt: string | null;
     lastStatus: number | null;
+    headers?: string;
   };
   const [expanded, setExpanded] = useState(false);
   const cardRef = useRef<HTMLDivElement>(null);
@@ -56,6 +57,7 @@ export default function UrlCheckCard({ node, editor }: NodeViewProps) {
 
   const fields = (parseJsonSafe(fieldsRaw) as UrlCheckField[] | null) ?? [];
   const parsed = parseJsonSafe(lastResult);
+  const headers = (parseJsonSafe(headersRaw ?? null) as Record<string, string> | null) ?? undefined;
 
   const domain = (() => {
     try {
@@ -66,7 +68,7 @@ export default function UrlCheckCard({ node, editor }: NodeViewProps) {
   })();
 
   async function handleRefresh() {
-    const result = await checkUrl.mutateAsync(url);
+    const result = await checkUrl.mutateAsync({ url, headers });
     editor
       .chain()
       .updateAttributes("urlCheck", {
@@ -85,7 +87,17 @@ export default function UrlCheckCard({ node, editor }: NodeViewProps) {
         <div data-drag-handle draggable className="flex items-center gap-2 px-3 py-2">
           <Link2 size={16} className="shrink-0 text-slate-400" />
           <div className="min-w-0 flex-1">
-            <div className="truncate text-sm font-medium text-slate-800">{domain}</div>
+            <div className="flex items-center gap-1 truncate text-sm font-medium text-slate-800">
+              {domain}
+              {headers && Object.keys(headers).length > 0 && (
+                <span
+                  title="Хранит заголовки авторизации открытым текстом — видно всем с доступом к спейсу"
+                  className="shrink-0"
+                >
+                  <KeyRound size={11} className="text-amber-500" aria-label="Хранит заголовки авторизации" />
+                </span>
+              )}
+            </div>
             <div className="truncate text-xs text-slate-400">
               {lastFetchedAt ? `Обновлено ${formatWhen(lastFetchedAt)}` : "Ещё не запрашивалось"}
               {lastStatus !== null && lastStatus >= 400 && <span className="ml-1 text-amber-600">(код {lastStatus})</span>}

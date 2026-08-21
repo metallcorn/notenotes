@@ -1176,7 +1176,8 @@ export function useReprocessUpload() {
 // создании блока, tools/url_check.py::insert_url_check_block).
 export function useCheckUrl() {
   return useMutation({
-    mutationFn: (url: string) => api.post<UrlCheckFetchResult>("/url-checks/fetch", { url }),
+    mutationFn: ({ url, headers }: { url: string; headers?: Record<string, string> }) =>
+      api.post<UrlCheckFetchResult>("/url-checks/fetch", { url, headers }),
   });
 }
 

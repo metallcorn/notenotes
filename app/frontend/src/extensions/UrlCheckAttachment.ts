@@ -15,9 +15,15 @@ export function serializeUrlCheck(
   lastResult: string | null,
   lastFetchedAt: string | null,
   lastStatus: number | null,
+  headers?: Record<string, string> | null,
 ): string {
   const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/\n/g, "&#10;").replace(/"/g, "&quot;");
   const parts = [`data-url="${esc(url)}"`, `data-fields="${esc(JSON.stringify(fields))}"`];
+  // Осознанно храним открытым текстом (не своё решение фронта — см.
+  // tools/url_check.py::INSERT_URL_CHECK_BLOCK — пользователь предупреждён
+  // явно перед созданием такого виджета): нужно доступно кнопке
+  // «Обновить» (UrlCheckCard.tsx) для будущих перезапросов.
+  if (headers && Object.keys(headers).length > 0) parts.push(`data-headers="${esc(JSON.stringify(headers))}"`);
   if (lastResult !== null) parts.push(`data-last-result="${esc(lastResult)}"`);
   if (lastFetchedAt) parts.push(`data-last-fetched-at="${esc(lastFetchedAt)}"`);
   if (lastStatus !== null) parts.push(`data-last-status="${lastStatus}"`);
@@ -45,6 +51,15 @@ export const UrlCheckAttachment = Node.create({
         default: "[]",
         parseHTML: (element: HTMLElement) => element.getAttribute("data-fields") ?? "[]",
         renderHTML: (attrs: { fields?: string }) => (attrs.fields ? { "data-fields": attrs.fields } : {}),
+      },
+      // Опционально — заголовки авторизации для перезапроса кнопкой
+      // «Обновить» (UrlCheckCard.tsx). Хранится открытым текстом, только
+      // после явного предупреждения пользователя (см. tools/url_check.py).
+      headers: {
+        default: "{}",
+        parseHTML: (element: HTMLElement) => element.getAttribute("data-headers") ?? "{}",
+        renderHTML: (attrs: { headers?: string }) =>
+          attrs.headers && attrs.headers !== "{}" ? { "data-headers": attrs.headers } : {},
       },
       lastResult: {
         default: null,
@@ -94,11 +109,21 @@ export const UrlCheckAttachment = Node.create({
               lastResult: string | null;
               lastFetchedAt: string | null;
               lastStatus: number | null;
+              headers?: string;
             };
           },
         ) {
-          const { url, fields, lastResult, lastFetchedAt, lastStatus } = node.attrs;
-          state.write(serializeUrlCheck(url, JSON.parse(fields || "[]"), lastResult, lastFetchedAt, lastStatus));
+          const { url, fields, lastResult, lastFetchedAt, lastStatus, headers } = node.attrs;
+          state.write(
+            serializeUrlCheck(
+              url,
+              JSON.parse(fields || "[]"),
+              lastResult,
+              lastFetchedAt,
+              lastStatus,
+              headers ? JSON.parse(headers) : null,
+            ),
+          );
           state.closeBlock(node);
         },
         parse: {},

@@ -3,6 +3,7 @@ from pydantic import BaseModel
 
 class UrlCheckFetchIn(BaseModel):
     url: str
+    headers: dict[str, str] | None = None
 
 
 class UrlCheckFetchOut(BaseModel):
