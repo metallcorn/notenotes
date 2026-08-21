@@ -30,6 +30,7 @@ import type {
   SpaceInvite,
   SpaceMember,
   Tag,
+  DeliveryWidgetState,
   TableDetail,
   UploadResult,
   UrlCheckWidgetState,
@@ -1189,6 +1190,25 @@ export function useRefreshUrlCheckWidget(id: string | undefined) {
   return useMutation({
     mutationFn: () => api.post<UrlCheckWidgetState>(`/url-checks/${id}/refresh`),
     onSuccess: (data) => qc.setQueryData(["url-check-widget", id], data),
+  });
+}
+
+// Постоянный виджет доставки (DeliveryWidgetCard.tsx) — то же, что url-check:
+// состояние на бэкенде (delivery_widgets), в content только id; гидратация
+// при монтировании + «Обновить», оба прямой REST без ассистента.
+export function useDeliveryWidget(id: string | undefined) {
+  return useQuery<DeliveryWidgetState>({
+    queryKey: ["delivery-widget", id],
+    queryFn: () => api.get<DeliveryWidgetState>(`/delivery-widgets/${id}`),
+    enabled: !!id,
+  });
+}
+
+export function useRefreshDeliveryWidget(id: string | undefined) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.post<DeliveryWidgetState>(`/delivery-widgets/${id}/refresh`),
+    onSuccess: (data) => qc.setQueryData(["delivery-widget", id], data),
   });
 }
 

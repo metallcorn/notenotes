@@ -27,6 +27,7 @@ from app.routers import (
     folders,
     items,
     link_preview,
+    delivery_widgets,
     lists,
     mail,
     mail_webhook,
@@ -109,6 +110,7 @@ app.include_router(mail.router)
 app.include_router(mail_webhook.router)
 app.include_router(link_preview.router)
 app.include_router(url_checks.router)
+app.include_router(delivery_widgets.router)
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 

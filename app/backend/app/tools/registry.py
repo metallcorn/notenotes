@@ -96,6 +96,9 @@ PROMPT_ONLY_SKILLS = {"show_note_images"}
 # из SKILL_CATALOG разворачивается в реальные имена тулов для фильтрации.
 TOOL_GROUPS: dict[str, tuple[str, ...]] = {
     "tables": ("create_table", "get_table", "add_table_row", "update_table_row", "delete_table_row", "add_table_column"),
+    # Один тумблер «Отслеживание доставки» управляет обоими тулами скилла:
+    # track_delivery (статус в чат) и insert_delivery_block (виджет в заметку).
+    "track_delivery": ("track_delivery", "insert_delivery_block"),
 }
 
 
@@ -121,6 +124,7 @@ def _build_registry() -> dict[str, tuple[ToolDefinition, ToolHandler]]:
         python_sandbox.RUN_PYTHON.name: (python_sandbox.RUN_PYTHON, python_sandbox.run_python),
         read_website.DEFINITION.name: (read_website.DEFINITION, read_website.handle),
         track_delivery.DEFINITION.name: (track_delivery.DEFINITION, track_delivery.handle),
+        track_delivery.INSERT_DELIVERY_BLOCK.name: (track_delivery.INSERT_DELIVERY_BLOCK, track_delivery.insert_delivery_block),
         url_check.TEST_URL_REQUEST.name: (url_check.TEST_URL_REQUEST, url_check.test_url_request),
         url_check.INSERT_URL_CHECK_BLOCK.name: (url_check.INSERT_URL_CHECK_BLOCK, url_check.insert_url_check_block),
         reminders.CREATE_REMINDER.name: (reminders.CREATE_REMINDER, reminders.create_reminder),

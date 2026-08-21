@@ -54,6 +54,7 @@ import { Audio } from "../extensions/Audio";
 import { LinkPreview } from "../extensions/LinkPreview";
 import { DocumentAttachment, serializeDocumentAttachment } from "../extensions/DocumentAttachment";
 import { UrlCheckAttachment } from "../extensions/UrlCheckAttachment";
+import { DeliveryAttachment } from "../extensions/DeliveryAttachment";
 import { TicketAttachment } from "../extensions/TicketAttachment";
 import { Spacer } from "../extensions/Spacer";
 import { HideImageProcessingPlaceholder } from "../extensions/HideImageProcessingPlaceholder";
@@ -199,6 +200,7 @@ export default function NoteEditor({
       LinkPreview,
       DocumentAttachment,
       UrlCheckAttachment,
+      DeliveryAttachment,
       TicketAttachment,
       Spacer,
       ProcessingPlaceholder,

@@ -422,3 +422,24 @@ class UrlCheckWidget(Base):
     last_fetched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_status: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class DeliveryWidget(Base):
+    """Состояние постоянного виджета отслеживания доставки (tools/
+    track_delivery.py::insert_delivery_block). По образцу UrlCheckWidget: в
+    content заметки лежит только data-delivery-id, а перевозчик/трек-номер и
+    нормализованный результат последнего опроса — здесь. «Обновить»
+    (routers/delivery_widgets.py) опрашивает API перевозчика через
+    delivery.track и пишет только эту строку, не трогая content/Yjs/
+    ItemVersion. last_result — JSON-строка нормализованного ответа, та же
+    форма, что рисует карточка в чате. CASCADE на item."""
+
+    __tablename__ = "delivery_widgets"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    item_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("items.id", ondelete="CASCADE"), index=True)
+    carrier: Mapped[str] = mapped_column(Text)
+    tracking_number: Mapped[str] = mapped_column(Text)
+    last_result: Mapped[str | None] = mapped_column(Text, nullable=True)
+    last_fetched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

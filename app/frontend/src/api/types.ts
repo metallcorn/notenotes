@@ -200,6 +200,16 @@ export interface UrlCheckWidgetState {
   has_credentials: boolean;
 }
 
+// Состояние постоянного виджета доставки (DeliveryWidgetCard.tsx). result —
+// уже распарсенный нормализованный ответ delivery.track (форма DeliveryData
+// из DeliveryCard), null если последний опрос не удался.
+export interface DeliveryWidgetState {
+  carrier: string;
+  tracking_number: string;
+  result: Record<string, unknown> | null;
+  last_fetched_at: string | null;
+}
+
 export interface ItemVersion {
   id: string;
   title: string;
