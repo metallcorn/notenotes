@@ -161,6 +161,17 @@ export async function attachCollab(
   ];
 
   editor.view.updateState(EditorState.create({ schema: editor.schema, doc, plugins }));
+  // Реальный найденный баг: updateState подставляет состояние напрямую, в
+  // обход dispatch — а appendTransaction-плагины (в т.ч. TrailingParagraph,
+  // см. extensions/TrailingParagraph.ts) срабатывают только на dispatch.
+  // Если заметка при сидировании комнаты заканчивается атом-узлом (виджет
+  // доставки/проверки ссылки и т.п.) без параграфа после него, поставить
+  // курсор ПОСЛЕ него и печатать было невозможно, пока пользователь не
+  // делал что-то ещё в другом месте документа — тот dispatch и добавлял
+  // параграф с опозданием. Пустой dispatch сразу после updateState прогоняет
+  // те же appendTransaction-плагины немедленно, тем же способом, каким это
+  // и так неявно происходит при обычной загрузке через setContent.
+  editor.view.dispatch(editor.state.tr);
   provider.awareness.setLocalStateField("user", user);
 }
 
