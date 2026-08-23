@@ -1,3 +1,9 @@
+import uuid
+
+from app.models import Item, Upload
+from app.vision import serialize_image_ocr_result
+
+
 async def _make_space(auth_client):
     r = await auth_client.post("/api/spaces", json={"name": "Uploads"})
     assert r.status_code == 201
@@ -142,3 +148,54 @@ async def test_staged_upload_requires_vault_space(auth_client):
     upload_id = r.json()["id"]
     r = await auth_client.put(f"/api/uploads/{upload_id}/staged", files={"file": ("f.bin", b"new-bytes")})
     assert r.status_code == 400
+
+
+# --- PATCH /{upload_id}/transcript — ручная правка распознанного текста ------
+
+async def _make_note_with_ocr_card(auth_client, db_session, test_user, content_type="image/jpeg"):
+    space_id = await _make_space(auth_client)
+    upload = Upload(space_id=uuid.UUID(space_id), author_id=test_user.id, filename="x.jpg", content_type=content_type)
+    db_session.add(upload)
+    await db_session.flush()
+    card = serialize_image_ocr_result(upload.id, "старый текст с опечаткой", content_type)
+    r = await auth_client.post("/api/items", json={"space_id": space_id, "title": "T", "content": card})
+    return r.json()["id"], upload.id
+
+
+async def test_update_upload_transcript_edits_text_and_replaces_card(auth_client, db_session, test_user):
+    # Сама замена карточки в content (replace_recognized_text_card) идёт
+    # через отдельный app.db.async_session() эндпоинта (фоновая логика,
+    # общая с vision.py), а не через db_session этого теста — та же
+    # изоляция транзакций, что у pdf_processing.resume_pending() (см.
+    # tests/test_vision.py, где эта логика проверена полноценно, с реальным
+    # commit). Здесь проверяем то, что видно в ЭТОЙ транзакции: сам HTTP-путь
+    # и запись upload.transcript (идёт через Depends(get_db), тот же db_session).
+    item_id, upload_id = await _make_note_with_ocr_card(auth_client, db_session, test_user)
+
+    r = await auth_client.patch(f"/api/uploads/{upload_id}/transcript", json={"text": "исправленный текст"})
+    assert r.status_code == 200
+
+    upload = await db_session.get(Upload, upload_id)
+    assert upload.transcript == "исправленный текст"
+
+
+async def test_update_upload_transcript_rejects_empty_text(auth_client, db_session, test_user):
+    _, upload_id = await _make_note_with_ocr_card(auth_client, db_session, test_user)
+    r = await auth_client.patch(f"/api/uploads/{upload_id}/transcript", json={"text": "   "})
+    assert r.status_code == 400
+
+
+async def test_update_upload_transcript_requires_space_access(auth_client, _client_factory, db_session, test_user):
+    from app.models import User
+    from app.security import create_session_token, hash_password
+
+    _, upload_id = await _make_note_with_ocr_card(auth_client, db_session, test_user)
+
+    outsider = User(username="upload_transcript_outsider", password_hash=hash_password("x"), name="Outsider")
+    db_session.add(outsider)
+    await db_session.flush()
+    client = _client_factory()
+    client.cookies.set("notenotes_session", create_session_token(outsider.id))
+
+    r = await client.patch(f"/api/uploads/{upload_id}/transcript", json={"text": "чужая правка"})
+    assert r.status_code in (403, 404)

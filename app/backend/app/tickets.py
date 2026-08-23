@@ -315,6 +315,7 @@ async def _process(upload_id: uuid.UUID) -> None:
             return
         transcript = upload.transcript or ""
         filename = upload.filename
+        content_type = upload.content_type
 
     if not transcript.strip():
         logger.warning("Пустой transcript для билета %s — извлечение пропущено", upload_id)
@@ -336,7 +337,7 @@ async def _process(upload_id: uuid.UUID) -> None:
         # Не удалось извлечь структуру — не оставляем заметку висеть на
         # плейсхолдере вечно: показываем как обычное распознанное
         # изображение, тем же путём, что vision.py для не-билетов.
-        formatted = serialize_image_ocr_result(transcript)
+        formatted = serialize_image_ocr_result(upload_id, transcript, content_type)
         await _replace_in_referencing_items(upload_id, image_placeholder_text(upload_id), formatted)
         return
 

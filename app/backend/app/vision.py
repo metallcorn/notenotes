@@ -14,7 +14,7 @@ from app import collab, realtime
 from app.core.config import get_settings
 from app.db import async_session
 from app.document_reflow import reflow_document_text
-from app.models import Item, Upload
+from app.models import Item, ItemVersion, Upload
 from app.rotation import correct_orientation
 
 logger = logging.getLogger(__name__)
@@ -129,18 +129,29 @@ def placeholder_text(upload_id: uuid.UUID) -> str:
     return f"⏳ Описание изображения {upload_id} обрабатывается…"
 
 
-def serialize_image_ocr_result(text: str) -> str:
+def serialize_image_ocr_result(upload_id: uuid.UUID, text: str, content_type: str = "") -> str:
     """Тот же формат, что сериализует ImageOcrResult.ts на фронте — раньше
     результат распознавания вставлялся голым абзацем прямо в заметку
     (реальная жалоба: засоряет заметку, особенно у картинок с таблицами/
     длинным текстом), теперь сворачиваемая карточка, как у распознанного
     текста PDF. Сама картинка (обычный <img>) не трогается — этот узел
-    просто занимает место старого текстового плейсхолдера рядом с ней."""
+    просто занимает место старого текстового плейсхолдера рядом с ней.
+
+    upload_id — реальная жалоба: карточка не знала, из какого upload она
+    получена, поэтому не было ни кнопки "распознать заново", ни ручной
+    правки текста, если распознавание ошиблось. content_type определяет
+    data-can-reprocess: /api/uploads/{id}/reprocess сейчас умеет только
+    image/video/pdf — для аудио (расшифровка голосовых записей,
+    note_recording.py — отдельный пайплайн, не через этот эндпоинт) кнопку
+    "распознать заново" не показываем, чтобы не предлагать нерабочее
+    действие; ручная правка текста работает для всех одинаково."""
 
     def esc(s: str) -> str:
         return s.replace("&", "&amp;").replace("\n", "&#10;").replace('"', "&quot;")
 
-    return f'<div data-image-ocr-result data-text="{esc(text)}"></div>'
+    can_reprocess = content_type.startswith(("image/", "video/")) or content_type == "application/pdf"
+    reprocess_attr = ' data-can-reprocess="1"' if can_reprocess else ""
+    return f'<div data-image-ocr-result data-text="{esc(text)}" data-upload-id="{upload_id}"{reprocess_attr}></div>'
 
 
 def enqueue_vision(upload_id: uuid.UUID) -> None:
@@ -159,7 +170,7 @@ _REPLACE_RETRY_ATTEMPTS = 5
 _REPLACE_RETRY_DELAY_SECONDS = 2.0
 
 
-async def _replace_in_referencing_items(upload_id: uuid.UUID, old: str, new: str) -> None:
+async def _replace_by_pattern(upload_id: uuid.UUID, pattern: re.Pattern, new: str, *, snapshot_version: bool = False) -> bool:
     for attempt in range(_REPLACE_RETRY_ATTEMPTS):
         async with async_session() as db:
             result = await db.execute(select(Item).where(Item.content.like(f"%{upload_id}%")))
@@ -167,8 +178,11 @@ async def _replace_in_referencing_items(upload_id: uuid.UUID, old: str, new: str
             touched_spaces = set()
             touched_item_ids = []
             for item in items:
-                if old in item.content:
-                    item.content = item.content.replace(old, new)
+                new_content, n = pattern.subn(new, item.content)
+                if n:
+                    if snapshot_version:
+                        db.add(ItemVersion(item_id=item.id, title=item.title, content=item.content, author_id=item.author_id))
+                    item.content = new_content
                     touched_spaces.add(item.space_id)
                     touched_item_ids.append(item.id)
             if touched_spaces:
@@ -180,9 +194,33 @@ async def _replace_in_referencing_items(upload_id: uuid.UUID, old: str, new: str
                 # collab.invalidate_room.
                 for item_id in touched_item_ids:
                     await collab.invalidate_room(item_id)
-                return
+                return True
         if attempt < _REPLACE_RETRY_ATTEMPTS - 1:
             await asyncio.sleep(_REPLACE_RETRY_DELAY_SECONDS)
+    return False
+
+
+async def _replace_in_referencing_items(upload_id: uuid.UUID, old: str, new: str) -> None:
+    await _replace_by_pattern(upload_id, re.compile(re.escape(old)), new)
+
+
+_IMAGE_OCR_CARD_RE_TEMPLATE = r'<div data-image-ocr-result[^>]*data-upload-id="{}"[^>]*></div>'
+
+
+async def replace_recognized_text_card(
+    upload_id: uuid.UUID, placeholder: str | None, new_card_html: str, *, snapshot_version: bool = False
+) -> bool:
+    """Заменяет карточку распознанного текста (общий тег data-image-ocr-result
+    — используется одинаково vision.py/transcription.py/note_recording.py)
+    — либо ЕЩЁ плейсхолдер "...обрабатывается…" (первая обработка, если он
+    передан), либо УЖЕ существующую карточку этого upload_id, найденную по
+    data-upload-id (повторное распознавание либо ручная правка текста —
+    оба случая заменяют готовую карточку, а не плейсхолдер). Раньше замена
+    умела искать только точный плейсхолдер — повторный запуск распознавания
+    на уже готовой картинке молча ничего не находил и не обновлял заметку."""
+    card_pattern = _IMAGE_OCR_CARD_RE_TEMPLATE.format(re.escape(str(upload_id)))
+    pattern = re.compile(f"{re.escape(placeholder)}|{card_pattern}" if placeholder else card_pattern)
+    return await _replace_by_pattern(upload_id, pattern, new_card_html, snapshot_version=snapshot_version)
 
 
 async def _analyze(image_bytes: bytes, content_type: str, api_key: str) -> str:
@@ -300,8 +338,8 @@ async def _process(upload_id: uuid.UUID) -> None:
         logger.warning("Mistral vision вернул пустой результат для %s", upload_id)
         return
 
-    formatted = serialize_image_ocr_result(description)
-    await _replace_in_referencing_items(upload_id, placeholder_text(upload_id), formatted)
+    formatted = serialize_image_ocr_result(upload_id, description, content_type)
+    await replace_recognized_text_card(upload_id, placeholder_text(upload_id), formatted)
 
 
 async def run_worker() -> None:
@@ -361,5 +399,5 @@ async def resume_stuck_replacements() -> None:
         if upload.transcription_status != "done" or not (upload.transcript or "").strip():
             continue
         logger.info("Довершаю зависшую замену плейсхолдера для %s (найдено при старте)", upload.id)
-        formatted = serialize_image_ocr_result(upload.transcript)
-        await _replace_in_referencing_items(upload.id, placeholder_text(upload.id), formatted)
+        formatted = serialize_image_ocr_result(upload.id, upload.transcript, upload.content_type)
+        await replace_recognized_text_card(upload.id, placeholder_text(upload.id), formatted)

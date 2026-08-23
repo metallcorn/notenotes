@@ -101,6 +101,7 @@ async def _process(upload_id: uuid.UUID) -> None:
         if upload is None:
             return
         upload.transcription_status = "processing"
+        content_type = upload.content_type
         await db.commit()
 
     video_path = _upload_path(upload_id)
@@ -165,7 +166,7 @@ async def _process(upload_id: uuid.UUID) -> None:
         # был голый markdown-абзац, из всех источников распознанного текста
         # только видео/голосовые в Telegram выглядели иначе. Суть та же
         # самая (текст, извлечённый из медиа) — вид тоже должен быть тот же.
-        formatted = serialize_image_ocr_result(transcript)
+        formatted = serialize_image_ocr_result(upload_id, transcript, content_type)
         await _replace_in_referencing_items(upload_id, placeholder_text(upload_id), formatted)
 
 

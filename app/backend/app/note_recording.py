@@ -136,7 +136,7 @@ async def _process(upload_id: uuid.UUID) -> None:
     # (ImageOcrResult.ts/ImageOcrResultCard.tsx): формат карточки ничего
     # не знает про картинки конкретно, просто сворачиваемый текст, поэтому
     # переиспользуем как есть, без нового узла на фронте.
-    card = f'<audio src="{url}" data-filename="{_esc(filename)}"></audio>\n\n{serialize_image_ocr_result(transcript)}'
+    card = f'<audio src="{url}" data-filename="{_esc(filename)}"></audio>\n\n{serialize_image_ocr_result(upload_id, transcript, content_type)}'
     await _replace_in_referencing_items(upload_id, placeholder_text(upload_id), card)
 
 

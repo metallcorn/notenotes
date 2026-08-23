@@ -1172,6 +1172,17 @@ export function useReprocessUpload() {
   });
 }
 
+// Ручная правка распознанного текста (реальный запрос: OCR ошибся —
+// перепутанная цифра/опечатка — поправить руками, не гоняя распознавание
+// заново). Ответ карточки прилетит через collab/realtime, отдельно
+// инвалидировать здесь ничего не нужно (routers/uploads.py делает это сам).
+export function useUpdateUploadTranscript() {
+  return useMutation({
+    mutationFn: ({ uploadId, text }: { uploadId: string; text: string }) =>
+      api.patch(`/uploads/${uploadId}/transcript`, { text }),
+  });
+}
+
 // Виджет «Проверить по ссылке» (UrlCheckCard.tsx) — состояние (url/поля/
 // заголовки авторизации/результат) живёт на бэкенде (url_check_widgets),
 // в content заметки только id: гидратация при монтировании узла + кнопка

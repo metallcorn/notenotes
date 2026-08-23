@@ -453,6 +453,42 @@ async def reprocess_upload(
     return {"status": "pending"}
 
 
+class UpdateTranscriptIn(BaseModel):
+    text: str
+
+
+@router.patch("/{upload_id}/transcript")
+async def update_upload_transcript(
+    upload_id: uuid.UUID,
+    payload: UpdateTranscriptIn,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Ручная правка распознанного текста — реальный запрос: OCR иногда
+    ошибается (перепутанная цифра в дате, опечатка), и пользователь должен
+    уметь поправить руками, не гоняя распознавание заново. Работает для
+    любого источника карточки data-image-ocr-result (картинка/PDF/видео-
+    аудио-расшифровка/голосовая запись в заметке) — формат тега одинаковый
+    везде, см. vision.serialize_image_ocr_result."""
+    upload = await db.get(Upload, upload_id)
+    if upload is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Файл не найден")
+    await ensure_space_access(db, upload.space_id, user.id)
+    if await is_vault_space(db, upload.space_id):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Недоступно в сейфе")
+
+    text = payload.text.strip()
+    if not text:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Текст не может быть пустым")
+
+    upload.transcript = text
+    await db.commit()
+
+    new_card = vision_module.serialize_image_ocr_result(upload.id, text, upload.content_type)
+    await vision_module.replace_recognized_text_card(upload.id, None, new_card, snapshot_version=True)
+    return {"status": "ok"}
+
+
 @router.post("/{upload_id}/describe-now")
 async def describe_upload_now(
     upload_id: uuid.UUID, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
