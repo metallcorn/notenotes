@@ -46,13 +46,35 @@ export default function LinkPreviewCard({ node }: NodeViewProps) {
   const url = node.attrs.url as string;
   const { data, isLoading } = useLinkPreview(url);
 
-  // Пока грузится или карточку не удалось собрать (сайт не ответил,
-  // заблокирован SSRF-проверкой и т.п.) — обычная синяя ссылка, не
-  // заглушка/скелетон.
-  if (isLoading || !data || data.fetch_failed || !data.title) {
+  // Пока грузится — обычная синяя ссылка, не заглушка/скелетон (момент
+  // короткий, мигать скелетоном ради него не стоит).
+  if (isLoading || !data) {
     return (
       <NodeViewWrapper as="div" className="my-1">
         <a href={url} target="_blank" rel="noopener noreferrer" className="text-blue-600 underline">
+          {url}
+        </a>
+      </NodeViewWrapper>
+    );
+  }
+
+  // Реальная жалоба: карточку не удалось собрать (сайт требует
+  // авторизацию, не ответил, заблокирован SSRF-проверкой и т.п.) —
+  // рендерилась ТАКАЯ ЖЕ обычная синяя ссылка, как и в момент загрузки,
+  // визуально неотличимая от "вставка вообще не сработала". На деле узел
+  // создался и запрос ушёл, просто превью не собралось — маленькая иконка
+  // с подсказкой явно показывает разницу.
+  if (data.fetch_failed || !data.title) {
+    return (
+      <NodeViewWrapper as="div" className="my-1">
+        <a
+          href={url}
+          target="_blank"
+          rel="noopener noreferrer"
+          title="Не удалось загрузить превью — сайт не ответил или требует авторизацию"
+          className="inline-flex items-center gap-1 text-blue-600 underline decoration-dotted"
+        >
+          <Globe size={12} className="shrink-0 text-slate-400" />
           {url}
         </a>
       </NodeViewWrapper>
