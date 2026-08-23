@@ -26,6 +26,7 @@ import {
 } from "lucide-react";
 import type { ContentWidth } from "../lib/storage";
 import AiMenu, { type AiAction } from "./AiMenu";
+import CalloutMenu from "./CalloutMenu";
 import Spinner from "./Spinner";
 
 function ToolbarButton({
@@ -170,6 +171,7 @@ export default function EditorToolbar({
       >
         <SquareCode size={16} />
       </ToolbarButton>
+      <CalloutMenu editor={editor} />
       <ToolbarButton title="Разделитель" onClick={() => editor.chain().focus().setHorizontalRule().run()}>
         <Minus size={16} />
       </ToolbarButton>
