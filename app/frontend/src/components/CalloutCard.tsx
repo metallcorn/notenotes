@@ -1,12 +1,17 @@
+import { useState } from "react";
 import { NodeViewContent, NodeViewWrapper } from "@tiptap/react";
 import type { NodeViewProps } from "@tiptap/react";
 import { AlertOctagon, AlertTriangle, ChevronDown, ChevronRight, Info, Lightbulb } from "lucide-react";
 import type { CalloutVariant } from "../extensions/Callout";
 
 // Один компонент на все пять вариантов (spoiler/hint/info/warning/danger) —
-// см. Callout.ts. Спойлер сворачиваемый (плюс редактируемый заголовок),
-// остальные — всегда открытые цветные плашки с фиксированной подписью,
-// тот же набор, что в Confluence/Slack.
+// см. Callout.ts. Спойлер сворачиваемый (плюс редактируемый заголовок) —
+// принципиально другая вещь, не просто ещё один цвет: у него нет
+// фиксированной подписи и типа, переключать там нечего. Остальные четыре
+// (hint/info/warning/danger) — цветные плашки как в Confluence, тип
+// переключается прямо на блоке через иконку в углу, а не при вставке.
+const ADMONITION_VARIANTS = ["hint", "info", "warning", "danger"] as const;
+
 const VARIANT_STYLE: Record<CalloutVariant, { border: string; bg: string; icon: string; label: string }> = {
   spoiler: { border: "border-slate-300", bg: "bg-slate-50", icon: "text-slate-500", label: "Спойлер" },
   hint: { border: "border-emerald-300", bg: "bg-emerald-50", icon: "text-emerald-600", label: "Совет" },
@@ -15,12 +20,49 @@ const VARIANT_STYLE: Record<CalloutVariant, { border: string; bg: string; icon: 
   danger: { border: "border-red-300", bg: "bg-red-50", icon: "text-red-600", label: "Опасно" },
 };
 
-function VariantIcon({ variant, className }: { variant: CalloutVariant; className?: string }) {
-  const size = 15;
+function VariantIcon({ variant, size = 15, className }: { variant: CalloutVariant; size?: number; className?: string }) {
   if (variant === "hint") return <Lightbulb size={size} className={className} />;
   if (variant === "warning") return <AlertTriangle size={size} className={className} />;
   if (variant === "danger") return <AlertOctagon size={size} className={className} />;
   return <Info size={size} className={className} />;
+}
+
+function VariantSwitcher({ variant, onPick }: { variant: CalloutVariant; onPick: (v: CalloutVariant) => void }) {
+  const [open, setOpen] = useState(false);
+  const style = VARIANT_STYLE[variant] ?? VARIANT_STYLE.info;
+
+  return (
+    <div className="relative shrink-0">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        title="Сменить тип плашки"
+        contentEditable={false}
+        className={`flex items-center ${style.icon} hover:opacity-70`}
+      >
+        <VariantIcon variant={variant} />
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+          <div className="absolute left-0 top-full z-50 mt-1 flex gap-0.5 rounded border bg-white p-1 shadow-lg">
+            {ADMONITION_VARIANTS.map((v) => (
+              <button
+                key={v}
+                title={VARIANT_STYLE[v].label}
+                onClick={() => {
+                  onPick(v);
+                  setOpen(false);
+                }}
+                className={`flex h-7 w-7 items-center justify-center rounded ${v === variant ? VARIANT_STYLE[v].bg : "hover:bg-slate-100"} ${VARIANT_STYLE[v].icon}`}
+              >
+                <VariantIcon variant={v} size={14} />
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
 }
 
 export default function CalloutCard({ node, updateAttributes }: NodeViewProps) {
@@ -41,7 +83,7 @@ export default function CalloutCard({ node, updateAttributes }: NodeViewProps) {
             {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
           </button>
         ) : (
-          <VariantIcon variant={variant} className={`shrink-0 ${style.icon}`} />
+          <VariantSwitcher variant={variant} onPick={(v) => updateAttributes({ variant: v })} />
         )}
         {isSpoiler ? (
           <input

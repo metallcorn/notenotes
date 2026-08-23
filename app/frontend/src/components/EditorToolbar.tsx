@@ -9,10 +9,12 @@ import {
   Heading2,
   Heading3,
   Image as ImageIcon,
+  Info,
   Italic,
   List,
   ListOrdered,
   Maximize2,
+  MessageSquare,
   Mic,
   Minus,
   Quote,
@@ -26,7 +28,6 @@ import {
 } from "lucide-react";
 import type { ContentWidth } from "../lib/storage";
 import AiMenu, { type AiAction } from "./AiMenu";
-import CalloutMenu from "./CalloutMenu";
 import Spinner from "./Spinner";
 
 function ToolbarButton({
@@ -171,7 +172,30 @@ export default function EditorToolbar({
       >
         <SquareCode size={16} />
       </ToolbarButton>
-      <CalloutMenu editor={editor} />
+      <ToolbarButton
+        title="Спойлер"
+        onClick={() =>
+          editor
+            .chain()
+            .focus()
+            .insertContent({ type: "callout", attrs: { variant: "spoiler", open: true }, content: [{ type: "paragraph" }] })
+            .run()
+        }
+      >
+        <MessageSquare size={16} />
+      </ToolbarButton>
+      <ToolbarButton
+        title="Инфо-блок (совет/важно/опасно — переключается на самом блоке)"
+        onClick={() =>
+          editor
+            .chain()
+            .focus()
+            .insertContent({ type: "callout", attrs: { variant: "info" }, content: [{ type: "paragraph" }] })
+            .run()
+        }
+      >
+        <Info size={16} />
+      </ToolbarButton>
       <ToolbarButton title="Разделитель" onClick={() => editor.chain().focus().setHorizontalRule().run()}>
         <Minus size={16} />
       </ToolbarButton>

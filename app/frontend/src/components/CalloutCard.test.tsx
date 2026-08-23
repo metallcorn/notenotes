@@ -43,4 +43,31 @@ describe("CalloutCard", () => {
     render(<CalloutCard {...makeProps({ variant: "spoiler", title: "T", open: false })} />);
     expect(screen.getByTitle("Развернуть")).toBeInTheDocument();
   });
+
+  it("клик по иконке инфо-блока открывает переключатель типа (не у спойлера)", async () => {
+    const user = userEvent.setup();
+    render(<CalloutCard {...makeProps({ variant: "info", title: null, open: true })} />);
+
+    await user.click(screen.getByTitle("Сменить тип плашки"));
+
+    expect(screen.getByTitle("Совет")).toBeInTheDocument();
+    expect(screen.getByTitle("Важно")).toBeInTheDocument();
+    expect(screen.getByTitle("Опасно")).toBeInTheDocument();
+  });
+
+  it("выбор нового типа в переключателе вызывает updateAttributes({variant})", async () => {
+    const updateAttributes = vi.fn();
+    const user = userEvent.setup();
+    render(<CalloutCard {...makeProps({ variant: "info", title: null, open: true }, updateAttributes)} />);
+
+    await user.click(screen.getByTitle("Сменить тип плашки"));
+    await user.click(screen.getByTitle("Опасно"));
+
+    expect(updateAttributes).toHaveBeenCalledWith({ variant: "danger" });
+  });
+
+  it("у спойлера переключателя типа нет вообще", () => {
+    render(<CalloutCard {...makeProps({ variant: "spoiler", title: "T", open: true })} />);
+    expect(screen.queryByTitle("Сменить тип плашки")).not.toBeInTheDocument();
+  });
 });
