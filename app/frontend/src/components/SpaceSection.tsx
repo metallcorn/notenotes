@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Globe, KeyRound, Lock, LockOpen, MoreVertical, Pencil, Trash2, Users } from "lucide-react";
 import type { Space } from "../api/types";
-import { useDeleteSpace, useUpdateSpace } from "../api/hooks";
+import { useDeleteSpace, useSpaceMembers, useUpdateSpace } from "../api/hooks";
 import { ApiError } from "../api/client";
 import { lockVault, useVaultUnlocked } from "../lib/vaultSession";
 import FolderTree from "./FolderTree";
@@ -39,6 +39,11 @@ export default function SpaceSection({
   const [forceConfirmed, setForceConfirmed] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const unlocked = useVaultUnlocked(space.is_vault ? space.id : undefined);
+  // Реальный запрос: хотел видеть сразу, что спейс шаренный, не открывая
+  // «Участники спейса» — тот же приём, что уже есть у сейфа (Lock рядом с
+  // названием), просто триггер "количество участников > 1", а не is_vault.
+  const members = useSpaceMembers(space.id);
+  const isShared = (members.data?.length ?? 0) > 1;
 
   async function handleDeleteSpace() {
     setDeleteError(null);
@@ -68,6 +73,11 @@ export default function SpaceSection({
           </span>
           {space.is_vault && (
             <Lock size={12} className={`shrink-0 ${unlocked ? "text-amber-500" : "text-slate-400"}`} />
+          )}
+          {isShared && (
+            <span title="Общий спейс — несколько участников" className="flex shrink-0 items-center text-slate-400">
+              <Users size={12} />
+            </span>
           )}
           {space.is_public_pages && (
             <span title="Публичные страницы" className="flex shrink-0 items-center text-slate-400">
