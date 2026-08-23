@@ -118,3 +118,13 @@ class ItemVersionOut(BaseModel):
     content: str
     author_id: uuid.UUID | None
     created_at: datetime
+
+
+class ItemTitleSearchResult(BaseModel):
+    """Автокомплит вставки ссылки на другую заметку (NoteLink.ts) — только
+    то, что нужно для показа в списке и вставки ссылки, не полный Item."""
+
+    id: uuid.UUID
+    title: str
+    space_id: uuid.UUID
+    material_type: str

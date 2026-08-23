@@ -18,6 +18,7 @@ from app.schemas.item import (
     ItemCreate,
     ItemMoveSpace,
     ItemOut,
+    ItemTitleSearchResult,
     ItemUpdate,
     ItemVersionOut,
     ShareItemIn,
@@ -333,6 +334,48 @@ async def dismiss_detected_event(
         )
         await db.commit()
         await realtime.notify_space(item.space_id, "items")
+
+
+@router.get("/search-titles", response_model=list[ItemTitleSearchResult])
+async def search_item_titles(
+    q: str, space_id: uuid.UUID | None = None, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+) -> list[ItemTitleSearchResult]:
+    """Автокомплит для вставки ссылки на другую заметку ([[название,
+    extensions/NoteLink.ts, ТЗ §7). Не полнотекстовый поиск (search.py) —
+    тот заточен под релевантность по СОДЕРЖИМОМУ; тут нужна именно
+    подстрока в НАЗВАНИИ, предсказуемая для живого набора по мере ввода.
+
+    ВАЖНО: зарегистрирован ДО GET /{item_id} ниже — Starlette матчит
+    маршруты по форме пути, а не по типу параметра, и "/search-titles" —
+    один сегмент, как и "/{item_id}"; если бы этот роут стоял ПОСЛЕ, запрос
+    сюда сначала попал бы на /{item_id} и упал с 422 (не UUID)."""
+    q = q.strip()
+    if not q:
+        return []
+    query = (
+        select(Item)
+        .join(SpaceMember, SpaceMember.space_id == Item.space_id)
+        .join(Space, Space.id == Item.space_id)
+        .where(
+            SpaceMember.user_id == user.id,
+            Item.material_type.in_(("note", "list", "ticket", "table")),
+            Item.deleted_at.is_(None),
+            # Сейф не должен засветиться в автокомплите — тот же принцип,
+            # что у кросс-спейсового списка по тегу выше: title/content там
+            # заглушка "🔒 Зашифровано" на сервере, реального совпадения по
+            # названию всё равно не будет, но лучше не показывать вообще.
+            Space.is_vault.is_(False),
+            Item.title.ilike(f"%{q}%"),
+        )
+    )
+    if space_id is not None:
+        query = query.where(Item.space_id == space_id)
+    query = query.order_by(Item.updated_at.desc()).limit(10)
+    items = (await db.execute(query)).scalars().all()
+    return [
+        ItemTitleSearchResult(id=i.id, title=i.title, space_id=i.space_id, material_type=i.material_type)
+        for i in items
+    ]
 
 
 @router.get("/{item_id}", response_model=ItemOut)
@@ -688,6 +731,31 @@ async def empty_trash(
         await db.delete(item)
     await db.commit()
     await realtime.notify_space(space_id, "items")
+
+
+@router.get("/{item_id}/backlinks", response_model=list[ItemOut])
+async def item_backlinks(
+    item_id: uuid.UUID, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+) -> list[ItemOut]:
+    """Заметки, ссылающиеся НА эту (ТЗ §7 — "бэкенд парсит и строит
+    связи"). NoteLink.ts хранит в content только data-item-id — тот же
+    substring-скан по всем content'ам, что уже применяется в cleanup.py
+    для upload_id (масштаб 2-10 пользователей делает отдельную таблицу
+    связей избыточной — не заводим её ради этого)."""
+    await _get_accessible_item(db, user, item_id)
+    query = (
+        select(Item)
+        .join(SpaceMember, SpaceMember.space_id == Item.space_id)
+        .where(
+            SpaceMember.user_id == user.id,
+            Item.deleted_at.is_(None),
+            Item.id != item_id,
+            Item.content.like(f"%{item_id}%"),
+        )
+        .order_by(Item.updated_at.desc())
+    )
+    items = (await db.execute(query)).scalars().all()
+    return [await _serialize(db, item, user.id) for item in items]
 
 
 @router.get("/{item_id}/versions", response_model=list[ItemVersionOut])

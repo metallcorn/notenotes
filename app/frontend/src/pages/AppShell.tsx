@@ -741,6 +741,12 @@ export default function AppShell() {
                     onBack={closeItemView}
                     highlightEntryId={highlightEntryId}
                     highlightAnchorId={highlightAnchorId}
+                    onOpenItem={(id) => {
+                      setViewMode("notes");
+                      setActiveFolderId(null);
+                      setTagId(null);
+                      setSelectedItemId(id, { forcePush: true });
+                    }}
                   />
                 ) : (
                   <div className="flex h-full items-center justify-center text-slate-400">

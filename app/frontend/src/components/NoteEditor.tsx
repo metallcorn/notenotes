@@ -11,7 +11,7 @@ import { createLowlight, common } from "lowlight";
 import { Markdown } from "tiptap-markdown";
 import { Suspense, lazy, useEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent } from "react";
-import { Archive, ChevronLeft, Code2, Eye, Globe, History, Palette, Pin, PinOff, Sparkles, Tag as TagIcon, Trash2, Users, WifiOff } from "lucide-react";
+import { Archive, ChevronLeft, Code2, Eye, FileText, Globe, History, Palette, Pin, PinOff, Sparkles, Tag as TagIcon, Trash2, Users, WifiOff } from "lucide-react";
 import { uiStorage, type ContentWidth } from "../lib/storage";
 import { useVersionCheck } from "../lib/useVersionCheck";
 import { getVaultKey } from "../lib/vaultSession";
@@ -25,6 +25,7 @@ import {
   useDeleteItem,
   useFolders,
   useItem,
+  useItemBacklinks,
   useMe,
   useMigrateItemToVault,
   useMoveItemSpace,
@@ -62,6 +63,8 @@ import { HideImageProcessingPlaceholder } from "../extensions/HideImageProcessin
 import { ProcessingPlaceholder } from "../extensions/ProcessingPlaceholder";
 import { TrailingParagraph } from "../extensions/TrailingParagraph";
 import { Callout } from "../extensions/Callout";
+import { NoteLink } from "../extensions/NoteLink";
+import { NoteLinkSuggestion } from "../extensions/NoteLinkSuggestion";
 import { InlineLinkFavicon } from "../extensions/InlineLinkFavicon";
 import { DataRecognition } from "../extensions/DataRecognition";
 import { DetectedAddressLinks } from "../extensions/DetectedAddressLinks";
@@ -102,10 +105,15 @@ export default function NoteEditor({
   onDeleted,
   onBack,
   highlightAnchorId,
+  onOpenItem,
 }: {
   itemId: string;
   onDeleted: () => void;
   onBack: () => void;
+  // Клик по ссылке на другую заметку (NoteLink.ts) — переход в приложении,
+  // не по href (заметка живёт по /?item=<id>, а не по отдельному URL,
+  // который открылся бы новой вкладкой/страницей).
+  onOpenItem?: (id: string) => void;
   // Переход из напоминания, поставленного якорем на конкретную строку
   // (см. ReminderAnchor.ts) — прокрутить и подсветить, тот же приём, что
   // highlightEntryId у ListEditor.tsx.
@@ -125,6 +133,7 @@ export default function NoteEditor({
   const addTag = useAddItemTag(itemId);
   const removeTag = useRemoveItemTag(itemId);
   const suggestTags = useSuggestTags(itemId);
+  const { data: backlinks } = useItemBacklinks(itemId);
   const createTag = useCreateTag();
   const { data: folders } = useFolders(item?.space_id);
   const { data: spaces } = useSpaces();
@@ -167,6 +176,17 @@ export default function NoteEditor({
   const loadedItemIdRef = useRef<string | null>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // editorExtensions ниже собирается один раз (useMemo с []) — тот же
+  // приём, что updateAvailableRef: NoteLink.configure({onOpen}) захватил бы
+  // ссылку на onOpenItem, актуальную только на момент ПЕРВОГО монтирования
+  // (AppShell.tsx передаёт новую функцию-замыкание на каждый свой рендер),
+  // и дальше вызывал бы устаревшую версию с устаревшими setViewMode/
+  // setSelectedItemId внутри. Обёртка читает ref в момент клика — сама
+  // ссылка на функцию стабильна, но всегда достаёт актуальный колбэк.
+  const onOpenItemRef = useRef(onOpenItem);
+  useEffect(() => {
+    onOpenItemRef.current = onOpenItem;
+  }, [onOpenItem]);
 
   // Совместное редактирование (Yjs) — провайдер живёт, только пока текущая
   // заметка коллаборативна и открыта; collabItemIdRef — id заметки, к
@@ -210,6 +230,8 @@ export default function NoteEditor({
       HideImageProcessingPlaceholder,
       TrailingParagraph,
       Callout,
+      NoteLink.configure({ onOpen: (id: string) => onOpenItemRef.current?.(id) }),
+      NoteLinkSuggestion,
       InlineLinkFavicon,
       DataRecognition,
       DetectedAddressLinks,
@@ -1318,6 +1340,25 @@ export default function NoteEditor({
             Предложить теги
           </button>
         </div>
+
+        {/* Бэклинки (ТЗ §7) — заметки, ссылающиеся НА эту через [[название.
+            Показываем только когда есть что показывать — пустая строка
+            "упоминается в 0 заметках" никому не нужна. */}
+        {(backlinks ?? []).length > 0 && (
+          <div className="flex flex-wrap items-center gap-1.5 border-t px-3 py-2 text-xs text-slate-500">
+            <span className="shrink-0">Упоминается в {backlinks!.length} {backlinks!.length === 1 ? "заметке" : "заметках"}:</span>
+            {backlinks!.map((b) => (
+              <button
+                key={b.id}
+                onClick={() => onOpenItemRef.current?.(b.id)}
+                className="flex items-center gap-1 rounded bg-slate-100 px-1.5 py-0.5 text-slate-700 hover:bg-slate-200"
+              >
+                <FileText size={11} className="shrink-0 text-slate-400" />
+                {b.title || "Без названия"}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       <input ref={imageInputRef} type="file" accept="image/*" multiple hidden onChange={onPickImage} />

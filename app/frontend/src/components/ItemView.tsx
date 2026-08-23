@@ -12,12 +12,14 @@ export default function ItemView({
   onBack,
   highlightEntryId,
   highlightAnchorId,
+  onOpenItem,
 }: {
   itemId: string;
   onDeleted: () => void;
   onBack: () => void;
   highlightEntryId?: string | null;
   highlightAnchorId?: string | null;
+  onOpenItem?: (id: string) => void;
 }) {
   const { data: item } = useItem(itemId);
 
@@ -52,5 +54,13 @@ export default function ItemView({
   if (stableItem.material_type === "table") {
     return <TableEditor itemId={itemId} onDeleted={onDeleted} onBack={onBack} />;
   }
-  return <NoteEditor itemId={itemId} onDeleted={onDeleted} onBack={onBack} highlightAnchorId={highlightAnchorId} />;
+  return (
+    <NoteEditor
+      itemId={itemId}
+      onDeleted={onDeleted}
+      onBack={onBack}
+      highlightAnchorId={highlightAnchorId}
+      onOpenItem={onOpenItem}
+    />
+  );
 }

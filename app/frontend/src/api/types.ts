@@ -218,6 +218,15 @@ export interface ItemVersion {
   created_at: string;
 }
 
+// Автокомплит вставки ссылки на другую заметку (NoteLink.ts,
+// NoteLinkSuggestionList.tsx) — GET /api/items/search-titles.
+export interface ItemTitleSearchResult {
+  id: string;
+  title: string;
+  space_id: string;
+  material_type: string;
+}
+
 export interface LinkPreviewData {
   url: string;
   title: string | null;

@@ -827,6 +827,15 @@ export function useItemVersions(itemId: string | undefined) {
   });
 }
 
+// Заметки, ссылающиеся НА эту (NoteLink.ts, ТЗ §7) — "куда я упоминаюсь".
+export function useItemBacklinks(itemId: string | undefined) {
+  return useQuery<Item[]>({
+    queryKey: ["item-backlinks", itemId],
+    queryFn: () => api.get<Item[]>(`/items/${itemId}/backlinks`),
+    enabled: !!itemId,
+  });
+}
+
 export function useRevertVersion(itemId: string | undefined) {
   const qc = useQueryClient();
   return useMutation({

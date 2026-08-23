@@ -357,3 +357,100 @@ async def test_empty_trash_requires_space_access(auth_client, _client_factory, d
 
     r = await client.delete("/api/items/trash/empty", params={"space_id": space_id})
     assert r.status_code in (403, 404)
+
+
+# --- /search-titles: автокомплит вставки ссылки на другую заметку -----------
+
+async def test_search_item_titles_matches_substring_case_insensitive(auth_client):
+    space_id = await _make_space(auth_client)
+    await auth_client.post("/api/items", json={"space_id": space_id, "title": "Рецепт борща", "content": ""})
+    await auth_client.post("/api/items", json={"space_id": space_id, "title": "Список покупок", "content": ""})
+
+    r = await auth_client.get("/api/items/search-titles", params={"q": "БОРЩ"})
+    assert r.status_code == 200
+    titles = [i["title"] for i in r.json()]
+    assert titles == ["Рецепт борща"]
+
+
+async def test_search_item_titles_empty_query_returns_nothing(auth_client):
+    await _make_space(auth_client)
+    r = await auth_client.get("/api/items/search-titles", params={"q": "  "})
+    assert r.status_code == 200 and r.json() == []
+
+
+async def test_search_item_titles_excludes_vault_space(auth_client):
+    # Шифрование клиентское — с точки зрения этого теста ничто не мешает
+    # POST'нуть в сейф-спейс обычный текст напрямую (без реального
+    # шифрования); реальный вопрос — фильтрует ли запрос по Space.is_vault,
+    # а не то, что заголовок сейфовой заметки всегда будет заглушкой.
+    vault_r = await auth_client.post(
+        "/api/spaces", json={"name": "Сейф", "is_vault": True, "vault_salt": "s", "vault_verifier": "v"}
+    )
+    assert vault_r.status_code == 201
+    vault_space_id = vault_r.json()["id"]
+    await auth_client.post("/api/items", json={"space_id": vault_space_id, "title": "Тайный рецепт", "content": ""})
+
+    r = await auth_client.get("/api/items/search-titles", params={"q": "Тайный рецепт"})
+    assert r.status_code == 200 and r.json() == []
+
+
+async def test_search_item_titles_scoped_to_space_when_given(auth_client):
+    space_a = await _make_space(auth_client, name="A")
+    space_b = await _make_space(auth_client, name="B")
+    await auth_client.post("/api/items", json={"space_id": space_a, "title": "Общее имя", "content": ""})
+    await auth_client.post("/api/items", json={"space_id": space_b, "title": "Общее имя", "content": ""})
+
+    r = await auth_client.get("/api/items/search-titles", params={"q": "Общее", "space_id": space_a})
+    assert len(r.json()) == 1
+    assert r.json()[0]["space_id"] == space_a
+
+
+# --- /{item_id}/backlinks: заметки, ссылающиеся на эту -----------------------
+
+async def test_item_backlinks_finds_referencing_notes(auth_client):
+    space_id = await _make_space(auth_client)
+    r = await auth_client.post("/api/items", json={"space_id": space_id, "title": "Целевая", "content": "x"})
+    target_id = r.json()["id"]
+
+    link_html = f'<a data-note-link data-item-id="{target_id}">Целевая</a>'
+    r = await auth_client.post(
+        "/api/items", json={"space_id": space_id, "title": "Ссылающаяся", "content": f"Текст {link_html}"}
+    )
+    referencing_id = r.json()["id"]
+    await auth_client.post(
+        "/api/items", json={"space_id": space_id, "title": "Не ссылающаяся", "content": "просто текст"}
+    )
+
+    r = await auth_client.get(f"/api/items/{target_id}/backlinks")
+    assert r.status_code == 200
+    ids = [i["id"] for i in r.json()]
+    assert ids == [referencing_id]
+
+
+async def test_item_backlinks_excludes_self_reference(auth_client):
+    space_id = await _make_space(auth_client)
+    r = await auth_client.post("/api/items", json={"space_id": space_id, "title": "T", "content": "x"})
+    item_id = r.json()["id"]
+    # Ссылка заметки саму на себя не должна попасть в её же бэклинки
+    await auth_client.patch(f"/api/items/{item_id}", json={"content": f'<a data-note-link data-item-id="{item_id}"></a>'})
+
+    r = await auth_client.get(f"/api/items/{item_id}/backlinks")
+    assert r.json() == []
+
+
+async def test_item_backlinks_requires_access_to_target_item(auth_client, _client_factory, db_session):
+    from app.models import User
+    from app.security import create_session_token, hash_password
+
+    space_id = await _make_space(auth_client)
+    r = await auth_client.post("/api/items", json={"space_id": space_id, "title": "T", "content": "x"})
+    item_id = r.json()["id"]
+
+    outsider = User(username="backlinks_outsider", password_hash=hash_password("x"), name="Outsider")
+    db_session.add(outsider)
+    await db_session.flush()
+    client = _client_factory()
+    client.cookies.set("notenotes_session", create_session_token(outsider.id))
+
+    r = await client.get(f"/api/items/{item_id}/backlinks")
+    assert r.status_code == 404
