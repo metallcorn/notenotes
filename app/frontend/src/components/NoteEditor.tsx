@@ -61,6 +61,7 @@ import { Spacer } from "../extensions/Spacer";
 import { HideImageProcessingPlaceholder } from "../extensions/HideImageProcessingPlaceholder";
 import { ProcessingPlaceholder } from "../extensions/ProcessingPlaceholder";
 import { TrailingParagraph } from "../extensions/TrailingParagraph";
+import { Callout } from "../extensions/Callout";
 import { InlineLinkFavicon } from "../extensions/InlineLinkFavicon";
 import { DataRecognition } from "../extensions/DataRecognition";
 import { DetectedAddressLinks } from "../extensions/DetectedAddressLinks";
@@ -208,6 +209,7 @@ export default function NoteEditor({
       ProcessingPlaceholder,
       HideImageProcessingPlaceholder,
       TrailingParagraph,
+      Callout,
       InlineLinkFavicon,
       DataRecognition,
       DetectedAddressLinks,

@@ -64,6 +64,69 @@ function buildItems(
         editor.chain().focus().deleteRange(range).insertContent([{ type: "spacer" }, { type: "paragraph" }]).run(),
     },
     {
+      title: "Спойлер",
+      // Сворачиваемый блок — реальный запрос: "чтобы данные под ним не
+      // мешались". insertContent сразу с пустым абзацем внутри (тот же
+      // приём, что у "Отступ" выше) — иначе после вставки атом-подобный
+      // NodeSelection на самом callout мешал бы сразу печатать внутрь.
+      aliases: ["spoiler", "toggle", "details", "collapse", "свернуть"],
+      run: (editor, range) =>
+        editor
+          .chain()
+          .focus()
+          .deleteRange(range)
+          .insertContent({
+            type: "callout",
+            attrs: { variant: "spoiler", open: true },
+            content: [{ type: "paragraph" }],
+          })
+          .run(),
+    },
+    {
+      title: "Плашка: совет",
+      aliases: ["hint", "tip", "совет", "подсказка", "callout"],
+      run: (editor, range) =>
+        editor
+          .chain()
+          .focus()
+          .deleteRange(range)
+          .insertContent({ type: "callout", attrs: { variant: "hint" }, content: [{ type: "paragraph" }] })
+          .run(),
+    },
+    {
+      title: "Плашка: информация",
+      aliases: ["info", "информация", "инфо"],
+      run: (editor, range) =>
+        editor
+          .chain()
+          .focus()
+          .deleteRange(range)
+          .insertContent({ type: "callout", attrs: { variant: "info" }, content: [{ type: "paragraph" }] })
+          .run(),
+    },
+    {
+      title: "Плашка: важно",
+      aliases: ["warning", "важно", "внимание", "warn"],
+      run: (editor, range) =>
+        editor
+          .chain()
+          .focus()
+          .deleteRange(range)
+          .insertContent({ type: "callout", attrs: { variant: "warning" }, content: [{ type: "paragraph" }] })
+          .run(),
+    },
+    {
+      title: "Плашка: опасно",
+      aliases: ["danger", "опасно", "критично"],
+      run: (editor, range) =>
+        editor
+          .chain()
+          .focus()
+          .deleteRange(range)
+          .insertContent({ type: "callout", attrs: { variant: "danger" }, content: [{ type: "paragraph" }] })
+          .run(),
+    },
+    {
       title: "Картинка",
       aliases: ["image", "photo", "picture", "img"],
       run: (editor, range) => {
