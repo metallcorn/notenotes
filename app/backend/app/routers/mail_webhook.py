@@ -80,10 +80,19 @@ async def _attachment_block(upload: Upload, data: bytes, auto_process: bool) -> 
     url = f"/api/uploads/{upload.id}"
 
     if content_type.startswith("image/"):
+        # Реальный найденный баг: enqueue_vision кладёт upload_id только в
+        # процесс-локальную очередь в памяти — если рестарт/деплой случится
+        # ДО того, как воркер реально начал обработку, задача теряется
+        # молча, а transcription_status всё ещё дефолтный "none" (не
+        # "pending"/"processing"), так что resume_pending() при старте её
+        # не находит — плейсхолдер "обрабатывается…" остаётся навсегда
+        # (реальный случай: вложение письма "Re: Fw: Invoice Examplecorp").
+        upload.transcription_status = "pending"
         enqueue_vision(upload.id)
         return f"![]({url})\n\n{image_placeholder_text(upload.id)}\n"
 
     if content_type.startswith("video/") or content_type.startswith("audio/"):
+        upload.transcription_status = "pending"
         enqueue_transcription(upload.id)
         return (
             f'<video src="{url}" controls preload="metadata" style="max-width: 100%; max-height: 70vh;"></video>\n\n'

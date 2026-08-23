@@ -409,6 +409,13 @@ async def _handle_photo(db: AsyncSession, message: dict, space_id: uuid.UUID, au
     content_bytes, file_path = result
     filename = file_path.rsplit("/", 1)[-1]
     upload = await _save_upload(db, space_id, author_id, content_bytes, filename, "image/jpeg")
+    # Реальный найденный баг: enqueue_vision кладёт upload_id только в
+    # процесс-локальную очередь в памяти — если рестарт/деплой случится ДО
+    # того, как воркер реально начал обработку, задача теряется молча, а
+    # transcription_status всё ещё "none" (не "pending"/"processing"), так
+    # что resume_pending() при старте её не находит и не переставляет в
+    # очередь — плейсхолдер "обрабатывается…" остаётся навсегда.
+    upload.transcription_status = "pending"
     placeholder = image_placeholder_text(upload.id)
     caption = _entities_to_markdown(message.get("caption", ""), message.get("caption_entities"))
     body = f"{caption}\n\n" if caption else ""
@@ -448,6 +455,9 @@ async def _handle_video(db: AsyncSession, message: dict, space_id: uuid.UUID, au
     filename = file_path.rsplit("/", 1)[-1]
     mime_type = video.get("mime_type", "video/mp4")
     upload = await _save_upload(db, space_id, author_id, content_bytes, filename, mime_type)
+    # Тот же баг, что и у _handle_photo выше — resume_pending() ищет
+    # "pending"/"processing", а не дефолтный "none".
+    upload.transcription_status = "pending"
     placeholder = video_placeholder_text(upload.id)
     caption = _entities_to_markdown(message.get("caption", ""), message.get("caption_entities"))
     body = f"{caption}\n\n" if caption else ""
