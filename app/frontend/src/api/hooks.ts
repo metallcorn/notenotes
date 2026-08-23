@@ -490,6 +490,21 @@ export function useDismissDetectedEvent() {
   });
 }
 
+// Лёгкий вариант useItem — только для отображения (NoteLinkCard.tsx,
+// заголовок ссылки на другую заметку, вставленной как голый URL из адресной
+// строки). Обычный useItem ниже несёт логику сейфа/расшифровки/защиты от
+// гонок для ОСНОВНОГО открытого редактора — переиспользовать её здесь для
+// произвольной ЧУЖОЙ (по отношению к текущей заметке) ссылки было бы и
+// избыточно, и рискованно (не тот item_id в тех же эффектах).
+export function useItemBrief(id: string | undefined) {
+  return useQuery<Item>({
+    queryKey: ["item-brief", id],
+    queryFn: () => api.get<Item>(`/items/${id}`),
+    enabled: !!id,
+    retry: false,
+  });
+}
+
 export function useItem(id: string | undefined) {
   const raw = useQuery<Item>({
     queryKey: ["item", id],

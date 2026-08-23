@@ -93,6 +93,23 @@ function cursorColorForUser(userId: string | undefined): string {
 // чтения.
 const BARE_URL_RE = /^https?:\/\/\S+$/;
 
+// Реальный запрос: вставил ссылку на заметку, скопированную из адресной
+// строки браузера (?item=<uuid>) — должна распознаться как ссылка на СВОЮ
+// заметку (NoteLink.ts), а не превратиться в generic-превью с попыткой
+// затянуть og:title с собственного домена. Только СВОЙ origin — ссылка на
+// другой self-hosted инстанс Notenotes не должна считаться внутренней.
+export function parseInternalNoteLink(rawUrl: string): string | null {
+  try {
+    const url = new URL(rawUrl);
+    if (url.origin !== window.location.origin) return null;
+    const itemId = url.searchParams.get("item");
+    if (!itemId || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(itemId)) return null;
+    return itemId;
+  } catch {
+    return null;
+  }
+}
+
 const EmojiPickerPopover = lazy(() => import("./EmojiPickerPopover"));
 const lowlight = createLowlight(common);
 
@@ -278,7 +295,13 @@ export default function NoteEditor({
         const text = event.clipboardData?.getData("text/plain")?.trim();
         if (!text || !BARE_URL_RE.test(text)) return false;
         const { state } = view;
-        const node = state.schema.nodes.linkPreview.create({ url: text });
+        const internalItemId = parseInternalNoteLink(text);
+        // title пустой — NoteLinkCard.tsx сам подтянет название по itemId
+        // (см. useItemBrief там) и допишет его в атрибут узла при вставке
+        // такой ссылки: в момент вставки мы знаем только id из URL.
+        const node = internalItemId
+          ? state.schema.nodes.noteLink.create({ itemId: internalItemId, title: "" })
+          : state.schema.nodes.linkPreview.create({ url: text });
         view.dispatch(state.tr.replaceSelectionWith(node));
         return true;
       },
