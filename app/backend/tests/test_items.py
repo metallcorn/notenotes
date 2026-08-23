@@ -272,3 +272,88 @@ async def test_detected_events_list_and_dismiss(auth_client, db_session):
 
     r = await auth_client.get("/api/items/detected-events")
     assert not any(e["item_id"] == item_id for e in r.json())
+
+
+# --- /archive: папка «Архив» вместо удаления ---------------------------------
+
+async def test_archive_item_creates_archive_folder_and_moves_item(auth_client):
+    space_id = await _make_space(auth_client)
+    r = await auth_client.post("/api/items", json={"space_id": space_id, "title": "T", "content": "x"})
+    item_id = r.json()["id"]
+
+    r = await auth_client.post(f"/api/items/{item_id}/archive")
+    assert r.status_code == 200
+    folder_id = r.json()["folder_id"]
+    assert folder_id is not None
+
+    r = await auth_client.get("/api/folders", params={"space_id": space_id})
+    folders = r.json()
+    assert len(folders) == 1
+    assert folders[0]["name"] == "Архив"
+    assert folders[0]["id"] == folder_id
+
+    # Заметка осталась обычной, видимой — это не удаление, это папка
+    r = await auth_client.get(f"/api/items/{item_id}")
+    assert r.status_code == 200 and r.json()["deleted_at"] is None
+
+
+async def test_archive_item_reuses_existing_archive_folder(auth_client):
+    space_id = await _make_space(auth_client)
+    r1 = await auth_client.post("/api/items", json={"space_id": space_id, "title": "T1", "content": "x"})
+    r2 = await auth_client.post("/api/items", json={"space_id": space_id, "title": "T2", "content": "x"})
+
+    r1_archived = await auth_client.post(f"/api/items/{r1.json()['id']}/archive")
+    r2_archived = await auth_client.post(f"/api/items/{r2.json()['id']}/archive")
+    assert r1_archived.json()["folder_id"] == r2_archived.json()["folder_id"]
+
+    r = await auth_client.get("/api/folders", params={"space_id": space_id})
+    assert len(r.json()) == 1  # не создалась вторая папка «Архив»
+
+
+async def test_archive_rejects_unsupported_material_type(auth_client, db_session, test_user):
+    import uuid as uuid_mod
+
+    from app.models import Item
+
+    space_id = await _make_space(auth_client)
+    item = Item(space_id=uuid_mod.UUID(space_id), author_id=test_user.id, material_type="folder_marker", title="x")
+    db_session.add(item)
+    await db_session.flush()
+
+    r = await auth_client.post(f"/api/items/{item.id}/archive")
+    assert r.status_code == 400
+
+
+# --- /trash/empty: очистить корзину разом ------------------------------------
+
+async def test_empty_trash_removes_everything(auth_client):
+    space_id = await _make_space(auth_client)
+    ids = []
+    for i in range(3):
+        r = await auth_client.post("/api/items", json={"space_id": space_id, "title": f"T{i}", "content": "x"})
+        ids.append(r.json()["id"])
+        await auth_client.delete(f"/api/items/{ids[-1]}")  # в корзину
+
+    r = await auth_client.delete("/api/items/trash/empty", params={"space_id": space_id})
+    assert r.status_code == 204
+
+    r = await auth_client.get("/api/items/trash/list", params={"space_id": space_id})
+    assert r.json() == []
+
+
+async def test_empty_trash_requires_space_access(auth_client, _client_factory, db_session, test_user):
+    from app.models import User
+    from app.security import create_session_token, hash_password
+
+    space_id = await _make_space(auth_client)
+    r = await auth_client.post("/api/items", json={"space_id": space_id, "title": "T", "content": "x"})
+    await auth_client.delete(f"/api/items/{r.json()['id']}")
+
+    outsider = User(username="trash_outsider", password_hash=hash_password("x"), name="Outsider")
+    db_session.add(outsider)
+    await db_session.flush()
+    client = _client_factory()
+    client.cookies.set("notenotes_session", create_session_token(outsider.id))
+
+    r = await client.delete("/api/items/trash/empty", params={"space_id": space_id})
+    assert r.status_code in (403, 404)

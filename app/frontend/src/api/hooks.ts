@@ -803,6 +803,22 @@ export function useDeleteItem(spaceId: string | undefined) {
   });
 }
 
+// Альтернатива удалению — переносит в папку «Архив» текущего спейса
+// (заводится сама при первом использовании), заметка остаётся обычной и
+// видимой. Инвалидируем ["folders"] тоже: у первого архивирования папка
+// только что появилась, дерево папок должно её увидеть.
+export function useArchiveItem(spaceId: string | undefined) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.post<Item>(`/items/${id}/archive`),
+    onSuccess: (item) => {
+      qc.setQueryData(["item", item.id], item);
+      qc.invalidateQueries({ queryKey: ["items", spaceId] });
+      qc.invalidateQueries({ queryKey: ["folders", spaceId] });
+    },
+  });
+}
+
 export function useItemVersions(itemId: string | undefined) {
   return useQuery<ItemVersion[]>({
     queryKey: ["item-versions", itemId],
@@ -886,6 +902,14 @@ export function usePermanentDeleteItem(spaceId: string | undefined) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => api.delete<void>(`/items/${id}/permanent`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["trash", spaceId] }),
+  });
+}
+
+export function useEmptyTrash(spaceId: string | undefined) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.delete<void>(`/items/trash/empty?space_id=${spaceId}`),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["trash", spaceId] }),
   });
 }

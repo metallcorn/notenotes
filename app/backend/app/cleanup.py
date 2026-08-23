@@ -3,11 +3,12 @@ import logging
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 
+from app import realtime
 from app.core.config import get_settings
 from app.db import async_session
-from app.models import Item, Upload
+from app.models import Item, Notification, Upload
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +52,34 @@ async def _sweep_once() -> int:
         return removed
 
 
+# Реальный запрос: корзина не чистилась сама вообще — «удалено навсегда»
+# было только руками, из TrashView. 30 дней — тот же порядок, что у
+# большинства подобных приложений (не ТЗ-требование, разумный дефолт).
+_TRASH_RETENTION = timedelta(days=30)
+
+
+async def _purge_trash_once() -> int:
+    async with async_session() as db:
+        cutoff = datetime.now(timezone.utc) - _TRASH_RETENTION
+        candidates = (
+            await db.execute(select(Item).where(Item.deleted_at.is_not(None), Item.deleted_at < cutoff))
+        ).scalars().all()
+        if not candidates:
+            return 0
+
+        space_ids = set()
+        for item in candidates:
+            space_ids.add(item.space_id)
+            # Тот же порядок, что у ручного /permanent (routers/items.py) —
+            # Notification.payload не имеет FK на items.id, каскад БД её не заденет.
+            await db.execute(delete(Notification).where(Notification.payload["item_id"].astext == str(item.id)))
+            await db.delete(item)
+        await db.commit()
+        for space_id in space_ids:
+            await realtime.notify_space(space_id, "items")
+        return len(candidates)
+
+
 async def run_periodic_sweep() -> None:
     while True:
         try:
@@ -59,4 +88,10 @@ async def run_periodic_sweep() -> None:
                 logger.info("Очистка неиспользуемых файлов: удалено %d", removed)
         except Exception:
             logger.exception("Ошибка при очистке неиспользуемых файлов")
+        try:
+            purged = await _purge_trash_once()
+            if purged:
+                logger.info("Автоочистка корзины (>30 дней): удалено %d", purged)
+        except Exception:
+            logger.exception("Ошибка при автоочистке корзины")
         await asyncio.sleep(_SWEEP_INTERVAL_SECONDS)

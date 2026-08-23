@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { ChevronLeft, RotateCcw, Trash2 } from "lucide-react";
-import { usePermanentDeleteItem, useRestoreItem, useTrash } from "../api/hooks";
+import { useEmptyTrash, usePermanentDeleteItem, useRestoreItem, useTrash } from "../api/hooks";
 import type { Item } from "../api/types";
 import ConfirmDialog from "./ConfirmDialog";
 import Spinner from "./Spinner";
@@ -9,7 +9,10 @@ export default function TrashView({ spaceId, onBack }: { spaceId: string | undef
   const { data: items, isLoading } = useTrash(spaceId);
   const restore = useRestoreItem(spaceId);
   const permanentDelete = usePermanentDeleteItem(spaceId);
+  const emptyTrash = useEmptyTrash(spaceId);
   const [deleting, setDeleting] = useState<Item | null>(null);
+  const [confirmingEmpty, setConfirmingEmpty] = useState(false);
+  const hasItems = (items ?? []).length > 0;
 
   return (
     <div className="flex h-full w-full flex-col">
@@ -20,8 +23,21 @@ export default function TrashView({ spaceId, onBack }: { spaceId: string | undef
         >
           <ChevronLeft size={18} />
         </button>
-        <div className="text-sm font-medium text-slate-900">Корзина</div>
+        <div className="flex-1 text-sm font-medium text-slate-900">Корзина</div>
+        {hasItems && (
+          <button
+            onClick={() => setConfirmingEmpty(true)}
+            className="rounded px-2 py-1 text-xs text-red-600 hover:bg-red-50"
+          >
+            Очистить корзину
+          </button>
+        )}
       </div>
+      {hasItems && (
+        <div className="border-b bg-slate-50 px-4 py-1.5 text-xs text-slate-400">
+          Удаляется навсегда через 30 дней
+        </div>
+      )}
       <div className="flex-1 overflow-y-auto">
         {isLoading && <div className="p-4 text-sm text-slate-400">Загрузка…</div>}
         {!isLoading && (items ?? []).length === 0 && <div className="p-4 text-sm text-slate-400">Корзина пуста</div>}
@@ -64,6 +80,19 @@ export default function TrashView({ spaceId, onBack }: { spaceId: string | undef
             setDeleting(null);
           }}
           onCancel={() => setDeleting(null)}
+        />
+      )}
+
+      {confirmingEmpty && (
+        <ConfirmDialog
+          title="Очистить корзину полностью? Все заметки в ней будут удалены навсегда. Это необратимо."
+          danger
+          confirmLabel="Очистить корзину"
+          onConfirm={() => {
+            emptyTrash.mutate();
+            setConfirmingEmpty(false);
+          }}
+          onCancel={() => setConfirmingEmpty(false)}
         />
       )}
     </div>

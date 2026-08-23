@@ -11,7 +11,7 @@ import { createLowlight, common } from "lowlight";
 import { Markdown } from "tiptap-markdown";
 import { Suspense, lazy, useEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent } from "react";
-import { ChevronLeft, Code2, Eye, Globe, History, Palette, Pin, PinOff, Sparkles, Tag as TagIcon, Trash2, Users, WifiOff } from "lucide-react";
+import { Archive, ChevronLeft, Code2, Eye, Globe, History, Palette, Pin, PinOff, Sparkles, Tag as TagIcon, Trash2, Users, WifiOff } from "lucide-react";
 import { uiStorage, type ContentWidth } from "../lib/storage";
 import { useVersionCheck } from "../lib/useVersionCheck";
 import { getVaultKey } from "../lib/vaultSession";
@@ -19,6 +19,7 @@ import { downloadFile, inlineImages, sanitizeFilename, wrapHtmlDocument } from "
 import {
   useAddItemTag,
   useAiTransform,
+  useArchiveItem,
   useCreateReminder,
   useCreateTag,
   useDeleteItem,
@@ -112,6 +113,7 @@ export default function NoteEditor({
   const { data: item, isError, refetch: refetchItem } = useItem(itemId);
   const updateItem = useUpdateItem();
   const deleteItem = useDeleteItem(item?.space_id);
+  const archiveItem = useArchiveItem(item?.space_id);
   const uploadFile = useUploadFile(item?.space_id);
   // OCR/расшифровка видео никогда не запускаются для сейфа (бэкенд не
   // видит plaintext) — плейсхолдер "обрабатывается…" никогда не заменился
@@ -1175,6 +1177,14 @@ export default function NoteEditor({
               <History size={16} />
             </button>
             <ExportMenu onExport={handleExport} />
+            <button
+              onClick={() => archiveItem.mutate(item.id)}
+              disabled={archiveItem.isPending}
+              title="В архив — убрать с глаз, не удаляя"
+              className="flex h-8 w-8 items-center justify-center rounded border text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+            >
+              {archiveItem.isPending ? <Spinner size={16} /> : <Archive size={16} />}
+            </button>
             <button
               onClick={() => setConfirmingDelete(true)}
               disabled={deleteItem.isPending}

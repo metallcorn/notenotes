@@ -572,6 +572,46 @@ async def unshare_item(
     return _share_out(item)
 
 
+# Реальный запрос: не всегда хочется удалять заметку (даже мягко, через
+# корзину — та автоматически чистится, см. cleanup.py) — часто нужно
+# просто убрать с глаз то, что "вроде уже не надо, а вдруг понадобится".
+# Обычная папка, не отдельная сущность: переиспользует всё, что уже есть у
+# папок (видна в дереве, из неё можно достать заметку тем же "Переместить").
+ARCHIVE_FOLDER_NAME = "Архив"
+
+
+@router.post("/{item_id}/archive", response_model=ItemOut)
+async def archive_item(
+    item_id: uuid.UUID, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+) -> ItemOut:
+    """Перенос в папку «Архив» текущего спейса (создаётся при первом
+    использовании) — альтернатива удалению для заметок, которые не нужны
+    прямо сейчас, но жалко терять насовсем."""
+    item = await _get_accessible_item(db, user, item_id)
+    if item.material_type not in ("note", "list", "ticket", "table"):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "В архив можно переносить только заметки, списки, билеты и таблицы")
+
+    folder = (
+        await db.execute(
+            select(Folder).where(
+                Folder.space_id == item.space_id,
+                Folder.parent_id.is_(None),
+                Folder.name == ARCHIVE_FOLDER_NAME,
+            )
+        )
+    ).scalars().first()
+    if folder is None:
+        folder = Folder(space_id=item.space_id, parent_id=None, name=ARCHIVE_FOLDER_NAME)
+        db.add(folder)
+        await db.flush()
+
+    item.folder_id = folder.id
+    await db.commit()
+    await db.refresh(item)
+    await realtime.notify_space(item.space_id, "items")
+    return await _serialize(db, item, user.id)
+
+
 @router.delete("/{item_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_item(
     item_id: uuid.UUID, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
@@ -626,6 +666,26 @@ async def delete_item_permanent(
     # item_id (ошибка при попытке открыть его из уведомления).
     await db.execute(delete(Notification).where(Notification.payload["item_id"].astext == str(item_id)))
     await db.delete(item)
+    await db.commit()
+    await realtime.notify_space(space_id, "items")
+
+
+@router.delete("/trash/empty", status_code=status.HTTP_204_NO_CONTENT)
+async def empty_trash(
+    space_id: uuid.UUID, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+) -> None:
+    """Удалить навсегда всё содержимое корзины спейса разом — тот же
+    разрушительный путь, что и /{item_id}/permanent, просто за один клик
+    вместо по одной заметке."""
+    await ensure_space_access(db, space_id, user.id)
+    items = (
+        await db.execute(select(Item).where(Item.space_id == space_id, Item.deleted_at.is_not(None)))
+    ).scalars().all()
+    if not items:
+        return
+    for item in items:
+        await db.execute(delete(Notification).where(Notification.payload["item_id"].astext == str(item.id)))
+        await db.delete(item)
     await db.commit()
     await realtime.notify_space(space_id, "items")
 
