@@ -1,4 +1,5 @@
 import { Extension } from "@tiptap/core";
+import { PluginKey } from "@tiptap/pm/state";
 import Suggestion from "@tiptap/suggestion";
 import { ReactRenderer } from "@tiptap/react";
 import NoteLinkSuggestionList, { type NoteLinkSuggestionListHandle } from "../components/NoteLinkSuggestionList";
@@ -9,12 +10,22 @@ import type { ItemTitleSearchResult } from "../api/types";
 // findSuggestionMatch экранирует char целиком и режет query по его длине,
 // не привязан к одному символу) и живой поиск вместо статичного списка
 // (NoteLinkSuggestionList сама ходит за данными по query).
+//
+// Реальный найденный баг (живой краш редактора при открытии ЛЮБОЙ заметки):
+// Suggestion() без явного pluginKey использует один и тот же дефолтный ключ
+// "suggestion$" — SlashCommand.tsx уже регистрирует такой же плагин под
+// умолчанием, и ProseMirror отказывался добавлять второй плагин с тем же
+// ключом ("Adding different instances of a keyed plugin"), роняя весь
+// редактор ещё на этапе createEditor. Свой уникальный pluginKey решает это.
+const noteLinkSuggestionKey = new PluginKey("noteLinkSuggestion");
+
 export const NoteLinkSuggestion = Extension.create({
   name: "noteLinkSuggestion",
 
   addProseMirrorPlugins() {
     return [
       Suggestion<ItemTitleSearchResult, ItemTitleSearchResult>({
+        pluginKey: noteLinkSuggestionKey,
         editor: this.editor,
         char: "[[",
         startOfLine: false,
