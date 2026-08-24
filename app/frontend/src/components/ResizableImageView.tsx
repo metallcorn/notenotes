@@ -1,4 +1,4 @@
-import { useEffect, useState, type CSSProperties } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { NodeViewWrapper } from "@tiptap/react";
 import type { NodeViewProps } from "@tiptap/react";
 import Spinner from "./Spinner";
@@ -45,20 +45,43 @@ export default function ResizableImageView({ node, editor }: NodeViewProps) {
   const isProcessing =
     !!uploadId && editor.state.doc.textContent.includes(`⏳ Описание изображения ${uploadId} обрабатывается…`);
 
-  // Первая версия при повороте на 90/270° игнорировала width/align
-  // целиком (natural-размер с потолком по высоте экрана) — расчёт был в
-  // том, что точно подогнать box под сохранённый width% (посчитанный под
-  // НЕповёрнутую ориентацию) означало бы мерить натуральные пиксели
-  // картинки через onLoad. На практике это читалось как «кнопки размера
-  // сломались» — width/align реально переставали что-либо делать, пока
-  // картинка повёрнута. Теперь width/align применяются к wrapper'у ВСЕГДА,
-  // независимо от поворота; сам поворот — чистый CSS transform на <img>,
-  // не влияющий на layout. Компромисс: на 90/270° повёрнутая картинка
-  // может визуально выходить за рамки wrapper'а (transform не меняет
-  // размер layout-бокса) — это осознанно менее аккуратно, чем идеальный
-  // pixel-fit, но кнопки размера/выравнивания остаются рабочими всегда.
+  const isSideways = rotation === 90 || rotation === 270;
+
+  // Реальная жалоба: без явного width заметка полагалась на "случайное"
+  // разрешение самого файла (inline-block + img width:100% схлопывается к
+  // натуральному пиксельному размеру, если он меньше колонки редактора) —
+  // горизонтальные и вертикальные фото с одного телефона визуально выходили
+  // разной ширины, хотя пользователь ожидал ширину, зависящую от экрана, а
+  // не от кадра. Дефолт — 100% колонки, как только явный width не задан.
+  // Искл.: align=left/right — там schrink-to-fit к натуральному размеру
+  // осознанное поведение (обтекание текстом маленькой картинки), не баг.
+  const wrapperRef = useRef<HTMLDivElement>(null);
+  const [containerWidth, setContainerWidth] = useState<number | null>(null);
+  const [natural, setNatural] = useState<{ w: number; h: number } | null>(null);
+
+  // Повёрнутая на 90/270° картинка меняет местами видимую ширину/высоту —
+  // раньше layout-бокс оставался НЕповёрнутых размеров (чистый CSS
+  // transform его не трогает), поэтому под повёрнутым фото оставался
+  // огромный пустой промежуток (или, наоборот, наезд) — "как от
+  // вертикального фото осталось", реальная жалоба. ResizeObserver + onLoad
+  // дают точные натуральные пиксели без риска разъехаться на разных
+  // экранах (сам файл не меняется), после чего высота wrapper'а и размер
+  // картинки ДО поворота считаются так, чтобы после rotate() итог ровно
+  // совпал с шириной колонки.
+  useEffect(() => {
+    if (!isSideways || !wrapperRef.current || typeof ResizeObserver === "undefined") return;
+    const el = wrapperRef.current;
+    const ro = new ResizeObserver((entries) => {
+      const w = entries[0]?.contentRect.width;
+      if (w) setContainerWidth(w);
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [isSideways]);
+
   const wrapperStyle: CSSProperties = {};
   if (width) wrapperStyle.width = width;
+  else if (align !== "left" && align !== "right") wrapperStyle.width = "100%";
   if (align === "center") {
     wrapperStyle.display = "block";
     wrapperStyle.marginLeft = "auto";
@@ -71,15 +94,42 @@ export default function ResizableImageView({ node, editor }: NodeViewProps) {
     wrapperStyle.marginLeft = "1em";
   }
 
-  const imgStyle: CSSProperties = rotation ? { transform: `rotate(${rotation}deg)` } : {};
+  let imgStyle: CSSProperties = rotation ? { transform: `rotate(${rotation}deg)` } : {};
+  let imgClassName = "block w-full rounded";
+  if (isSideways && containerWidth && natural) {
+    const postW = containerWidth;
+    const postH = (postW * natural.w) / natural.h;
+    wrapperStyle.position = "relative";
+    wrapperStyle.height = postH;
+    wrapperStyle.overflow = "hidden";
+    imgStyle = {
+      position: "absolute",
+      top: "50%",
+      left: "50%",
+      width: postH,
+      height: postW,
+      transform: `translate(-50%, -50%) rotate(${rotation}deg)`,
+    };
+    imgClassName = "rounded";
+  } else if (isSideways) {
+    // Ещё не знаем натуральные пиксели (картинка/измерение в процессе) —
+    // временный фолбэк без обрезки, чтобы не мигать нулевым размером;
+    // как только onLoad/ResizeObserver отработают, точный расчёт выше
+    // возьмёт верх сам (не блокирует width/align — те уже применены выше).
+    imgClassName = "block max-h-[70vh] w-auto max-w-full rounded";
+  }
 
   return (
     <NodeViewWrapper as="div" data-drag-handle draggable className="my-1 max-w-full">
-      <div className="relative inline-block max-w-full" style={wrapperStyle}>
+      <div ref={wrapperRef} className="relative inline-block max-w-full" style={wrapperStyle}>
         <img
           src={src}
           alt={alt || ""}
-          className="block w-full rounded"
+          onLoad={(e) => {
+            const t = e.currentTarget;
+            if (t.naturalWidth && t.naturalHeight) setNatural({ w: t.naturalWidth, h: t.naturalHeight });
+          }}
+          className={imgClassName}
           style={imgStyle}
         />
         {isProcessing && (
