@@ -27,6 +27,16 @@ export const ResizableImage = ImageExtension.extend({
         parseHTML: (element: HTMLElement) => element.getAttribute("align"),
         renderHTML: (attrs: { align?: string | null }) => (attrs.align ? { align: attrs.align } : {}),
       },
+      // Реальная жалоба: телефон снял горизонтально, в заметке читать
+      // невозможно — поворот должен СОХРАНЯТЬСЯ (не просто разворот на
+      // время просмотра, как в полноэкранном ImageLightbox.tsx — там он
+      // эфемерный, тут это правка самой заметки). 0/90/180/270 — тех же
+      // символов достаточно, произвольный угол не нужен, как в Telegram.
+      rotation: {
+        default: 0,
+        parseHTML: (element: HTMLElement) => Number(element.getAttribute("data-rotate")) || 0,
+        renderHTML: (attrs: { rotation?: number }) => (attrs.rotation ? { "data-rotate": String(attrs.rotation) } : {}),
+      },
     };
   },
 
@@ -35,10 +45,19 @@ export const ResizableImage = ImageExtension.extend({
       markdown: {
         serialize(
           state: { write: (s: string) => void; esc: (s: string) => string },
-          node: { attrs: { src: string; alt?: string | null; title?: string | null; width?: string | null; align?: string | null } },
+          node: {
+            attrs: {
+              src: string;
+              alt?: string | null;
+              title?: string | null;
+              width?: string | null;
+              align?: string | null;
+              rotation?: number;
+            };
+          },
         ) {
-          const { src, alt, title, width, align } = node.attrs;
-          if (!width && !align) {
+          const { src, alt, title, width, align, rotation } = node.attrs;
+          if (!width && !align && !rotation) {
             state.write(
               "![" +
                 state.esc(alt || "") +
@@ -53,6 +72,7 @@ export const ResizableImage = ImageExtension.extend({
           if (alt) parts.push(`alt="${state.esc(alt)}"`);
           if (width) parts.push(`style="width: ${width}"`);
           if (align) parts.push(`align="${align}"`);
+          if (rotation) parts.push(`data-rotate="${rotation}"`);
           state.write(`<img ${parts.join(" ")} />`);
         },
         parse: {},

@@ -1,6 +1,13 @@
 import { useEffect, useRef, useState } from "react";
-import type { TouchEvent as ReactTouchEvent } from "react";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import type { CSSProperties, TouchEvent as ReactTouchEvent } from "react";
+import { ChevronLeft, ChevronRight, RotateCw } from "lucide-react";
+
+// Как в Telegram — поворот здесь только для ТЕКУЩЕГО просмотра, ничего не
+// сохраняет (в отличие от кнопки "Повернуть" в ImageToolbar.tsx — та
+// правит саму заметку). Сбрасывается при переходе к другой картинке в
+// галерее — разворот относится к конкретному кадру, не ко всей сессии
+// просмотра.
+const NEXT_ROTATION: Record<number, number> = { 0: 90, 90: 180, 180: 270, 270: 0 };
 
 // Минимальная длина горизонтального свайпа, чтобы засчитать смену
 // картинки — короче него слишком легко спутать с обычным тапом/дрожью
@@ -26,8 +33,13 @@ export default function ImageLightbox({
   onClose: () => void;
 }) {
   const [index, setIndex] = useState(startIndex);
+  const [rotation, setRotation] = useState(0);
   const multiple = images.length > 1;
   const touchStartRef = useRef<{ x: number; y: number } | null>(null);
+
+  useEffect(() => {
+    setRotation(0);
+  }, [index]);
 
   function prev() {
     setIndex((i) => (i - 1 + images.length) % images.length);
@@ -75,6 +87,21 @@ export default function ImageLightbox({
   const current = images[index];
   if (!current) return null;
 
+  const isSideways = rotation === 90 || rotation === 270;
+  // Поворот на 90/270° меняет местами то, что реально ограничивает
+  // видимый размер — картинка становится "выше, чем шире" или наоборот.
+  // vw/vh — контейнер и так на весь экран (fixed inset-0), точный
+  // pixel-расчёт через натуральные размеры тут не нужен, как в
+  // ResizableImageView.tsx (там нужен из-за настраиваемого width%, тут его
+  // нет вообще).
+  const imgStyle: CSSProperties = rotation
+    ? {
+        transform: `rotate(${rotation}deg)`,
+        maxHeight: isSideways ? "85vw" : "100%",
+        maxWidth: isSideways ? "85vh" : "100%",
+      }
+    : {};
+
   return (
     <div
       onClick={onClose}
@@ -82,7 +109,22 @@ export default function ImageLightbox({
       onTouchEnd={handleTouchEnd}
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"
     >
-      <img src={current.src} alt={current.alt ?? ""} className="max-h-full max-w-full object-contain" />
+      <img
+        src={current.src}
+        alt={current.alt ?? ""}
+        style={imgStyle}
+        className="max-h-full max-w-full object-contain"
+      />
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          setRotation((r) => NEXT_ROTATION[r] ?? 90);
+        }}
+        title="Повернуть на 90° (только для просмотра)"
+        className="fixed right-2 top-2 flex h-10 w-10 items-center justify-center rounded-full bg-black/50 text-white hover:bg-black/70"
+      >
+        <RotateCw size={20} />
+      </button>
       {multiple && (
         <>
           <button

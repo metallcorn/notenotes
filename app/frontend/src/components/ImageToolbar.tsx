@@ -1,9 +1,17 @@
 import { useState } from "react";
 import type { Editor } from "@tiptap/core";
-import { Expand, Sparkles } from "lucide-react";
+import { Expand, RotateCw, Sparkles } from "lucide-react";
 import { useReprocessUpload } from "../api/hooks";
 import ImageLightbox from "./ImageLightbox";
 import Spinner from "./Spinner";
+
+// 0 -> 90 -> 180 -> 270 -> 0, как в Telegram — только прямые углы, ничего
+// произвольного. Хранится в самом узле (rotation в ResizableImage.ts) —
+// реальная жалоба: телефон снял горизонтально, в заметке читать
+// невозможно, разворот должен СОХРАНЯТЬСЯ, а не сбрасываться при
+// перезагрузке (в отличие от разворота в ImageLightbox.tsx — тот только
+// для текущего просмотра, там сохранять нечего и незачем).
+const NEXT_ROTATION: Record<number, number> = { 0: 90, 90: 180, 180: 270, 270: 0 };
 
 const WIDTHS = [
   { label: "Маленькая", value: "25%" },
@@ -19,11 +27,21 @@ const ALIGNS: { label: string; value: "left" | "center" | "right" }[] = [
 
 export default function ImageToolbar({ editor }: { editor: Editor }) {
   const [lightbox, setLightbox] = useState(false);
-  const attrs = editor.getAttributes("image") as { src?: string; alt?: string | null; width?: string | null; align?: string | null };
+  const attrs = editor.getAttributes("image") as {
+    src?: string;
+    alt?: string | null;
+    width?: string | null;
+    align?: string | null;
+    rotation?: number;
+  };
   const reprocess = useReprocessUpload();
 
-  function setAttrs(patch: Record<string, string | null>) {
+  function setAttrs(patch: Record<string, string | number | null>) {
     editor.chain().focus().updateAttributes("image", patch).run();
+  }
+
+  function rotate() {
+    setAttrs({ rotation: NEXT_ROTATION[attrs.rotation ?? 0] ?? 90 });
   }
 
   // /api/uploads/{id} -> id. Картинки, вставленные не через загрузчик
@@ -52,6 +70,14 @@ export default function ImageToolbar({ editor }: { editor: Editor }) {
         >
           <Expand size={14} />
           Открыть
+        </button>
+        <button
+          onClick={rotate}
+          title="Повернуть на 90°"
+          className="flex items-center gap-1 rounded bg-white px-1.5 py-0.5 text-slate-600 hover:bg-slate-100"
+        >
+          <RotateCw size={14} />
+          Повернуть
         </button>
         {uploadId && (
           <button
