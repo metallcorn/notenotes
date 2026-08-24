@@ -61,6 +61,7 @@ import { TicketAttachment } from "../extensions/TicketAttachment";
 import { Spacer } from "../extensions/Spacer";
 import { HideImageProcessingPlaceholder } from "../extensions/HideImageProcessingPlaceholder";
 import { ProcessingPlaceholder } from "../extensions/ProcessingPlaceholder";
+import { UploadPlaceholder } from "../extensions/UploadPlaceholder";
 import { TrailingParagraph } from "../extensions/TrailingParagraph";
 import { Callout } from "../extensions/Callout";
 import { NoteLink } from "../extensions/NoteLink";
@@ -258,6 +259,7 @@ export default function NoteEditor({
       Spacer,
       ProcessingPlaceholder,
       HideImageProcessingPlaceholder,
+      UploadPlaceholder,
       TrailingParagraph,
       Callout,
       NoteLink.configure({ onOpen: (id: string) => onOpenItemRef.current?.(id) }),
@@ -919,14 +921,18 @@ export default function NoteEditor({
   // где один может выполниться без другого). Функция возвращает позицию
   // ПОСЛЕ вставленного — следующий файл в пачке продолжает оттуда же, а
   // не заново от live-selection.
-  function insertImageAt(pos: number, uploaded: { id: string; url: string }, sourceFile?: File): number {
+  function insertImageAt(
+    pos: number | { from: number; to: number },
+    uploaded: { id: string; url: string },
+    sourceFile?: File,
+  ): number {
     // Плейсхолдер — точная строка, которую backend ищет и заменяет на
     // готовое описание/OCR (app/vision.py, placeholder_text()); должна
     // совпадать 1:1, тот же приём, что и у видео-расшифровки. В сейфе
     // OCR никогда не запускается (бэкенд не видит plaintext) — плейсхолдер
     // никто не заменит, вставлять его там нельзя, застрянет навсегда.
     const placeholder = `⏳ Описание изображения ${uploaded.id} обрабатывается…`;
-    let nextPos = pos;
+    let nextPos = typeof pos === "number" ? pos : pos.from;
     if (mode === "wysiwyg" && editor) {
       const content: Record<string, unknown>[] = [{ type: "image", attrs: { src: uploaded.url } }];
       if (!isVaultNote) content.push({ type: "paragraph", content: [{ type: "text", text: placeholder }] });
@@ -940,7 +946,7 @@ export default function NoteEditor({
   }
 
   function insertUploadedFileAt(
-    pos: number,
+    pos: number | { from: number; to: number },
     uploaded: {
       id: string;
       url: string;
@@ -976,7 +982,7 @@ export default function NoteEditor({
     // отдельно загруженных аудиофайлов не подключена (только для видео),
     // плеер сам по себе и есть превью, ждать нечего.
     const previewText = uploaded.pdf_text ?? uploaded.preview_text ?? "";
-    let nextPos = pos;
+    let nextPos = typeof pos === "number" ? pos : pos.from;
     if (mode === "wysiwyg" && editor) {
       if (isVideo) {
         const content: Record<string, unknown>[] = [{ type: "video", attrs: { src: uploaded.url, filename: uploaded.filename } }];
@@ -1026,25 +1032,83 @@ export default function NoteEditor({
     return nextPos;
   }
 
-  // Реальная жалоба: с телефона нельзя было выбрать пачку файлов сразу —
-  // системный пикер даёт выбрать несколько, инпут их принимал бы, но
-  // код брал только files[0]. Грузим и вставляем ПОСЛЕДОВАТЕЛЬНО (не
-  // Promise.all): порядок вставки в заметке должен совпадать с порядком
-  // выбора, и один прогресс-бар на все параллельные загрузки не имел бы
-  // смысла. Позиция вставки — явная переменная (см. insertImageAt выше),
-  // а не live editor.chain().focus(): между файлами есть await сетевой
-  // загрузки, за это время фокус/выделение редактора ненадёжны.
-  async function onPickImage(e: ChangeEvent<HTMLInputElement>) {
-    const files = Array.from(e.target.files ?? []);
-    e.target.value = "";
+  // Находит по tempId ещё живой узел-плейсхолдер в АКТУАЛЬНОМ документе —
+  // не по запомненной позиции: за время await сетевой загрузки пользователь
+  // мог напечатать что-то ещё в другом месте заметки, позиции сместились
+  // бы. Если плейсхолдер не найден (например, кто-то вручную его удалил,
+  // пока файл грузился) — null, вызывающий код падает обратно на текущую
+  // позицию курсора.
+  function findPlaceholderRange(tempId: string): { from: number; to: number } | null {
+    if (!editor) return null;
+    let range: { from: number; to: number } | null = null;
+    editor.state.doc.descendants((node, pos) => {
+      if (range) return false;
+      if (node.type.name === "uploadPlaceholder" && node.attrs.tempId === tempId) {
+        range = { from: pos, to: pos + node.nodeSize };
+        return false;
+      }
+    });
+    return range;
+  }
+
+  // Реальная жалоба: перетащил/выбрал файл — на холсте ничего не
+  // появлялось, пока не завершится вся загрузка (передача по сети + ответ
+  // сервера) — "не моментально, а с большой задержкой", хотя пользователь
+  // ожидал увидеть что-то сразу, "чтобы выглядело отзывчиво". Теперь на
+  // месте вставки СРАЗУ (ещё до begin запроса) появляется карточка
+  // "Загружается…" (uploadPlaceholder), которая заменяется на настоящую
+  // картинку/видео/аудио/документ по готовности — по tempId (см.
+  // findPlaceholderRange выше), а на ошибке — на текст с предупреждением,
+  // чтобы спиннер не остался висеть навсегда.
+  //
+  // Общая точка для всех трёх входов (кнопка «Картинка», кнопка «Файл»,
+  // вставка из буфера/drag-and-drop) — insertUploadedFileAt сам разбирает
+  // по content_type и вызывает insertImageAt для картинок, так что
+  // отдельная ветка для картиночного пикера не нужна.
+  //
+  // Грузим и вставляем ПОСЛЕДОВАТЕЛЬНО (не Promise.all) — реальная жалоба:
+  // с телефона нельзя было выбрать пачку файлов сразу, системный пикер
+  // даёт выбрать несколько, но код брал только files[0]; порядок вставки в
+  // заметке должен совпадать с порядком выбора, и один прогресс-бар на все
+  // параллельные загрузки не имел бы смысла.
+  async function uploadAndInsertFiles(files: File[], atPos?: number) {
     if (!files.length || !item) return;
-    let pos = editor?.state.selection.to ?? 0;
+    let pos: number | { from: number; to: number } = atPos ?? editor?.state.selection.to ?? 0;
     try {
       for (let i = 0; i < files.length; i++) {
         setUploadBatch({ current: i + 1, total: files.length });
         setUploadProgress(0);
-        const uploaded = await uploadFile.mutateAsync({ file: files[i], onProgress: setUploadProgress });
-        pos = insertImageAt(pos, uploaded, files[i]);
+
+        let tempId: string | null = null;
+        if (mode === "wysiwyg" && editor) {
+          tempId = crypto.randomUUID();
+          editor
+            .chain()
+            .focus()
+            .insertContentAt(pos, { type: "uploadPlaceholder", attrs: { tempId, filename: files[i].name } })
+            .run();
+          pos = editor.state.selection.to;
+        }
+
+        try {
+          const uploaded = await uploadFile.mutateAsync({ file: files[i], onProgress: setUploadProgress });
+          const range = tempId ? findPlaceholderRange(tempId) : null;
+          pos = insertUploadedFileAt(range ?? pos, uploaded, files[i]);
+        } catch (err) {
+          const range = tempId ? findPlaceholderRange(tempId) : null;
+          if (range && editor) {
+            editor
+              .chain()
+              .focus()
+              .insertContentAt(range, {
+                type: "paragraph",
+                content: [{ type: "text", text: `⚠️ Не удалось загрузить «${files[i].name}»` }],
+              })
+              .run();
+            pos = editor.state.selection.to;
+          }
+          throw err;
+        }
       }
     } finally {
       setUploadProgress(null);
@@ -1052,44 +1116,20 @@ export default function NoteEditor({
     }
   }
 
-  // Реальная жалоба: Ctrl+V после скриншота/копирования картинки в буфер
-  // обмена ничего не делал — handlePaste в editorProps ниже явно отдавал
-  // файлы браузеру по умолчанию (return false), а дефолтное поведение
-  // ProseMirror для вставленных файлов — не вставлять вообще ничего.
-  // Тот же путь загрузки/вставки, что и у кнопки-пикера (onPickImage/
-  // onPickFile выше) — insertUploadedFileAt сам разбирает по content_type.
+  async function onPickImage(e: ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files ?? []);
+    e.target.value = "";
+    await uploadAndInsertFiles(files);
+  }
+
   async function pasteFiles(files: File[], atPos?: number) {
-    if (!files.length || !item) return;
-    let pos = atPos ?? editor?.state.selection.to ?? 0;
-    try {
-      for (let i = 0; i < files.length; i++) {
-        setUploadBatch({ current: i + 1, total: files.length });
-        setUploadProgress(0);
-        const uploaded = await uploadFile.mutateAsync({ file: files[i], onProgress: setUploadProgress });
-        pos = insertUploadedFileAt(pos, uploaded, files[i]);
-      }
-    } finally {
-      setUploadProgress(null);
-      setUploadBatch(null);
-    }
+    await uploadAndInsertFiles(files, atPos);
   }
 
   async function onPickFile(e: ChangeEvent<HTMLInputElement>) {
     const files = Array.from(e.target.files ?? []);
     e.target.value = "";
-    if (!files.length || !item) return;
-    let pos = editor?.state.selection.to ?? 0;
-    try {
-      for (let i = 0; i < files.length; i++) {
-        setUploadBatch({ current: i + 1, total: files.length });
-        setUploadProgress(0);
-        const uploaded = await uploadFile.mutateAsync({ file: files[i], onProgress: setUploadProgress });
-        pos = insertUploadedFileAt(pos, uploaded, files[i]);
-      }
-    } finally {
-      setUploadProgress(null);
-      setUploadBatch(null);
-    }
+    await uploadAndInsertFiles(files);
   }
 
   if (!item) {
