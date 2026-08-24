@@ -205,6 +205,18 @@ export default function NoteEditor({
     onOpenItemRef.current = onOpenItem;
   }, [onOpenItem]);
 
+  // editorProps (handlePaste) ниже собирается через тот же useMemo([])
+  // приём — вставленные файлы (реальная жалоба: вставка картинки из
+  // буфера обмена вообще ничего не делала) грузятся через pasteFiles,
+  // которая замыкает item/editor/uploadFile — все они меняются между
+  // рендерами, поэтому доступ только через ref, обновляемый каждый рендер
+  // (в отличие от onOpenItemRef, зависимость тут — сразу много изменчивых
+  // значений, проще обновлять без списка deps, чем перечислять их все).
+  const pasteFilesRef = useRef((_files: File[]) => {});
+  useEffect(() => {
+    pasteFilesRef.current = pasteFiles;
+  });
+
   // Совместное редактирование (Yjs) — провайдер живёт, только пока текущая
   // заметка коллаборативна и открыта; collabItemIdRef — id заметки, к
   // которой он реально привязан (сверяется перед фоновым ресинком ниже).
@@ -291,7 +303,12 @@ export default function NoteEditor({
       // плагинов. editorProps на самом EditorView вызывается раньше любых
       // плагинных handlePaste, так что порядок гарантирован.
       handlePaste: (view: EditorView, event: ClipboardEvent) => {
-        if (event.clipboardData?.files?.length) return false;
+        const files = Array.from(event.clipboardData?.files ?? []);
+        if (files.length) {
+          event.preventDefault();
+          void pasteFilesRef.current(files);
+          return true;
+        }
         const text = event.clipboardData?.getData("text/plain")?.trim();
         if (!text || !BARE_URL_RE.test(text)) return false;
         const { state } = view;
@@ -1010,6 +1027,28 @@ export default function NoteEditor({
         setUploadProgress(0);
         const uploaded = await uploadFile.mutateAsync({ file: files[i], onProgress: setUploadProgress });
         pos = insertImageAt(pos, uploaded, files[i]);
+      }
+    } finally {
+      setUploadProgress(null);
+      setUploadBatch(null);
+    }
+  }
+
+  // Реальная жалоба: Ctrl+V после скриншота/копирования картинки в буфер
+  // обмена ничего не делал — handlePaste в editorProps ниже явно отдавал
+  // файлы браузеру по умолчанию (return false), а дефолтное поведение
+  // ProseMirror для вставленных файлов — не вставлять вообще ничего.
+  // Тот же путь загрузки/вставки, что и у кнопки-пикера (onPickImage/
+  // onPickFile выше) — insertUploadedFileAt сам разбирает по content_type.
+  async function pasteFiles(files: File[]) {
+    if (!files.length || !item) return;
+    let pos = editor?.state.selection.to ?? 0;
+    try {
+      for (let i = 0; i < files.length; i++) {
+        setUploadBatch({ current: i + 1, total: files.length });
+        setUploadProgress(0);
+        const uploaded = await uploadFile.mutateAsync({ file: files[i], onProgress: setUploadProgress });
+        pos = insertUploadedFileAt(pos, uploaded, files[i]);
       }
     } finally {
       setUploadProgress(null);

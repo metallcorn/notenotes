@@ -101,6 +101,11 @@ const NOTE_TEMPLATES: NoteTemplate[] = [
   },
 ];
 
+// Портал-в-body — та же причина, что у FolderDialogPicker выше и у
+// FolderMenu в FolderTree.tsx: список заметок сам живёт внутри
+// overflow-y-auto, а abs-позиционированное меню внутри него частично
+// заезжает под соседнюю панель спейсов (реальная жалоба — "+Заметка"
+// выпадающий список перекрывается панелью спейсов).
 function NoteTemplateMenu({
   onSelect,
   disabled,
@@ -111,10 +116,29 @@ function NoteTemplateMenu({
   align: "top" | "bottom";
 }) {
   const [open, setOpen] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const [pos, setPos] = useState<{ top?: number; bottom?: number; right?: number; left?: number } | null>(null);
+
+  function toggle() {
+    if (!open && triggerRef.current) {
+      const r = triggerRef.current.getBoundingClientRect();
+      // align="top" — рядом с "+Заметка" в шапке, меню раскрывается вниз.
+      // align="bottom" — плавающая кнопка внизу экрана (моб.), раскрывается
+      // вверх, иначе упёрлось бы в нижний край вьюпорта.
+      setPos(
+        align === "top"
+          ? { top: r.bottom + 4, right: window.innerWidth - r.right }
+          : { bottom: window.innerHeight - r.top + 4, left: r.left },
+      );
+    }
+    setOpen((v) => !v);
+  }
+
   return (
-    <div className="relative">
+    <>
       <button
-        onClick={() => setOpen((v) => !v)}
+        ref={triggerRef}
+        onClick={toggle}
         disabled={disabled}
         title="Шаблон заметки"
         className={
@@ -125,30 +149,29 @@ function NoteTemplateMenu({
       >
         <ChevronDown size={14} />
       </button>
-      {open && (
-        <>
-          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-          <div
-            className={`absolute right-0 z-50 w-48 rounded border bg-white py-1 shadow-lg ${
-              align === "top" ? "top-full mt-1" : "bottom-full mb-1"
-            }`}
-          >
-            {NOTE_TEMPLATES.map((t) => (
-              <button
-                key={t.id}
-                onClick={() => {
-                  setOpen(false);
-                  onSelect(t);
-                }}
-                className="block w-full px-3 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50"
-              >
-                {t.label}
-              </button>
-            ))}
-          </div>
-        </>
-      )}
-    </div>
+      {open &&
+        pos &&
+        createPortal(
+          <>
+            <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+            <div style={pos} className="fixed z-50 w-48 rounded border bg-white py-1 shadow-lg">
+              {NOTE_TEMPLATES.map((t) => (
+                <button
+                  key={t.id}
+                  onClick={() => {
+                    setOpen(false);
+                    onSelect(t);
+                  }}
+                  className="block w-full px-3 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50"
+                >
+                  {t.label}
+                </button>
+              ))}
+            </div>
+          </>,
+          document.body,
+        )}
+    </>
   );
 }
 

@@ -1,3 +1,4 @@
+import logging
 import re
 from typing import Literal
 
@@ -11,6 +12,7 @@ from app.llm.factory import get_llm_client
 from app.models import User
 
 router = APIRouter(prefix="/api/ai", tags=["ai"])
+logger = logging.getLogger(__name__)
 
 # Разовое преобразование фрагмента/всей заметки — обычный chat-комплишн без
 # тулов и без истории диалога (не то же самое, что AI-ассистент в
@@ -96,6 +98,14 @@ async def transform_text(payload: TransformIn, user: User = Depends(get_current_
             [Message(role="system", content=system_prompt), Message(role="user", content=payload.text)], []
         )
     except Exception:
+        # Реальная жалоба: "не получилось переформатирование, попробуй ещё
+        # раз" — а разобраться, ПОЧЕМУ, было нечем: исключение проглатывалось
+        # молча, в логах backend'а оставалась только строка "502 Bad Gateway"
+        # без единой детали. logger.exception — тот же приём, что уже есть
+        # у ассистента в dialogs.py::run_dialog_turn на точно такой же
+        # случай (реального провайдера может колбасить и без сюда ведущего
+        # бага в коде — timeout, rate-limit, временная недоступность).
+        logger.exception("Ошибка обращения к LLM-провайдеру (ai/transform, action=%s)", payload.action)
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Не получилось обратиться к LLM-провайдеру") from None
 
     return {"result": _strip_wrapping_fence(response.message.content)}

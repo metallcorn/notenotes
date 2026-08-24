@@ -171,3 +171,35 @@ describe("NoteList — «Обсудить с ассистентом»", () => {
     await waitFor(() => expect(onSelectDialog).toHaveBeenCalledWith("new-dialog"));
   });
 });
+
+describe("NoteList — меню шаблонов «+Заметка» не обрезается панелью спейсов", () => {
+  it("рендерится порталом в document.body (вне overflow-hidden предка)", async () => {
+    hooks.useItems.mockReturnValue({ data: [] as Item[], isLoading: false });
+    hooks.useCreateItem.mockReturnValue(mockMutation());
+    hooks.useCreateList.mockReturnValue(mockMutation());
+    hooks.useCreateTable.mockReturnValue(mockMutation());
+    hooks.useCreateDialog.mockReturnValue(mockMutation());
+    hooks.useScopedFolderDialogs.mockReturnValue(mockMutation());
+    const user = userEvent.setup();
+
+    // Тот же сценарий, что реальная жалоба: панель спейсов — соседний
+    // overflow-y-auto скролл-контейнер, обрезающий абс-позиционированное
+    // выпадающее меню — воспроизводим клипающего предка напрямую, как
+    // в FolderTree.test.tsx.
+    const { container } = render(
+      <div style={{ overflow: "hidden", height: 50 }} data-testid="clipping-ancestor">
+        <NoteList spaceId="s1" folderId={null} tagId={null} selectedId={null} onSelect={vi.fn()} onSelectDialog={vi.fn()} />
+      </div>,
+    );
+
+    // Десктопная и мобильная кнопки рендерятся в DOM одновременно (видимость
+    // переключает только Tailwind hidden/md:flex, jsdom это не считает) —
+    // берём первую (десктопную, align="top").
+    await user.click(screen.getAllByTitle("Шаблон заметки")[0]);
+
+    const clippingAncestor = container.querySelector('[data-testid="clipping-ancestor"]');
+    const menuItem = screen.getByText("Встреча");
+    expect(clippingAncestor?.contains(menuItem)).toBe(false);
+    expect(document.body.contains(menuItem)).toBe(true);
+  });
+});

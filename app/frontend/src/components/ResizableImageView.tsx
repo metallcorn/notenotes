@@ -45,34 +45,30 @@ export default function ResizableImageView({ node, editor }: NodeViewProps) {
   const isProcessing =
     !!uploadId && editor.state.doc.textContent.includes(`⏳ Описание изображения ${uploadId} обрабатывается…`);
 
-  // Поворот на 90/270° меняет местами визуальную ширину/высоту — точно
-  // подогнать под сохранённый width% (посчитанный под НЕповёрнутую
-  // ориентацию) означало бы пересчитывать box по натуральным пикселям
-  // картинки (только через onLoad, с риском разъехаться на разных
-  // экранах). Проще и надёжнее: для повёрнутых на 90/270° картинок width/
-  // align временно не действуют — natural-размер с потолком по высоте
-  // экрана, отцентрировано; сам стиль поворота не портит raw-файл и не
-  // трогает width/align в атрибутах, они вернутся, как только повернуть
-  // обратно на 0°/180°.
-  const isSideways = rotation === 90 || rotation === 270;
-
+  // Первая версия при повороте на 90/270° игнорировала width/align
+  // целиком (natural-размер с потолком по высоте экрана) — расчёт был в
+  // том, что точно подогнать box под сохранённый width% (посчитанный под
+  // НЕповёрнутую ориентацию) означало бы мерить натуральные пиксели
+  // картинки через onLoad. На практике это читалось как «кнопки размера
+  // сломались» — width/align реально переставали что-либо делать, пока
+  // картинка повёрнута. Теперь width/align применяются к wrapper'у ВСЕГДА,
+  // независимо от поворота; сам поворот — чистый CSS transform на <img>,
+  // не влияющий на layout. Компромисс: на 90/270° повёрнутая картинка
+  // может визуально выходить за рамки wrapper'а (transform не меняет
+  // размер layout-бокса) — это осознанно менее аккуратно, чем идеальный
+  // pixel-fit, но кнопки размера/выравнивания остаются рабочими всегда.
   const wrapperStyle: CSSProperties = {};
-  if (isSideways) {
-    wrapperStyle.display = "flex";
-    wrapperStyle.justifyContent = "center";
-  } else {
-    if (width) wrapperStyle.width = width;
-    if (align === "center") {
-      wrapperStyle.display = "block";
-      wrapperStyle.marginLeft = "auto";
-      wrapperStyle.marginRight = "auto";
-    } else if (align === "left") {
-      wrapperStyle.float = "left";
-      wrapperStyle.marginRight = "1em";
-    } else if (align === "right") {
-      wrapperStyle.float = "right";
-      wrapperStyle.marginLeft = "1em";
-    }
+  if (width) wrapperStyle.width = width;
+  if (align === "center") {
+    wrapperStyle.display = "block";
+    wrapperStyle.marginLeft = "auto";
+    wrapperStyle.marginRight = "auto";
+  } else if (align === "left") {
+    wrapperStyle.float = "left";
+    wrapperStyle.marginRight = "1em";
+  } else if (align === "right") {
+    wrapperStyle.float = "right";
+    wrapperStyle.marginLeft = "1em";
   }
 
   const imgStyle: CSSProperties = rotation ? { transform: `rotate(${rotation}deg)` } : {};
@@ -83,7 +79,7 @@ export default function ResizableImageView({ node, editor }: NodeViewProps) {
         <img
           src={src}
           alt={alt || ""}
-          className={isSideways ? "block max-h-[70vh] w-auto max-w-full rounded" : "block w-full rounded"}
+          className="block w-full rounded"
           style={imgStyle}
         />
         {isProcessing && (
