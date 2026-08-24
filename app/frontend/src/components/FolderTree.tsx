@@ -1,4 +1,6 @@
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
+import type { RefObject } from "react";
+import { createPortal } from "react-dom";
 import { FolderInput, MoreVertical, Pencil, Plus, X } from "lucide-react";
 import type { Folder } from "../api/types";
 import { useCreateFolder, useDeleteFolder, useFolders, useUpdateFolder } from "../api/hooks";
@@ -18,9 +20,91 @@ interface NodeProps {
   onMove: (folder: Folder) => void;
 }
 
+// Реальная жалоба: список спейсов/папок в сайдбаре — единственный
+// overflow-y-auto скролл-контейнер (AppShell.tsx:571, там же уже есть
+// комментарий про этот класс бага у меню профиля) — абсолютно
+// спозиционированное меню папки, когда ниже есть ещё один спейс, обрезалось/
+// перекрывалось им: containing block лежит ВНУТРИ скролл-контейнера, тот
+// клипует всё, что выходит за его границы. Портал в document.body с
+// position:fixed (тот же приём, что уже применён у ExpandedTextPanel в
+// RecognizedTextView.tsx и у попапов слэш-команд) решает это раз и навсегда.
+function FolderMenu({ folder, triggerRef, onAddChild, onRename, onMove, onDelete, onClose }: {
+  folder: Folder;
+  triggerRef: RefObject<HTMLButtonElement>;
+  onAddChild: (id: string) => void;
+  onRename: (folder: Folder) => void;
+  onMove: (folder: Folder) => void;
+  onDelete: (folder: Folder) => void;
+  onClose: () => void;
+}) {
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+
+  useEffect(() => {
+    if (!triggerRef.current) return;
+    const r = triggerRef.current.getBoundingClientRect();
+    const width = 176; // w-44
+    const margin = 8;
+    setPos({
+      top: r.bottom + 4,
+      left: Math.min(r.right - width, window.innerWidth - width - margin),
+    });
+  }, [triggerRef]);
+
+  if (!pos) return null;
+
+  return createPortal(
+    <>
+      <div className="fixed inset-0 z-40" onClick={onClose} />
+      <div
+        style={{ top: pos.top, left: pos.left }}
+        className="fixed z-50 w-44 rounded border bg-white py-1 shadow-lg"
+      >
+        <button
+          onClick={() => {
+            onAddChild(folder.id);
+            onClose();
+          }}
+          className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-slate-600 hover:bg-slate-50"
+        >
+          <Plus size={14} /> Подпапка
+        </button>
+        <button
+          onClick={() => {
+            onRename(folder);
+            onClose();
+          }}
+          className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-slate-600 hover:bg-slate-50"
+        >
+          <Pencil size={13} /> Переименовать
+        </button>
+        <button
+          onClick={() => {
+            onMove(folder);
+            onClose();
+          }}
+          className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-slate-600 hover:bg-slate-50"
+        >
+          <FolderInput size={13} /> Перенести в другой спейс
+        </button>
+        <button
+          onClick={() => {
+            onDelete(folder);
+            onClose();
+          }}
+          className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-red-600 hover:bg-red-50"
+        >
+          <X size={14} /> Удалить
+        </button>
+      </div>
+    </>,
+    document.body,
+  );
+}
+
 function FolderNode({ folder, all, selectedFolderId, onSelect, onAddChild, onRename, onDelete, onMove }: NodeProps) {
   const children = all.filter((f) => f.parent_id === folder.id);
   const [menuOpen, setMenuOpen] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement>(null);
   return (
     <li>
       <div
@@ -38,6 +122,7 @@ function FolderNode({ folder, all, selectedFolderId, onSelect, onAddChild, onRen
             должна быть физически нажимаема на тачскрине без наведения. */}
         <div className="relative shrink-0">
           <button
+            ref={triggerRef}
             title="Действия с папкой"
             onClick={() => setMenuOpen((v) => !v)}
             className="flex h-8 w-8 items-center justify-center text-slate-400 hover:text-slate-700"
@@ -45,47 +130,15 @@ function FolderNode({ folder, all, selectedFolderId, onSelect, onAddChild, onRen
             <MoreVertical size={15} />
           </button>
           {menuOpen && (
-            <>
-              <div className="fixed inset-0 z-20" onClick={() => setMenuOpen(false)} />
-              <div className="absolute right-0 top-full z-30 w-44 rounded border bg-white py-1 shadow-lg">
-                <button
-                  onClick={() => {
-                    onAddChild(folder.id);
-                    setMenuOpen(false);
-                  }}
-                  className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-slate-600 hover:bg-slate-50"
-                >
-                  <Plus size={14} /> Подпапка
-                </button>
-                <button
-                  onClick={() => {
-                    onRename(folder);
-                    setMenuOpen(false);
-                  }}
-                  className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-slate-600 hover:bg-slate-50"
-                >
-                  <Pencil size={13} /> Переименовать
-                </button>
-                <button
-                  onClick={() => {
-                    onMove(folder);
-                    setMenuOpen(false);
-                  }}
-                  className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-slate-600 hover:bg-slate-50"
-                >
-                  <FolderInput size={13} /> Перенести в другой спейс
-                </button>
-                <button
-                  onClick={() => {
-                    onDelete(folder);
-                    setMenuOpen(false);
-                  }}
-                  className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-red-600 hover:bg-red-50"
-                >
-                  <X size={14} /> Удалить
-                </button>
-              </div>
-            </>
+            <FolderMenu
+              folder={folder}
+              triggerRef={triggerRef}
+              onAddChild={onAddChild}
+              onRename={onRename}
+              onMove={onMove}
+              onDelete={onDelete}
+              onClose={() => setMenuOpen(false)}
+            />
           )}
         </div>
       </div>
