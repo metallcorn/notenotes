@@ -205,14 +205,15 @@ export default function NoteEditor({
     onOpenItemRef.current = onOpenItem;
   }, [onOpenItem]);
 
-  // editorProps (handlePaste) ниже собирается через тот же useMemo([])
-  // приём — вставленные файлы (реальная жалоба: вставка картинки из
-  // буфера обмена вообще ничего не делала) грузятся через pasteFiles,
-  // которая замыкает item/editor/uploadFile — все они меняются между
+  // editorProps (handlePaste/handleDrop) ниже собирается через тот же
+  // useMemo([]) приём — файлы из буфера обмена (Ctrl+V) и из
+  // перетаскивания снаружи (файловый менеджер ОС) — обе реальные жалобы,
+  // ни то ни другое раньше вообще ничего не делало — грузятся через
+  // pasteFiles, которая замыкает item/editor/uploadFile — все они меняются между
   // рендерами, поэтому доступ только через ref, обновляемый каждый рендер
   // (в отличие от onOpenItemRef, зависимость тут — сразу много изменчивых
   // значений, проще обновлять без списка deps, чем перечислять их все).
-  const pasteFilesRef = useRef((_files: File[]) => {});
+  const pasteFilesRef = useRef((_files: File[], _atPos?: number) => {});
   useEffect(() => {
     pasteFilesRef.current = pasteFiles;
   });
@@ -320,6 +321,23 @@ export default function NoteEditor({
           ? state.schema.nodes.noteLink.create({ itemId: internalItemId, title: "" })
           : state.schema.nodes.linkPreview.create({ url: text });
         view.dispatch(state.tr.replaceSelectionWith(node));
+        return true;
+      },
+      // Реальная жалоба: перетащить файл из файлового менеджера ОС в
+      // заметку не работало вообще — как и с handlePaste выше, никакого
+      // обработчика drop на файлы не было в принципе (перетаскивание
+      // самих узлов editor'а — картинок/блоков внутри заметки — отдельный
+      // механизм TipTap, drag-handle, он не затронут). ProseMirror по
+      // умолчанию ничего не делает с File-объектами из dataTransfer, если
+      // им явно не заняться. posAtCoords — вставка ровно там, куда
+      // перетащили, а не в текущее выделение (иначе файл мог бы улететь в
+      // совсем другое место заметки, если курсор до этого стоял не там).
+      handleDrop: (view: EditorView, event: DragEvent) => {
+        const files = Array.from(event.dataTransfer?.files ?? []);
+        if (!files.length) return false;
+        event.preventDefault();
+        const coords = view.posAtCoords({ left: event.clientX, top: event.clientY });
+        void pasteFilesRef.current(files, coords?.pos);
         return true;
       },
       // Реальная жалоба: "печатаю, жму Enter несколько раз для отступа —
@@ -1040,9 +1058,9 @@ export default function NoteEditor({
   // ProseMirror для вставленных файлов — не вставлять вообще ничего.
   // Тот же путь загрузки/вставки, что и у кнопки-пикера (onPickImage/
   // onPickFile выше) — insertUploadedFileAt сам разбирает по content_type.
-  async function pasteFiles(files: File[]) {
+  async function pasteFiles(files: File[], atPos?: number) {
     if (!files.length || !item) return;
-    let pos = editor?.state.selection.to ?? 0;
+    let pos = atPos ?? editor?.state.selection.to ?? 0;
     try {
       for (let i = 0; i < files.length; i++) {
         setUploadBatch({ current: i + 1, total: files.length });
