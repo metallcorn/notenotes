@@ -1,8 +1,73 @@
-import { useState } from "react";
-import { ChevronDown, ListChecks, Plus, Table as TableIcon } from "lucide-react";
-import { useCreateItem, useCreateList, useCreateTable, useItems } from "../api/hooks";
-import type { Item } from "../api/types";
+import { useEffect, useRef, useState } from "react";
+import type { RefObject } from "react";
+import { createPortal } from "react-dom";
+import { ChevronDown, ListChecks, MessageSquareText, Plus, Table as TableIcon } from "lucide-react";
+import {
+  useCreateDialog,
+  useCreateItem,
+  useCreateList,
+  useCreateTable,
+  useItems,
+  useScopedFolderDialogs,
+} from "../api/hooks";
+import type { DialogSummary, Item } from "../api/types";
 import Spinner from "./Spinner";
+
+// Тот же портал-в-body паттерн, что только что сделан для FolderMenu в
+// FolderTree.tsx — список заметок тоже живёт внутри overflow-y-auto,
+// абсолютное позиционирование внутри него так же обрезалось бы.
+function FolderDialogPicker({
+  anchorRef,
+  dialogs,
+  onPick,
+  onNew,
+  onClose,
+}: {
+  anchorRef: RefObject<HTMLButtonElement>;
+  dialogs: DialogSummary[];
+  onPick: (id: string) => void;
+  onNew: () => void;
+  onClose: () => void;
+}) {
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+
+  useEffect(() => {
+    if (!anchorRef.current) return;
+    const r = anchorRef.current.getBoundingClientRect();
+    setPos({ top: r.bottom + 4, left: r.left });
+  }, [anchorRef]);
+
+  if (!pos) return null;
+
+  return createPortal(
+    <>
+      <div className="fixed inset-0 z-40" onClick={onClose} />
+      <div
+        style={{ top: pos.top, left: pos.left }}
+        className="fixed z-50 max-h-72 w-64 overflow-y-auto rounded border bg-white py-1 shadow-lg"
+      >
+        <button
+          onClick={onNew}
+          className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm font-medium text-violet-700 hover:bg-violet-50"
+        >
+          <Plus size={14} /> Новый диалог
+        </button>
+        <div className="my-1 border-t" />
+        {dialogs.map((d) => (
+          <button
+            key={d.id}
+            onClick={() => onPick(d.id)}
+            className="block w-full px-3 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50"
+          >
+            <div className="truncate">{d.preview || d.title}</div>
+            <div className="text-xs text-slate-400">{new Date(d.updated_at).toLocaleString("ru-RU")}</div>
+          </button>
+        ))}
+      </div>
+    </>,
+    document.body,
+  );
+}
 
 interface NoteTemplate {
   id: string;
@@ -143,6 +208,7 @@ export default function NoteList({
   tagId,
   selectedId,
   onSelect,
+  onSelectDialog,
   isVault = false,
 }: {
   spaceId: string;
@@ -150,6 +216,12 @@ export default function NoteList({
   tagId: string | null;
   selectedId: string | null;
   onSelect: (id: string) => void;
+  // "Обсудить с ассистентом" (закреплённая строка ниже) открывает не
+  // заметку, а диалог — тот же механизм навигации, что уже используют
+  // DialogList/ActivityView (переключает viewMode на "assistant" через URL),
+  // не отдельное модальное окно поверх редактора (в отличие от
+  // NoteAssistantModal.tsx — тот скоуп на одну заметку, живёт внутри неё).
+  onSelectDialog: (id: string) => void;
   // Списки в сейфе пока не поддерживаются (см. routers/lists.py) — их
   // пункты хранятся в properties.entries, не в title/content, шифровать
   // их — отдельная, ещё не сделанная работа. Прячем кнопку, а не просто
@@ -166,6 +238,33 @@ export default function NoteList({
   const createItem = useCreateItem();
   const createList = useCreateList();
   const createTable = useCreateTable();
+  const createDialog = useCreateDialog();
+  const scopedFolderDialogs = useScopedFolderDialogs();
+  const [folderDialogPicker, setFolderDialogPicker] = useState<DialogSummary[] | null>(null);
+  const assistantRowRef = useRef<HTMLButtonElement>(null);
+  // "root" — служебное значение "Без папки" (см. FolderTree.tsx), не
+  // настоящая папка: обсуждать с ассистентом "все заметки без папки" не
+  // тот же сценарий, что "заметки одной папки на одну тему" — строку не
+  // показываем ни для него, ни для "Все заметки" (null), ни в режиме тега.
+  const isRealFolder = !!effectiveFolderId && effectiveFolderId !== "root";
+
+  async function openFolderAssistant() {
+    if (!isRealFolder || !effectiveFolderId) return;
+    const dialogs = await scopedFolderDialogs.mutateAsync(effectiveFolderId);
+    if (dialogs.length === 0) {
+      const dialog = await createDialog.mutateAsync({ scoped_folder_id: effectiveFolderId });
+      onSelectDialog(dialog.id);
+    } else {
+      setFolderDialogPicker(dialogs);
+    }
+  }
+
+  async function startNewFolderDialog() {
+    if (!isRealFolder || !effectiveFolderId) return;
+    setFolderDialogPicker(null);
+    const dialog = await createDialog.mutateAsync({ scoped_folder_id: effectiveFolderId });
+    onSelectDialog(dialog.id);
+  }
 
   async function createNote(template?: NoteTemplate) {
     const targetFolderId = effectiveFolderId === "root" ? null : effectiveFolderId;
@@ -239,6 +338,23 @@ export default function NoteList({
         )}
       </div>
       <ul className="min-h-0 flex-1 overflow-y-auto pb-20 md:pb-0">
+        {isRealFolder && (
+          <li className="border-b bg-violet-50">
+            <button
+              ref={assistantRowRef}
+              onClick={openFolderAssistant}
+              disabled={scopedFolderDialogs.isPending || createDialog.isPending}
+              className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm font-medium text-violet-700 hover:bg-violet-100 disabled:opacity-50"
+            >
+              {scopedFolderDialogs.isPending || createDialog.isPending ? (
+                <Spinner size={14} />
+              ) : (
+                <MessageSquareText size={14} className="shrink-0" />
+              )}
+              Обсудить с ассистентом
+            </button>
+          </li>
+        )}
         {isLoading && (
           <li className="flex items-center gap-2 p-3 text-sm text-slate-400">
             <Spinner /> Загрузка…
@@ -296,6 +412,18 @@ export default function NoteList({
           </div>
         </div>
       </div>
+      {folderDialogPicker && (
+        <FolderDialogPicker
+          anchorRef={assistantRowRef}
+          dialogs={folderDialogPicker}
+          onPick={(id) => {
+            setFolderDialogPicker(null);
+            onSelectDialog(id);
+          }}
+          onNew={startNewFolderDialog}
+          onClose={() => setFolderDialogPicker(null)}
+        />
+      )}
     </div>
   );
 }

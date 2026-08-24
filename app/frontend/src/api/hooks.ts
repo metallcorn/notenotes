@@ -965,7 +965,8 @@ export function useDialog(dialogId: string | undefined) {
 export function useCreateDialog() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (payload?: { scoped_item_id?: string; selection?: string }) => api.post<Dialog>("/dialogs", payload ?? {}),
+    mutationFn: (payload?: { scoped_item_id?: string; scoped_folder_id?: string; selection?: string }) =>
+      api.post<Dialog>("/dialogs", payload ?? {}),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["dialogs"] }),
   });
 }
@@ -977,6 +978,14 @@ export function useCreateDialog() {
 export function useScopedDialogs() {
   return useMutation({
     mutationFn: (itemId: string) => api.get<DialogSummary[]>(`/dialogs/scoped/${itemId}`),
+  });
+}
+
+// Зеркало useScopedDialogs выше, только для "Обсудить с ассистентом" на
+// уровне папки — закреплённая строка в NoteList.tsx.
+export function useScopedFolderDialogs() {
+  return useMutation({
+    mutationFn: (folderId: string) => api.get<DialogSummary[]>(`/dialogs/scoped-folder/${folderId}`),
   });
 }
 

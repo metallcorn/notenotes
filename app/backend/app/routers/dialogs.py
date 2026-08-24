@@ -16,7 +16,7 @@ from app.db import get_db
 from app.deps import ensure_space_access, get_current_user, is_vault_space
 from app.llm.base import EmptyLLMResponseError, Message, ToolCall
 from app.llm.factory import get_llm_client
-from app.models import AssistantMemory, Item, Space, SpaceMember, User
+from app.models import AssistantMemory, Folder, Item, Space, SpaceMember, User
 from app.routers.items import create_item_row
 from app.schemas.dialog import DialogCreate, DialogOut, DialogSummaryOut, MessageCreate
 from app.tools.registry import ToolContext, dispatch, get_tool_definitions
@@ -873,10 +873,11 @@ async def list_dialogs(user: User = Depends(get_current_user), db: AsyncSession 
             SpaceMember.user_id == user.id,
             Item.material_type == "dialog",
             Item.deleted_at.is_(None),
-            # Мини-чаты "спроси ассистента в заметке" (scoped_item_id в
-            # properties) — утилитарные скретч-диалоги, не полноценные
-            # разговоры, в общем списке не показываются намеренно.
+            # Мини-чаты "спроси ассистента в заметке/папке" (scoped_item_id/
+            # scoped_folder_id в properties) — утилитарные скретч-диалоги, не
+            # полноценные разговоры, в общем списке не показываются намеренно.
             Item.properties["scoped_item_id"].astext.is_(None),
+            Item.properties["scoped_folder_id"].astext.is_(None),
         )
         .order_by(Item.updated_at.desc())
     )
@@ -916,6 +917,18 @@ async def create_dialog(
         if payload.selection.strip():
             properties["scoped_selection"] = payload.selection.strip()
         title = payload.title or f"Ассистент: {scoped_item.title}"
+    elif payload.scoped_folder_id is not None:
+        # Тот же принцип, что у scoped_item_id выше, но на уровне папки —
+        # см. schemas/dialog.py::DialogCreate.scoped_folder_id.
+        folder = await db.get(Folder, payload.scoped_folder_id)
+        if folder is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Папка не найдена")
+        await ensure_space_access(db, folder.space_id, user.id)
+        if await is_vault_space(db, folder.space_id):
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Папка не найдена")
+        space_id = folder.space_id
+        properties["scoped_folder_id"] = str(folder.id)
+        title = payload.title or f"Ассистент: папка «{folder.name}»"
     elif payload.space_id is not None:
         await ensure_space_access(db, payload.space_id, user.id)
         if await is_vault_space(db, payload.space_id):
@@ -979,6 +992,38 @@ async def list_scoped_dialogs(
     ]
 
 
+@router.get("/scoped-folder/{folder_id}", response_model=list[DialogSummaryOut])
+async def list_scoped_folder_dialogs(
+    folder_id: uuid.UUID, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+) -> list[DialogSummaryOut]:
+    """Зеркало list_scoped_dialogs выше, только для "Обсудить с ассистентом"
+    на уровне папки (закреплённая строка в NoteList.tsx) — та же логика:
+    список прошлых обсуждений этой папки, новые сверху, пустой список —
+    нормальный случай."""
+    folder = await db.get(Folder, folder_id)
+    if folder is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Папка не найдена")
+    await ensure_space_access(db, folder.space_id, user.id)
+    query = (
+        select(Item, Space.name)
+        .join(Space, Space.id == Item.space_id)
+        .where(
+            Item.material_type == "dialog",
+            Item.deleted_at.is_(None),
+            Item.properties["scoped_folder_id"].astext == str(folder_id),
+        )
+        .order_by(Item.updated_at.desc())
+    )
+    rows = (await db.execute(query)).all()
+    return [
+        DialogSummaryOut(
+            id=item.id, space_id=item.space_id, space_name=space_name, title=item.title,
+            created_at=item.created_at, updated_at=item.updated_at, preview=_dialog_preview(item),
+        )
+        for item, space_name in rows
+    ]
+
+
 @router.get("/{dialog_id}", response_model=DialogOut)
 async def get_dialog(
     dialog_id: uuid.UUID, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
@@ -1023,6 +1068,44 @@ async def delete_message(
     await db.refresh(item)
     await realtime.notify_space(item.space_id, "dialogs")
     return _serialize(item)
+
+
+# Вынесено отдельной чистой функцией (не инлайном внутри run_dialog_turn) —
+# та дёргает реальный LLM-провайдер и намеренно не покрыта тестами (см.
+# докстринг test_dialogs.py), а вот построение самого текста контекста —
+# обычная строковая логика, ошибиться в подсчёте бюджета/обрезке легко и
+# незаметно. Тестируется напрямую, без БД и без LLM.
+_FOLDER_CONTEXT_PREVIEW_CHARS = 300
+_FOLDER_CONTEXT_BUDGET_CHARS = 6000
+
+
+def _build_folder_context(folder: Folder, folder_items: list[Item]) -> str:
+    lines: list[str] = []
+    total = 0
+    shown = 0
+    for fi in folder_items:
+        preview = " ".join((fi.content or "").split())[:_FOLDER_CONTEXT_PREVIEW_CHARS]
+        entry = f"- «{fi.title}» (id={fi.id}): {preview}"
+        if shown > 0 and total + len(entry) > _FOLDER_CONTEXT_BUDGET_CHARS:
+            break
+        lines.append(entry)
+        total += len(entry)
+        shown += 1
+    remainder_note = (
+        f"\n\n...и ещё {len(folder_items) - shown} заметок в этой папке, здесь не показаны целиком "
+        "(список выше неполный) — используй get_note/search_base, если нужно заглянуть в конкретную "
+        "из них подробнее."
+        if shown < len(folder_items)
+        else ""
+    )
+    return (
+        f"Этот диалог — вспомогательный, открыт из папки «{folder.name}» (id={folder.id}) — "
+        "пользователь хочет обсудить заметки внутри неё как единое целое, не что-то ещё в "
+        f"приложении, если явно не попросит шире. Заметки в этой папке ({len(folder_items)}):\n\n"
+        + "\n".join(lines) + remainder_note +
+        "\n\nИщи в вебе (web_search/read_website) или среди ДРУГИХ заметок пользователя "
+        "(search_base/get_note) только если пользователь явно попросит посмотреть шире папки."
+    )
 
 
 async def run_dialog_turn(db: AsyncSession, user: User, item: Item, content: str) -> list[dict]:
@@ -1126,6 +1209,37 @@ async def run_dialog_turn(db: AsyncSession, user: User, item: Item, content: str
                 "всегда для create_reminder — сначала спроси, нужно ли и на какое время, не создавай "
                 "молча."
             )
+        else:
+            tool_definitions = []
+    elif item.properties.get("scoped_folder_id"):
+        # Тот же принцип и тот же security-фикс, что у scoped_item_id_raw
+        # выше (папку тоже могли перенести в другой спейс между созданием
+        # диалога и этим ходом — доступ перепроверяется на каждый ход, не
+        # один раз при создании). См. план: "Обсудить с ассистентом" на
+        # уровне папки (NoteList.tsx) — контекст из НЕСКОЛЬКИХ заметок,
+        # поэтому превью, а не полный текст каждой (иначе раздуло бы промпт).
+        folder = await db.get(Folder, uuid.UUID(str(item.properties["scoped_folder_id"])))
+        folder_access_ok = False
+        if folder is not None:
+            try:
+                await ensure_space_access(db, folder.space_id, user.id)
+                folder_access_ok = True
+            except HTTPException:
+                folder_access_ok = False
+        if folder is not None and folder_access_ok:
+            tool_definitions = [d for d in all_tool_definitions if d.name in _SCOPED_TOOL_NAMES]
+            folder_items = (
+                await db.execute(
+                    select(Item)
+                    .where(
+                        Item.folder_id == folder.id,
+                        Item.deleted_at.is_(None),
+                        Item.material_type.in_(("note", "list", "ticket", "table")),
+                    )
+                    .order_by(Item.updated_at.desc())
+                )
+            ).scalars().all()
+            scoped_note_context = _build_folder_context(folder, folder_items)
         else:
             tool_definitions = []
     if scoped_note_context is None:

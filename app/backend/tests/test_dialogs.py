@@ -72,3 +72,139 @@ async def test_delete_nonexistent_message_404(auth_client):
     dialog_id = r.json()["id"]
     r = await auth_client.delete(f"/api/dialogs/{dialog_id}/messages/{uuid.uuid4()}")
     assert r.status_code == 404
+
+
+# --- scoped_folder_id: "Обсудить с ассистентом" на уровне папки -------------
+
+async def test_scoped_dialog_for_folder(auth_client):
+    space_id = await _make_space(auth_client)
+    r = await auth_client.post("/api/folders", json={"space_id": space_id, "name": "Авто"})
+    folder_id = r.json()["id"]
+
+    r = await auth_client.post("/api/dialogs", json={"scoped_folder_id": folder_id})
+    assert r.status_code == 201
+    assert "Авто" in r.json()["title"]
+
+    r = await auth_client.get(f"/api/dialogs/scoped-folder/{folder_id}")
+    assert r.status_code == 200 and len(r.json()) == 1
+
+
+async def test_scoped_folder_dialog_not_created_for_nonexistent_folder(auth_client):
+    await _make_space(auth_client)
+    r = await auth_client.post("/api/dialogs", json={"scoped_folder_id": str(uuid.uuid4())})
+    assert r.status_code == 404
+
+
+async def test_scoped_folder_dialog_not_created_in_vault_space(auth_client):
+    r = await auth_client.post(
+        "/api/spaces", json={"name": "V", "is_vault": True, "vault_salt": "s", "vault_verifier": "v"}
+    )
+    vault_space_id = r.json()["id"]
+    r = await auth_client.post("/api/folders", json={"space_id": vault_space_id, "name": "Секреты"})
+    folder_id = r.json()["id"]
+
+    r = await auth_client.post("/api/dialogs", json={"scoped_folder_id": folder_id})
+    assert r.status_code == 404
+
+
+async def test_scoped_folder_dialog_requires_space_access(auth_client, _client_factory, db_session):
+    from app.models import User
+    from app.security import create_session_token, hash_password
+
+    space_id = await _make_space(auth_client)
+    r = await auth_client.post("/api/folders", json={"space_id": space_id, "name": "Авто"})
+    folder_id = r.json()["id"]
+
+    outsider = User(username="dialog_folder_outsider", password_hash=hash_password("x"), name="Outsider")
+    db_session.add(outsider)
+    await db_session.flush()
+    client = _client_factory()
+    client.cookies.set("notenotes_session", create_session_token(outsider.id))
+
+    r = await client.post("/api/dialogs", json={"scoped_folder_id": folder_id})
+    assert r.status_code == 404  # ensure_space_access прячет чужие папки за 404, не 403
+
+
+async def test_list_dialogs_excludes_scoped_folder_dialogs(auth_client):
+    space_id = await _make_space(auth_client)
+    r = await auth_client.post("/api/folders", json={"space_id": space_id, "name": "Авто"})
+    folder_id = r.json()["id"]
+    r = await auth_client.post("/api/dialogs", json={"scoped_folder_id": folder_id})
+    scoped_dialog_id = r.json()["id"]
+
+    r = await auth_client.post("/api/dialogs", json={"space_id": space_id, "title": "Обычный чат"})
+    assert r.status_code == 201
+
+    r = await auth_client.get("/api/dialogs")
+    ids = [d["id"] for d in r.json()]
+    assert scoped_dialog_id not in ids
+
+
+async def test_scoped_folder_dialogs_list_only_this_folder(auth_client):
+    space_id = await _make_space(auth_client)
+    r1 = await auth_client.post("/api/folders", json={"space_id": space_id, "name": "Авто"})
+    folder1_id = r1.json()["id"]
+    r2 = await auth_client.post("/api/folders", json={"space_id": space_id, "name": "Работа"})
+    folder2_id = r2.json()["id"]
+
+    r = await auth_client.post("/api/dialogs", json={"scoped_folder_id": folder1_id})
+    dialog1_id = r.json()["id"]
+    await auth_client.post("/api/dialogs", json={"scoped_folder_id": folder2_id})
+
+    r = await auth_client.get(f"/api/dialogs/scoped-folder/{folder1_id}")
+    ids = [d["id"] for d in r.json()]
+    assert ids == [dialog1_id]
+
+
+# --- _build_folder_context: чистая функция, без БД/LLM -----------------------
+
+def test_build_folder_context_lists_items_with_previews():
+    from app.models import Folder, Item
+    from app.routers.dialogs import _build_folder_context
+
+    folder = Folder(id=uuid.uuid4(), space_id=uuid.uuid4(), parent_id=None, name="Авто")
+    items = [
+        Item(id=uuid.uuid4(), title="ТО пройдено", content="Заменили масло и фильтры 12 августа"),
+        Item(id=uuid.uuid4(), title="Страховка", content="ОСАГО оплачено до конца года"),
+    ]
+
+    ctx = _build_folder_context(folder, items)
+
+    assert "«Авто»" in ctx
+    assert "(2)" in ctx
+    assert "ТО пройдено" in ctx
+    assert "Заменили масло" in ctx
+    assert "Страховка" in ctx
+    assert "ОСАГО оплачено" in ctx
+
+
+def test_build_folder_context_empty_folder_does_not_crash():
+    from app.models import Folder
+    from app.routers.dialogs import _build_folder_context
+
+    folder = Folder(id=uuid.uuid4(), space_id=uuid.uuid4(), parent_id=None, name="Пусто")
+    ctx = _build_folder_context(folder, [])
+    assert "(0)" in ctx
+    assert "не показаны целиком" not in ctx
+
+
+def test_build_folder_context_truncates_when_over_budget_and_notes_remainder():
+    from app.models import Folder, Item
+    from app.routers.dialogs import _build_folder_context
+
+    folder = Folder(id=uuid.uuid4(), space_id=uuid.uuid4(), parent_id=None, name="Авто")
+    # Превью каждой заметки само по себе обрезано до 300 симв (см.
+    # _FOLDER_CONTEXT_PREVIEW_CHARS) — контент длиннее не раздувает бюджет
+    # сам по себе, нужно МНОГО заметок, а не несколько больших, чтобы
+    # реально упереться в общий потолок в 6000 симв.
+    items = [
+        Item(id=uuid.uuid4(), title=f"Заметка {i}", content="x" * 5000)
+        for i in range(30)
+    ]
+
+    ctx = _build_folder_context(folder, items)
+
+    assert "Заметка 0" in ctx
+    assert "Заметка 29" not in ctx
+    assert "не показаны целиком" in ctx
+    assert "get_note/search_base" in ctx

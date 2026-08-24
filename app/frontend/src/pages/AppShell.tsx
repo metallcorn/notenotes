@@ -694,6 +694,7 @@ export default function AppShell() {
                         tagId={tagId}
                         selectedId={selectedItemId}
                         onSelect={setSelectedItemId}
+                        onSelectDialog={(id) => selectDialog(id, { forcePush: true })}
                         isVault={!!activeSpace?.is_vault}
                       />
                     ) : (
