@@ -94,7 +94,9 @@ class GeminiClient:
             ]
 
         url = GEMINI_API_URL.format(model=self._model)
-        async with httpx.AsyncClient(timeout=60) as client:
+        # 180с, не 60 — см. mistral.py::chat, тот же реальный случай
+        # (httpx.ReadTimeout на /ai/transform для большой заметки).
+        async with httpx.AsyncClient(timeout=180) as client:
             resp = await client.post(url, params={"key": self._api_key}, json=payload)
             resp.raise_for_status()
             data = resp.json()

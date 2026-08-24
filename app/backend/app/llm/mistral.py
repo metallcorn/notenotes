@@ -77,7 +77,14 @@ class MistralClient:
             ]
             payload["tool_choice"] = "auto"
 
-        async with httpx.AsyncClient(timeout=60) as client:
+        # Реальный найденный случай: /ai/transform (reformat) на заметке в
+        # 15.5К символов упирался в httpx.ReadTimeout при 60с — модели
+        # реально нужно больше времени, когда и вход, и ожидаемый
+        # структурированный ответ большие, это не сеть барахлит и не баг,
+        # а нормально долгая генерация. 180с — тот же клиент используют и
+        # короткие ходы диалога-ассистента (dialogs.py), для них это просто
+        # более щедрый потолок, не мешает быстрым ответам.
+        async with httpx.AsyncClient(timeout=180) as client:
             resp = await client.post(
                 MISTRAL_API_URL,
                 headers={"Authorization": f"Bearer {self._api_key}", "Content-Type": "application/json"},

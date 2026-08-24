@@ -78,7 +78,9 @@ class GroqClient:
             ]
             payload["tool_choice"] = "auto"
 
-        async with httpx.AsyncClient(timeout=60) as client:
+        # 180с, не 60 — см. mistral.py::chat, тот же реальный случай
+        # (httpx.ReadTimeout на /ai/transform для большой заметки).
+        async with httpx.AsyncClient(timeout=180) as client:
             resp = await client.post(
                 GROQ_API_URL,
                 headers={"Authorization": f"Bearer {self._api_key}", "Content-Type": "application/json"},
