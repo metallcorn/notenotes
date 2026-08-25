@@ -71,7 +71,7 @@ SKILL_CATALOG: dict[str, dict[str, Any]] = {
     "resolve_reminder": {"label": "Отметка напоминаний", "description": "Отмечает напоминание выполненным", "toggleable": False},
     "run_python": {"label": "Python-вычисления", "description": "Точные вычисления в изолированной песочнице", "toggleable": True},
     "read_website": {"label": "Чтение сайтов по ссылке", "description": "Скачивает и читает содержимое страницы по присланной ссылке", "toggleable": True},
-    "track_delivery": {"label": "Отслеживание доставки", "description": "Статус посылки по трек-номеру или ссылке (InPost, Poczta, Orlen Paczka, DPD)", "toggleable": True},
+    "track_delivery": {"label": "Отслеживание доставки", "description": "Статус посылки по трек-номеру или ссылке (InPost, Poczta, Orlen Paczka, DPD, Allegro Delivery)", "toggleable": True},
     "test_url_request": {"label": "Проверка ссылки", "description": "Делает тестовый запрос по ссылке, чтобы предложить поля для виджета", "toggleable": True},
     "insert_url_check_block": {"label": "Виджет «Проверить по ссылке»", "description": "Добавляет в заметку карточку с данными по ссылке и кнопкой «Обновить»", "toggleable": True},
     "show_note_images": {

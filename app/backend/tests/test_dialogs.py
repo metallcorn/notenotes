@@ -208,3 +208,16 @@ def test_build_folder_context_truncates_when_over_budget_and_notes_remainder():
     assert "Заметка 29" not in ctx
     assert "не показаны целиком" in ctx
     assert "get_note/search_base" in ctx
+
+
+def test_scoped_tool_names_include_delivery_tracking():
+    # Реальный найденный случай: попросил в scoped-чате прямо в заметке
+    # добавить виджет отслеживания — track_delivery/insert_delivery_block
+    # были доступны только глобальному ассистенту, scoped откатывался на
+    # generic web-тулы и упирался в антибот. Пропуск при добавлении этих
+    # тулов (Этап 1/2 этой же сессии) был оверсайтом, не намеренным
+    # ограничением — этот тест защищает от повторения при будущих правках.
+    from app.routers.dialogs import _SCOPED_TOOL_NAMES
+
+    assert "track_delivery" in _SCOPED_TOOL_NAMES
+    assert "insert_delivery_block" in _SCOPED_TOOL_NAMES

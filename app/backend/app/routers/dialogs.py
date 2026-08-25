@@ -78,6 +78,15 @@ _CORE_TOOL_NAMES = {
 _SCOPED_TOOL_NAMES = {
     "search_base", "get_note", "list_all_items", "web_search", "read_website", "create_maps_link", "suggest_replies",
     "create_reminder", "test_url_request", "insert_url_check_block",
+    # Реальный найденный случай: в чате прямо в заметке (scoped) пользователь
+    # попросил "добавь виджет отслеживания" — track_delivery был известен
+    # ассистенту в ГЛОБАЛЬНОМ чате, но не в scoped, поэтому модель молча
+    # откатывалась на generic test_url_request/read_website, упиралась в
+    # антибот и предлагала только ручные ссылки. Именно scoped-чат в самой
+    # заметке — самое естественное место для такой просьбы, пропуск был
+    # оверсайтом при добавлении этих тулов (Этап 1/2 этой же сессии), не
+    # намеренным ограничением.
+    "track_delivery", "insert_delivery_block",
 }
 _TOOL_CATEGORIES: dict[str, set[str]] = {
     "web": {"web_search", "read_website", "create_maps_link", "test_url_request", "insert_url_check_block"},
