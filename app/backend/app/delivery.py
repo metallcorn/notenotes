@@ -30,6 +30,7 @@ SUPPORTED: list[dict[str, str]] = [
     {"id": "poczta", "label": "Poczta Polska"},
     {"id": "orlen", "label": "Orlen Paczka"},
     {"id": "dpd", "label": "DPD"},
+    {"id": "allegro", "label": "Allegro Delivery"},
 ]
 _LABEL = {c["id"]: c["label"] for c in SUPPORTED}
 
@@ -41,16 +42,24 @@ _URL_HOST = {
     "poczta": re.compile(r"(poczta-polska\.pl|emonitoring)", re.I),
     "orlen": re.compile(r"orlenpaczka\.pl", re.I),
     "dpd": re.compile(r"dpd\.com\.pl", re.I),
+    # Именно /allegrodelivery/ в пути, не просто allegro.pl — это огромный
+    # маркетплейс, домен сам по себе ничего не говорит о посылке (обычная
+    # ссылка на товар тоже allegro.pl).
+    "allegro": re.compile(r"allegro\.pl/allegrodelivery", re.I),
 }
 # Из какого query-параметра тянуть номер для каждого хоста.
-_URL_PARAM = {"inpost": "parcel", "poczta": "numer", "orlen": "id", "dpd": "p1"}
+_URL_PARAM = {"inpost": "parcel", "poczta": "numer", "orlen": "id", "dpd": "p1", "allegro": "numer"}
 
 # Форматы голых номеров. dpd намеренно отсутствует — их номера слишком
 # неспецифичны, чтобы угадывать по одному числу; DPD только по ссылке/явно.
+# allegro — по единственному живому примеру (AD00TESTPACK00001, реальная
+# посылка пользователя), формат не подтверждён официально — если у других
+# посылок префикс/длина другие, паттерн придётся расширить.
 _NUM_FORMAT = {
     "inpost": re.compile(r"^\d{24}$"),
     "poczta": re.compile(r"^(?:PX\d{18,22}|00259\d{15}|[A-Z]{2}\d{9}[A-Z]{2})$"),
     "orlen": re.compile(r"^(?:[23]\d{12}|\d{7}|\d{10})$"),
+    "allegro": re.compile(r"^AD\d{2}[A-Z0-9]{10,15}$"),
 }
 
 
@@ -317,7 +326,24 @@ async def _dpd(number: str) -> dict[str, Any]:
     )
 
 
-_FETCH = {"inpost": _inpost, "orlen": _orlen, "poczta": _poczta, "dpd": _dpd}
+# --- Allegro Delivery (только ссылка: DataDome блокирует серверный фетч) ----
+# Реальный найденный случай: пользователь купил на Allegro, товар везёт DPD
+# через Allegro Delivery (не напрямую DPD — трек-номер AD00TESTPACK00001 не
+# похож на обычный номер DPD). И страница отслеживания на allegro.pl, и
+# страница tracktrace.dpd.com.pl отдают антибот-заглушку (403/CAPTCHA) на
+# серверный запрос — тот же класс ограничения, что и у DPD выше, отдельного
+# способа обойти нет. Виджет всё равно полезен: кликабельная ссылка на
+# статус вместо необходимости искать её заново в письме.
+async def _allegro(number: str) -> dict[str, Any]:
+    return _result(
+        "allegro", number, live=False,
+        tracking_url=f"https://allegro.pl/allegrodelivery/sledzenie-paczki?numer={number}",
+        note="Allegro Delivery не отдаёт статус автоматическим запросам (антибот) — статус по ссылке",
+    )
+
+
+_FETCH = {"inpost": _inpost, "orlen": _orlen, "poczta": _poczta, "dpd": _dpd, "allegro": _allegro}
+_NO_LIVE_CHECK = {"dpd", "allegro"}
 
 
 # --- Точка входа -------------------------------------------------------------
@@ -331,11 +357,12 @@ def _looks_found(result: dict[str, Any]) -> bool:
 async def track_any(number: str) -> dict[str, Any]:
     """Перевозчик не указан и номер не подошёл однозначно ни под один
     формат — вместо того чтобы сразу переспрашивать, пробуем все
-    перевозчики с живой проверкой параллельно (без dpd — у него нет живой
-    проверки, только ссылка, он не может подтвердить совпадение) и
-    возвращаем того единственного, кто реально нашёл посылку."""
+    перевозчики с живой проверкой параллельно (без carrier'ов из
+    _NO_LIVE_CHECK — у них нет живой проверки, только ссылка, они не могут
+    подтвердить совпадение) и возвращаем того единственного, кто реально
+    нашёл посылку."""
     number = re.sub(r"\s+", "", number)
-    candidates = [cid for cid in _FETCH if cid != "dpd"]
+    candidates = [cid for cid in _FETCH if cid not in _NO_LIVE_CHECK]
     results = await asyncio.gather(*(_FETCH[cid](number) for cid in candidates))
     hits = [r for r in results if _looks_found(r)]
     if len(hits) == 1:
@@ -347,7 +374,8 @@ async def track_any(number: str) -> dict[str, Any]:
             "supported": SUPPORTED,
             "message": "Не нашёл посылку ни у одного перевозчика с живой проверкой "
                        "(InPost/Poczta/Orlen). Уточни перевозчика или пришли ссылку "
-                       "отслеживания — либо это DPD (для него живой проверки нет).",
+                       "отслеживания — либо это DPD/Allegro Delivery (для них живой "
+                       "проверки нет).",
         }
     return {
         "need_carrier": True,

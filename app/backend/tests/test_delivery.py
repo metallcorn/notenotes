@@ -180,6 +180,47 @@ def test_identify_explicit_carrier_overrides_detection():
     assert identify("00340434", carrier="dpd") == ("dpd", "00340434", False)
 
 
+# --- Allegro Delivery: реальный найденный случай (AD00TESTPACK00001) --------
+
+
+def test_identify_allegro_by_bare_number():
+    cid, number, ambiguous = identify("AD00TESTPACK00001")
+    assert cid == "allegro" and number == "AD00TESTPACK00001" and ambiguous is False
+
+
+def test_identify_allegro_by_url():
+    cid, number, ambiguous = identify(
+        "https://allegro.pl/allegrodelivery/sledzenie-paczki?numer=AD00TESTPACK00001"
+    )
+    assert cid == "allegro" and number == "AD00TESTPACK00001" and ambiguous is False
+
+
+def test_identify_plain_allegro_link_is_not_mistaken_for_delivery():
+    # allegro.pl сам по себе ничто не говорит о посылке — обычная ссылка на
+    # товар не должна распознаваться как трек allegro delivery.
+    cid, _, ambiguous = identify("https://allegro.pl/oferta/jakis-towar-123456")
+    assert cid is None and ambiguous is True
+
+
+@pytest.mark.asyncio
+async def test_allegro_returns_link_only_no_live_check():
+    result = await delivery._allegro("AD00TESTPACK00001")
+    assert result["carrier"] == "allegro"
+    assert result["live"] is False
+    assert result["tracking_url"] == (
+        "https://allegro.pl/allegrodelivery/sledzenie-paczki?numer=AD00TESTPACK00001"
+    )
+
+
+def test_track_any_excludes_allegro_same_as_dpd():
+    # allegro, как и dpd, не участвует в параллельном переборе track_any —
+    # у него нет живой проверки, он не может подтвердить совпадение номера.
+    assert delivery._NO_LIVE_CHECK == {"dpd", "allegro"}
+    candidates = [cid for cid in delivery._FETCH if cid not in delivery._NO_LIVE_CHECK]
+    assert "allegro" not in candidates
+    assert "dpd" not in candidates
+
+
 def test_identify_garbage_is_ambiguous():
     cid, _, ambiguous = identify("абракадабра")
     assert cid is None and ambiguous is True
