@@ -72,6 +72,11 @@ SKILL_CATALOG: dict[str, dict[str, Any]] = {
     "run_python": {"label": "Python-вычисления", "description": "Точные вычисления в изолированной песочнице", "toggleable": True},
     "read_website": {"label": "Чтение сайтов по ссылке", "description": "Скачивает и читает содержимое страницы по присланной ссылке", "toggleable": True},
     "track_delivery": {"label": "Отслеживание доставки", "description": "Статус посылки по трек-номеру или ссылке (InPost, Poczta, Orlen Paczka, DPD, Allegro Delivery)", "toggleable": True},
+    "get_compacted_history": {
+        "label": "Чтение сжатой истории диалога",
+        "description": "Если сводка после сжатия истории (см. кнопку в чате) неточна для ответа — читает дословный оригинал",
+        "toggleable": True,
+    },
     "test_url_request": {"label": "Проверка ссылки", "description": "Делает тестовый запрос по ссылке, чтобы предложить поля для виджета", "toggleable": True},
     "insert_url_check_block": {"label": "Виджет «Проверить по ссылке»", "description": "Добавляет в заметку карточку с данными по ссылке и кнопкой «Обновить»", "toggleable": True},
     "show_note_images": {
@@ -111,10 +116,14 @@ def _expand_disabled(disabled: set[str]) -> set[str]:
 
 
 def _build_registry() -> dict[str, tuple[ToolDefinition, ToolHandler]]:
-    from app.tools import calendar_event, lists, maps, memory, notes, python_sandbox, read_website, reminders, search_base, tables, track_delivery, ui, url_check, web_search
+    from app.tools import calendar_event, dialog_history, lists, maps, memory, notes, python_sandbox, read_website, reminders, search_base, tables, track_delivery, ui, url_check, web_search
 
     registry: dict[str, tuple[ToolDefinition, ToolHandler]] = {
         search_base.DEFINITION.name: (search_base.DEFINITION, search_base.handle),
+        dialog_history.GET_COMPACTED_HISTORY.name: (
+            dialog_history.GET_COMPACTED_HISTORY,
+            dialog_history.get_compacted_history,
+        ),
         ui.SUGGEST_REPLIES.name: (ui.SUGGEST_REPLIES, ui.suggest_replies),
         calendar_event.CREATE_CALENDAR_EVENT.name: (
             calendar_event.CREATE_CALENDAR_EVENT,

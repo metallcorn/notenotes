@@ -351,3 +351,9 @@ def test_scoped_tool_names_include_delivery_tracking():
 
     assert "track_delivery" in _SCOPED_TOOL_NAMES
     assert "insert_delivery_block" in _SCOPED_TOOL_NAMES
+
+
+def test_scoped_tool_names_include_compacted_history_read():
+    from app.routers.dialogs import _SCOPED_TOOL_NAMES
+
+    assert "get_compacted_history" in _SCOPED_TOOL_NAMES

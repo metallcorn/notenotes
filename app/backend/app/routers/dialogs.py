@@ -88,6 +88,10 @@ _SCOPED_TOOL_NAMES = {
     # оверсайтом при добавлении этих тулов (Этап 1/2 этой же сессии), не
     # намеренным ограничением.
     "track_delivery", "insert_delivery_block",
+    # Чисто читающий тул, ограниченный ОДНИМ конкретным dialog_id/snapshot_id
+    # (та же модель доступа, что у get_note) — нет причины прятать его от
+    # scoped-чатов, они тоже могут разрастись и когда-нибудь быть сжаты.
+    "get_compacted_history",
 }
 _TOOL_CATEGORIES: dict[str, set[str]] = {
     "web": {"web_search", "read_website", "create_maps_link", "test_url_request", "insert_url_check_block"},
@@ -1408,6 +1412,24 @@ async def run_dialog_turn(db: AsyncSession, user: User, item: Item, content: str
     )
     if scoped_note_context:
         system_prompt += "\n\n" + scoped_note_context
+
+    # Реальный запрос пользователя: если сводки (после сжатия истории)
+    # недостаточно точно для конкретного вопроса ("а что там было 10.06"),
+    # модель должна суметь сама прочитать дословный оригинал через
+    # get_compacted_history — но она не знает ни id этого диалога, ни какие
+    # snapshot_id вообще существуют, если не сказать явно.
+    compaction_snapshots = item.properties.get("compaction_snapshots") or []
+    if "get_compacted_history" in enabled_tool_names and compaction_snapshots:
+        snapshots_list = "\n".join(
+            f"- snapshot_id={s['id']} (сжато {s['created_at']}, {len(s.get('replaced_messages', []))} сообщений)"
+            for s in compaction_snapshots
+        )
+        system_prompt += (
+            f"\n\nЭтот диалог (dialog_id={item.id}) частично сжат — доступные точки сжатия:\n"
+            f"{snapshots_list}\n"
+            "Если для точного ответа не хватает деталей из сводки — вызови get_compacted_history "
+            "с этим dialog_id и нужным snapshot_id, чтобы прочитать дословный оригинал."
+        )
     tool_call_leak_retried = False
 
     for _ in range(MAX_TOOL_ITERATIONS):
