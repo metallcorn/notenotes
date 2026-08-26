@@ -10,8 +10,21 @@ import UrlCheckCard from "../components/UrlCheckCard";
 // подтягиваются картой при монтировании (routers/url_checks.py), не
 // сериализуются тут вообще. Так «Обновить» не гоняет блоб ответа (до
 // 512 КБ) через Yjs/ItemVersion на каждый клик — только один GET/POST.
-export function serializeUrlCheck(id: string): string {
-  return `<div data-url-check data-url-check-id="${id}"></div>`;
+// Реальный найденный баг: если attrs.id узла в какой-то момент оказался
+// null/undefined (например, гонка при вставке или сбой Yjs-синка —
+// возможные причины не подтверждены, но след виден по факту), эта функция
+// слепо подставляла его в шаблонную строку — JS сериализует null в
+// ЛИТЕРАЛЬНУЮ строку "null", неотличимую от настоящего id на вид. При
+// следующем автосохранении это НАВСЕГДА запекалось в markdown заметки —
+// плашка переставала находить виджет («перестала работать»), а без
+// сохранённого настоящего id восстановить исходный URL/поля уже нечем.
+// renderHTML ниже уже был защищён (`attrs.id ? {...} : {}`) — сериализатор
+// в markdown такой же проверки не имел, отсюда асимметрия. Теперь при
+// отсутствующем id тег пишется БЕЗ атрибута (round-trip обратно даёт
+// attrs.id === null — честное "виджет не привязан", не похожий на
+// настоящий id мусор).
+export function serializeUrlCheck(id: string | null | undefined): string {
+  return id ? `<div data-url-check data-url-check-id="${id}"></div>` : `<div data-url-check></div>`;
 }
 
 export const UrlCheckAttachment = Node.create({
@@ -47,7 +60,7 @@ export const UrlCheckAttachment = Node.create({
       markdown: {
         serialize(
           state: { write: (s: string) => void; closeBlock: (node: unknown) => void },
-          node: { attrs: { id: string } },
+          node: { attrs: { id: string | null } },
         ) {
           state.write(serializeUrlCheck(node.attrs.id));
           state.closeBlock(node);

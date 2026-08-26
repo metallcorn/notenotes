@@ -82,7 +82,13 @@ export default function LinkPreviewCard({ node }: NodeViewProps) {
   }
 
   return (
-    <NodeViewWrapper as="div" className="my-1" data-drag-handle draggable>
+    // Тот же баг, что нашли и починили в DeliveryWidgetCard.tsx: draggable
+    // на обёртке, содержащей ссылку (тут — вся RichCard целиком является
+    // <a target=_blank>), заставлял клик иногда открывать две вкладки
+    // сразу (конфликт нативного "перетащить ссылку" браузера и обычной
+    // навигации по клику). Узкий drag-handle без ссылки внутри сделать
+    // некуда — вся ценность превью именно в кликабельности целиком.
+    <NodeViewWrapper as="div" className="my-1">
       <RichCard
         url={url}
         favicon={data.favicon_url}

@@ -51,8 +51,19 @@ export default function DeliveryWidgetCard({ node }: NodeViewProps) {
   );
 
   return (
+    // Реальный найденный баг (тот же класс, что уже чинили в карточках
+    // документа/картинки/билета — draggable=true браузер распознаёт по
+    // БЛИЖАЙШЕМУ ПРЕДКУ независимо от data-drag-handle, это отдельная,
+    // чисто внутренняя проверка TipTap): draggable на обёртке, содержащей
+    // ссылку "Трекинг" (обычный <a target=_blank>), заставлял клик по
+    // ссылке иногда открывать сразу две вкладки — конфликт между нативным
+    // "перетащить ссылку" браузера и обычной навигацией по клику. В
+    // отличие от тех карточек, здесь узкий drag-handle без ссылок внутри
+    // сделать некуда без переделки самой DeliveryCard (общая с чатом) —
+    // проще и безопаснее просто не делать виджет доставки перетаскиваемым
+    // как блок целиком: cut/paste всё ещё работает для перестановки.
     <NodeViewWrapper as="div" className="my-1">
-      <div className="max-w-md" data-drag-handle draggable>
+      <div className="max-w-md">
         <DeliveryCard data={data} headerExtra={refreshButton} />
         {refresh.isError && <div className="mt-1 text-xs text-red-600">Не удалось обновить</div>}
       </div>
