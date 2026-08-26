@@ -1126,6 +1126,21 @@ export default function AssistantChat({
   const [activeSpeechId, setActiveSpeechId] = useState<string | null>(null);
   const autoSpeakBaselineRef = useRef<{ dialogId: string; lastId: string | null } | null>(null);
   const [pendingUserText, setPendingUserText] = useState<string | null>(null);
+  // Реальная жалоба: пока ассистент "думает" (агентный цикл с несколькими
+  // вызовами инструментов иногда занимает десятки секунд), поле ввода
+  // блокировалось целиком — терялся фокус, нельзя было ни допечатать
+  // мысль, ни отправить следующий вопрос. Теперь новые сообщения, пока
+  // текущий ход не завершился, не блокируются, а копятся здесь — как
+  // только ход диалога закончится, вся очередь уходит ОДНИМ следующим
+  // сообщением (продолжение той же темы), а не поштучно (иначе они
+  // соревновались бы за один и тот же agentic-цикл на бэкенде). Ref —
+  // потому что flush в конце sendOneMessage должен видеть самую свежую
+  // очередь, а не ту, что была на момент запуска текущего хода.
+  const [queuedMessages, setQueuedMessages] = useState<string[]>([]);
+  const queuedMessagesRef = useRef<string[]>([]);
+  useEffect(() => {
+    queuedMessagesRef.current = queuedMessages;
+  }, [queuedMessages]);
   const abortControllerRef = useRef<AbortController | null>(null);
   const [input, setInputState] = useState("");
   const [isRecording, setIsRecording] = useState(false);
@@ -1181,7 +1196,7 @@ export default function AssistantChat({
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [dialog?.messages.length, sendMessage.isPending, pendingUserText]);
+  }, [dialog?.messages.length, sendMessage.isPending, pendingUserText, queuedMessages.length]);
 
   useEffect(() => stopStreaming, []);
 
@@ -1320,9 +1335,21 @@ export default function AssistantChat({
   async function submitContent(rawContent: string) {
     if (pendingAttachment?.status === "processing") return;
     const content = buildContentWithAttachment(rawContent);
-    if (!content.trim() || sendMessage.isPending) return;
+    if (!content.trim()) return;
     setInput("");
     setPendingAttachment(null);
+
+    // Текущий ход ещё не завершился — не блокируем ввод, просто копим
+    // сообщение в очередь (см. комментарий у queuedMessages выше).
+    if (sendMessage.isPending) {
+      setQueuedMessages((q) => [...q, content]);
+      return;
+    }
+
+    await sendOneMessage(content);
+  }
+
+  async function sendOneMessage(content: string) {
     // Оптимистично показываем реплику сразу — агентный цикл на сервере
     // может занять много секунд (несколько вызовов инструментов подряд),
     // и без этого пользователь не видел, что вообще отправил сообщение.
@@ -1338,6 +1365,14 @@ export default function AssistantChat({
     } finally {
       setPendingUserText(null);
       abortControllerRef.current = null;
+    }
+
+    // Пока этот ход шёл, могли накопиться ещё сообщения — отправляем их
+    // все разом, одним следующим ходом, продолжая ту же тему.
+    const queued = queuedMessagesRef.current;
+    if (queued.length > 0) {
+      setQueuedMessages([]);
+      await sendOneMessage(queued.join("\n\n"));
     }
   }
 
@@ -1766,6 +1801,14 @@ export default function AssistantChat({
               </div>
             </div>
           )}
+          {queuedMessages.map((q, i) => (
+            <div key={i} className="message-fade-in flex justify-end">
+              <div className="max-w-[85%] rounded-lg border border-dashed border-slate-300 px-3 py-2 text-sm text-slate-400">
+                <div className="whitespace-pre-wrap">{q}</div>
+                <div className="mt-0.5 text-xs text-slate-400">В очереди — уйдёт, когда ассистент ответит</div>
+              </div>
+            </div>
+          ))}
           <div ref={bottomRef} />
         </div>
       </div>
@@ -1859,22 +1902,18 @@ export default function AssistantChat({
                   submitContent(input.trim());
                 }
               }}
-              placeholder="Написать ассистенту…"
-              disabled={sendMessage.isPending}
+              placeholder={sendMessage.isPending ? "Уйдёт следующим сообщением…" : "Написать ассистенту…"}
               rows={1}
-              className="relative w-full resize-none overflow-y-auto rounded border bg-transparent px-3 py-2 text-sm disabled:opacity-50"
+              className="relative w-full resize-none overflow-y-auto rounded border bg-transparent px-3 py-2 text-sm"
             />
           </div>
           <button
             type="submit"
-            disabled={
-              sendMessage.isPending ||
-              pendingAttachment?.status === "processing" ||
-              (!input.trim() && !pendingAttachment)
-            }
+            disabled={pendingAttachment?.status === "processing" || (!input.trim() && !pendingAttachment)}
+            title={sendMessage.isPending ? "Ассистент ещё отвечает — сообщение уйдёт следующим ходом" : undefined}
             className="flex shrink-0 items-center justify-center rounded bg-slate-900 px-4 py-2 text-sm text-white disabled:opacity-50"
           >
-            {sendMessage.isPending ? <Spinner size={14} className="text-white" /> : "Отправить"}
+            {sendMessage.isPending ? "В очередь" : "Отправить"}
           </button>
         </form>
       </div>
