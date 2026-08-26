@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -46,17 +47,40 @@ from app.routers import (
     voice,
 )
 
+logger = logging.getLogger(__name__)
+
+
+# Реальный найденный случай: очередь OCR PDF молча остановилась посреди
+# пачки загрузок — 4 файла обработались, 14 следующих зависли в "pending" на
+# 19+ часов, без единой строки в логах (asyncio.create_task ничего не
+# перезапускает и никому не сообщает, если корутина воркера когда-либо
+# завершится — она просто исчезает). Помогал только рестарт бэкенда
+# (resume_pending() на старте) — то, чего явно не должно требоваться
+# вручную. _supervised оборачивает каждый фоновый воркер: если он всё же
+# завершится НЕ через штатную отмену при остановке приложения — лог и
+# перезапуск через паузу, а не тихая смерть до следующего деплоя.
+async def _supervised(name: str, worker) -> None:
+    while True:
+        try:
+            await worker()
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("Фоновый воркер %s неожиданно завершился — перезапускаю через 5с", name)
+            await asyncio.sleep(5)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    sweep_task = asyncio.create_task(run_periodic_sweep())
-    transcription_task = asyncio.create_task(run_transcription_worker())
-    vision_task = asyncio.create_task(run_vision_worker())
-    autotag_task = asyncio.create_task(run_autotag_worker())
-    telegram_task = asyncio.create_task(run_telegram_worker())
-    pdf_task = asyncio.create_task(run_pdf_worker())
-    ticket_task = asyncio.create_task(run_ticket_worker())
-    notification_dispatch_task = asyncio.create_task(run_notification_dispatch_worker())
-    note_recording_task = asyncio.create_task(run_note_recording_worker())
+    sweep_task = asyncio.create_task(_supervised("cleanup_sweep", run_periodic_sweep))
+    transcription_task = asyncio.create_task(_supervised("transcription", run_transcription_worker))
+    vision_task = asyncio.create_task(_supervised("vision", run_vision_worker))
+    autotag_task = asyncio.create_task(_supervised("autotag", run_autotag_worker))
+    telegram_task = asyncio.create_task(_supervised("telegram", run_telegram_worker))
+    pdf_task = asyncio.create_task(_supervised("pdf_ocr", run_pdf_worker))
+    ticket_task = asyncio.create_task(_supervised("tickets", run_ticket_worker))
+    notification_dispatch_task = asyncio.create_task(_supervised("notification_dispatch", run_notification_dispatch_worker))
+    note_recording_task = asyncio.create_task(_supervised("note_recording", run_note_recording_worker))
     await resume_transcription()
     await resume_vision()
     await resume_stuck_replacements()
