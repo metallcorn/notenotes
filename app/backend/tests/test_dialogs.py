@@ -210,6 +210,136 @@ def test_build_folder_context_truncates_when_over_budget_and_notes_remainder():
     assert "get_note/search_base" in ctx
 
 
+# --- Сжатие истории (app/dialog_compaction.py) -------------------------------
+
+
+def _msg(role, content="", **extra):
+    return {"id": str(uuid.uuid4()), "role": role, "content": content, "created_at": "2026-08-25T00:00:00+00:00", **extra}
+
+
+async def _seed_dialog_with_messages(auth_client, db_session, count, with_tool_pair=False):
+    from app.models import Item
+
+    space_id = await _make_space(auth_client)
+    r = await auth_client.post("/api/dialogs", json={"space_id": space_id})
+    dialog_id = r.json()["id"]
+    item = await db_session.get(Item, uuid.UUID(dialog_id))
+
+    messages = []
+    if with_tool_pair:
+        call_id = str(uuid.uuid4())
+        messages += [
+            _msg("user", "Найди заметку про кота"),
+            _msg("assistant", "", tool_calls=[{"id": call_id, "name": "get_note", "arguments": {}}]),
+            _msg("tool", '{"title": "Кот"}', tool_call_id=call_id, name="get_note"),
+            _msg("assistant", "Нашёл заметку «Кот»"),
+        ]
+    for i in range(count - len(messages)):
+        messages.append(_msg("user" if i % 2 == 0 else "assistant", f"Сообщение {i}"))
+
+    item.properties = {**item.properties, "messages": messages}
+    await db_session.commit()
+    return dialog_id, messages
+
+
+def _patch_llm_key(monkeypatch):
+    from app.core.config import get_settings
+
+    monkeypatch.setattr(get_settings(), "llm_api_key", "test-key")
+
+
+def _patch_summarize(monkeypatch, summary="Итоговая сводка разговора"):
+    async def fake_summarize_records(client, old_records):
+        return summary
+
+    monkeypatch.setattr("app.routers.dialogs.summarize_records", fake_summarize_records)
+    return summary
+
+
+async def test_compact_dialog_replaces_old_messages_with_summary(auth_client, db_session, test_user, monkeypatch):
+    _patch_llm_key(monkeypatch)
+    summary = _patch_summarize(monkeypatch)
+    dialog_id, messages = await _seed_dialog_with_messages(auth_client, db_session, 30)
+
+    r = await auth_client.post(f"/api/dialogs/{dialog_id}/compact", json={})
+    assert r.status_code == 200, r.text
+    body = r.json()
+
+    assert body["messages"][0]["is_summary"] is True
+    assert body["messages"][0]["content"] == summary
+    assert len(body["compaction_snapshots"]) == 1
+    snapshot = body["compaction_snapshots"][0]
+    assert snapshot["id"] == body["messages"][0]["snapshot_id"]
+    assert snapshot["message_count"] == len(messages) - (len(body["messages"]) - 1)
+
+
+async def test_compact_dialog_too_short_returns_400(auth_client, db_session, test_user, monkeypatch):
+    _patch_llm_key(monkeypatch)
+    _patch_summarize(monkeypatch)
+    dialog_id, _ = await _seed_dialog_with_messages(auth_client, db_session, 5)
+
+    r = await auth_client.post(f"/api/dialogs/{dialog_id}/compact", json={})
+    assert r.status_code == 400
+
+
+async def test_compact_dialog_without_llm_key_returns_400(auth_client, db_session, test_user, monkeypatch):
+    from app.core.config import get_settings
+
+    # Реальный ключ приходит в тестовый контейнер из secrets/app.env (тот
+    # же env_file, что у прод-сервиса) — дефолт тут НЕ пустой, надо явно
+    # погасить, иначе сработает настоящий сетевой вызов вместо этой ветки.
+    monkeypatch.setattr(get_settings(), "llm_api_key", "")
+    dialog_id, _ = await _seed_dialog_with_messages(auth_client, db_session, 30)
+    r = await auth_client.post(f"/api/dialogs/{dialog_id}/compact", json={})
+    assert r.status_code == 400
+
+
+async def test_compact_dialog_requires_space_access(auth_client, _client_factory, db_session, test_user, monkeypatch):
+    from app.models import User
+    from app.security import create_session_token, hash_password
+
+    _patch_llm_key(monkeypatch)
+    _patch_summarize(monkeypatch)
+    dialog_id, _ = await _seed_dialog_with_messages(auth_client, db_session, 30)
+
+    outsider = User(username="compact_outsider", password_hash=hash_password("x"), name="Outsider")
+    db_session.add(outsider)
+    await db_session.flush()
+    client = _client_factory()
+    client.cookies.set("notenotes_session", create_session_token(outsider.id))
+
+    r = await client.post(f"/api/dialogs/{dialog_id}/compact", json={})
+    assert r.status_code == 404
+
+
+async def test_revert_compaction_restores_exact_messages(auth_client, db_session, test_user, monkeypatch):
+    _patch_llm_key(monkeypatch)
+    _patch_summarize(monkeypatch)
+    dialog_id, original_messages = await _seed_dialog_with_messages(
+        auth_client, db_session, 30, with_tool_pair=True
+    )
+
+    r = await auth_client.post(f"/api/dialogs/{dialog_id}/compact", json={})
+    assert r.status_code == 200, r.text
+    snapshot_id = r.json()["messages"][0]["snapshot_id"]
+
+    r = await auth_client.post(f"/api/dialogs/{dialog_id}/compactions/{snapshot_id}/revert")
+    assert r.status_code == 200, r.text
+    restored = r.json()["messages"]
+
+    assert [m["id"] for m in restored] == [m["id"] for m in original_messages]
+    assert [m["content"] for m in restored] == [m["content"] for m in original_messages]
+    tool_msg = next(m for m in restored if m["role"] == "tool")
+    assert tool_msg["tool_call_id"] == next(m for m in original_messages if m["role"] == "tool")["tool_call_id"]
+    assert r.json()["compaction_snapshots"] == []
+
+
+async def test_revert_nonexistent_snapshot_404(auth_client, db_session, test_user):
+    dialog_id, _ = await _seed_dialog_with_messages(auth_client, db_session, 5)
+    r = await auth_client.post(f"/api/dialogs/{dialog_id}/compactions/{uuid.uuid4()}/revert")
+    assert r.status_code == 404
+
+
 def test_scoped_tool_names_include_delivery_tracking():
     # Реальный найденный случай: попросил в scoped-чате прямо в заметке
     # добавить виджет отслеживания — track_delivery/insert_delivery_block

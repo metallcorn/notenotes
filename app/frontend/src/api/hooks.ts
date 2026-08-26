@@ -1021,6 +1021,25 @@ export function useDeleteDialogMessage(dialogId: string | undefined) {
   });
 }
 
+// Ручное сжатие разросшейся истории диалога (app/dialog_compaction.py) —
+// реальная жалоба: без окна на историю каждый ход диалога с сотней+
+// сообщений отправлял в LLM ВСЮ переписку, ходы стали занимать минуты.
+export function useCompactDialog(dialogId: string | undefined) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (keepLast?: number) => api.post<Dialog>(`/dialogs/${dialogId}/compact`, { keep_last: keepLast ?? null }),
+    onSuccess: (dialog) => qc.setQueryData(["dialog", dialogId], dialog),
+  });
+}
+
+export function useRevertCompaction(dialogId: string | undefined) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (snapshotId: string) => api.post<Dialog>(`/dialogs/${dialogId}/compactions/${snapshotId}/revert`),
+    onSuccess: (dialog) => qc.setQueryData(["dialog", dialogId], dialog),
+  });
+}
+
 // --- списки --------------------------------------------------------------
 
 export function useList(id: string | undefined) {

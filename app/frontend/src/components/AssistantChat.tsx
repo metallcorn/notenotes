@@ -2,6 +2,7 @@ import { FormEvent, KeyboardEvent, useEffect, useMemo, useRef, useState } from "
 import { useQueryClient } from "@tanstack/react-query";
 import {
   AlignCenter,
+  Archive,
   Armchair,
   Bus,
   Calendar,
@@ -20,6 +21,7 @@ import {
   Pencil,
   Plane,
   QrCode,
+  RotateCcw,
   Square,
   StretchHorizontal,
   Ticket,
@@ -35,10 +37,12 @@ import ReactMarkdown, { type Components } from "react-markdown";
 import ReactDOMServer from "react-dom/server";
 import remarkGfm from "remark-gfm";
 import {
+  useCompactDialog,
   useDeleteDialogMessage,
   useDescribeUploadNow,
   useDialog,
   useLinkPreview,
+  useRevertCompaction,
   useSendDialogMessage,
   useSpeak,
   useUpdateItem,
@@ -180,6 +184,39 @@ function groupMessages(messages: DialogMessage[]) {
     groups.push({ message: { ...m, cardToolCalls: ownToolCalls }, toolResults: [] });
   }
   return groups;
+}
+
+// Сводка более ранней части истории (app/dialog_compaction.py) — visually
+// отличается от обычной реплики ассистента, чтобы было явно видно: это не
+// то, что ассистент "сказал", а компактный пересказ того, что было раньше,
+// с явным путём назад ("Отменить сжатие" — возвращает исходные реплики
+// один в один, см. useRevertCompaction).
+function SummaryMessageCard({
+  message,
+  onRevert,
+  isReverting,
+}: {
+  message: DialogMessage;
+  onRevert: () => void;
+  isReverting: boolean;
+}) {
+  return (
+    <div className="message-fade-in flex justify-start">
+      <div className="max-w-[85%] rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+        <div className="mb-1 flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-amber-700">
+          <Archive size={12} /> Сводка более ранней части разговора
+        </div>
+        <div className="whitespace-pre-wrap">{message.content}</div>
+        <button
+          onClick={onRevert}
+          disabled={isReverting}
+          className="mt-2 flex items-center gap-1 text-xs text-amber-700 underline hover:text-amber-900 disabled:opacity-50"
+        >
+          {isReverting ? <Spinner size={11} /> : <RotateCcw size={11} />} Отменить сжатие
+        </button>
+      </div>
+    </div>
+  );
 }
 
 function CreatedItemLinks({
@@ -1113,11 +1150,22 @@ export default function AssistantChat({
   const { data: dialog } = useDialog(dialogId);
   const sendMessage = useSendDialogMessage(dialogId);
   const deleteMessage = useDeleteDialogMessage(dialogId);
+  const compactDialog = useCompactDialog(dialogId);
+  const revertCompaction = useRevertCompaction(dialogId);
   const updateItem = useUpdateItem();
   const uploadFile = useUploadFile(dialog?.space_id);
   const describeUploadNow = useDescribeUploadNow();
   const qc = useQueryClient();
   const [deletingMessageId, setDeletingMessageId] = useState<string | null>(null);
+  // Реальная жалоба: разросшийся диалог (140+ сообщений) шлёт в LLM ВСЮ
+  // историю на каждый ход — ходы становятся минутными. Сжатие — ручное
+  // действие (ТЗ §10a, не фоновое), поэтому подтверждение через тот же
+  // ConfirmDialog, что и у удаления сообщения, но без danger-стиля — это
+  // обратимо (см. SummaryMessageCard/useRevertCompaction).
+  const [confirmingCompact, setConfirmingCompact] = useState(false);
+  // Сессионный dismiss — намеренно без сохранения между визитами (сбрасывается
+  // при смене диалога/перезаходе), решение согласовано с пользователем.
+  const [compactBannerDismissed, setCompactBannerDismissed] = useState(false);
   const [renamingTitle, setRenamingTitle] = useState(false);
   const [autoSpeak, setAutoSpeakState] = useState(() => uiStorage.getAutoSpeak());
   const speakMutation = useSpeak();
@@ -1662,6 +1710,14 @@ export default function AssistantChat({
             </button>
           ))}
         </div>
+        <button
+          onClick={() => setConfirmingCompact(true)}
+          disabled={(dialog?.messages.length ?? 0) < 10}
+          title="Сжать историю"
+          className="ml-1 flex h-7 w-7 shrink-0 items-center justify-center rounded text-slate-400 hover:bg-slate-100 disabled:opacity-30"
+        >
+          <Archive size={14} />
+        </button>
         <div className="ml-1 shrink-0">
           <ExportMenu onExport={handleExport} />
         </div>
@@ -1674,12 +1730,41 @@ export default function AssistantChat({
               Обсуждается выделенный фрагмент: «{contextNote.length > 160 ? contextNote.slice(0, 160) + "…" : contextNote}»
             </div>
           )}
+          {!compactBannerDismissed && (dialog?.messages.length ?? 0) > 60 && (
+            <div className="mx-auto flex max-w-[85%] items-center gap-2 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-800">
+              <span className="flex-1">
+                Диалог уже большой ({dialog?.messages.length} сообщений) — каждый ответ становится медленнее.
+                Сжать более раннюю часть в сводку?
+              </span>
+              <button onClick={() => setConfirmingCompact(true)} className="shrink-0 font-medium underline">
+                Сжать
+              </button>
+              <button
+                onClick={() => setCompactBannerDismissed(true)}
+                title="Скрыть подсказку"
+                className="shrink-0 text-sky-400 hover:text-sky-700"
+              >
+                <X size={12} />
+              </button>
+            </div>
+          )}
           {groups.length === 0 && (
             <div className="flex h-full items-center justify-center text-center text-sm text-slate-400">
               Спросите что-нибудь о своих заметках или попросите создать новую
             </div>
           )}
-          {groups.map(({ message, toolResults }, index) => (
+          {groups.map(({ message, toolResults }, index) => {
+            if (message.is_summary) {
+              return (
+                <SummaryMessageCard
+                  key={message.id}
+                  message={message}
+                  onRevert={() => message.snapshot_id && revertCompaction.mutate(message.snapshot_id)}
+                  isReverting={revertCompaction.isPending}
+                />
+              );
+            }
+            return (
             <div
               key={message.id}
               className={`message-fade-in flex items-start gap-1 ${message.role === "user" ? "justify-end" : "justify-start"}`}
@@ -1780,7 +1865,8 @@ export default function AssistantChat({
                 </button>
               )}
             </div>
-          ))}
+            );
+          })}
           {pendingUserText && (
             <div className="message-fade-in flex justify-end">
               <div className="max-w-[85%] rounded-lg bg-slate-900 px-3 py-2 text-sm text-white opacity-60">
@@ -1927,6 +2013,18 @@ export default function AssistantChat({
             setDeletingMessageId(null);
           }}
           onCancel={() => setDeletingMessageId(null)}
+        />
+      )}
+
+      {confirmingCompact && (
+        <ConfirmDialog
+          title="Сжать более раннюю часть истории в одну сводку? Последние ~20 сообщений останутся как есть, старые можно будет восстановить."
+          confirmLabel="Сжать"
+          onConfirm={() => {
+            compactDialog.mutate(undefined);
+            setConfirmingCompact(false);
+          }}
+          onCancel={() => setConfirmingCompact(false)}
         />
       )}
 

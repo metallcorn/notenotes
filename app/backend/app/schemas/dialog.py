@@ -38,6 +38,12 @@ class MessageCreate(BaseModel):
     content: str
 
 
+class DialogCompactCreate(BaseModel):
+    # None -> app.dialog_compaction._DEFAULT_KEEP_LAST. Не выставлен на
+    # фронте пока никак — задел на будущее, если понадобится настроить.
+    keep_last: int | None = None
+
+
 class ToolCallOut(BaseModel):
     id: str
     name: str
@@ -58,6 +64,20 @@ class DialogMessageOut(BaseModel):
     name: str | None = None
     suggested_replies: list[str] = []
     created_at: str
+    # Синтетическая сводка более ранней части истории (app/dialog_compaction.py)
+    # — обычная assistant-запись с этими двумя флагами, роль не меняется,
+    # _to_llm_messages её не отличает от любой другой. snapshot_id указывает
+    # на properties["compaction_snapshots"] — по нему фронт откатывает сжатие.
+    is_summary: bool = False
+    snapshot_id: str | None = None
+
+
+class CompactionSnapshotOut(BaseModel):
+    id: str
+    created_at: str
+    # Только счётчик — сами замещённые сообщения (replaced_messages) целиком
+    # фронту не нужны, откат делает бэкенд; не раздувать каждый GET /dialogs/{id}.
+    message_count: int
 
 
 class DialogSummaryOut(BaseModel):
@@ -80,3 +100,4 @@ class DialogSummaryOut(BaseModel):
 
 class DialogOut(DialogSummaryOut):
     messages: list[DialogMessageOut] = []
+    compaction_snapshots: list[CompactionSnapshotOut] = []

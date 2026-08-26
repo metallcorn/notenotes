@@ -71,14 +71,14 @@ async def test_reflow_skips_llm_without_api_key(monkeypatch):
 
 
 def test_split_into_chunks_keeps_short_text_as_one_chunk():
-    assert document_reflow._split_into_chunks("короткий текст", 100) == ["короткий текст"]
+    assert document_reflow.split_into_chunks("короткий текст", 100) == ["короткий текст"]
 
 
 def test_split_into_chunks_respects_paragraph_boundaries():
     paragraphs = ["A" * 30, "B" * 30, "C" * 30]
     raw = "\n\n".join(paragraphs)
 
-    chunks = document_reflow._split_into_chunks(raw, max_chars=40)
+    chunks = document_reflow.split_into_chunks(raw, max_chars=40)
 
     assert "".join(chunks).count("A") == 30
     assert "".join(chunks).count("B") == 30
@@ -89,7 +89,7 @@ def test_split_into_chunks_respects_paragraph_boundaries():
 
 def test_split_into_chunks_hard_splits_a_single_oversized_paragraph():
     raw = "X" * 250  # один "абзац" без переносов, сильно длиннее лимита
-    chunks = document_reflow._split_into_chunks(raw, max_chars=100)
+    chunks = document_reflow.split_into_chunks(raw, max_chars=100)
 
     assert len(chunks) == 3
     assert "".join(chunks) == raw

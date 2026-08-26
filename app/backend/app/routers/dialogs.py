@@ -13,12 +13,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app import realtime
 from app.core.config import get_settings
 from app.db import get_db
+from app.dialog_compaction import _DEFAULT_KEEP_LAST, _MIN_OLD_MESSAGES, find_cut_index, summarize_records
 from app.deps import ensure_space_access, get_current_user, is_vault_space
 from app.llm.base import EmptyLLMResponseError, Message, ToolCall
 from app.llm.factory import get_llm_client
 from app.models import AssistantMemory, Folder, Item, Space, SpaceMember, User
 from app.routers.items import create_item_row
-from app.schemas.dialog import DialogCreate, DialogOut, DialogSummaryOut, MessageCreate
+from app.schemas.dialog import DialogCompactCreate, DialogCreate, DialogOut, DialogSummaryOut, MessageCreate
 from app.tools.registry import ToolContext, dispatch, get_tool_definitions
 
 router = APIRouter(prefix="/api/dialogs", tags=["dialogs"])
@@ -598,6 +599,10 @@ def _serialize(item: Item) -> DialogOut:
         created_at=item.created_at,
         updated_at=item.updated_at,
         messages=item.properties.get("messages", []),
+        compaction_snapshots=[
+            {"id": s["id"], "created_at": s["created_at"], "message_count": len(s.get("replaced_messages", []))}
+            for s in item.properties.get("compaction_snapshots", [])
+        ],
     )
 
 
@@ -1073,6 +1078,103 @@ async def delete_message(
 
     item.properties = {**item.properties, "messages": remaining}
     item.content = _flatten_transcript(remaining)
+    await db.commit()
+    await db.refresh(item)
+    await realtime.notify_space(item.space_id, "dialogs")
+    return _serialize(item)
+
+
+@router.post("/{dialog_id}/compact", response_model=DialogOut)
+async def compact_dialog(
+    dialog_id: uuid.UUID,
+    payload: DialogCompactCreate,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> DialogOut:
+    # Реальная жалоба: разросшийся диалог (140+ сообщений) отправляет в LLM
+    # ВСЮ историю на каждый ход — ходы стали занимать минуты. Ручное
+    # сжатие (ТЗ §10a) — не фоновый процесс, пользователь каждый раз
+    # явно подтверждает через UI (ConfirmDialog на фронте).
+    item = await _get_dialog(db, user, dialog_id)
+    settings = get_settings()
+    if not settings.llm_api_key:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Ассистент ещё не настроен: не задан ключ LLM-провайдера")
+
+    records: list[dict] = list(item.properties.get("messages", []))
+    keep_last = payload.keep_last or _DEFAULT_KEEP_LAST
+    cut_index = find_cut_index(records, keep_last)
+    old_records = records[:cut_index]
+    if len(old_records) < _MIN_OLD_MESSAGES:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Пока нечего сжимать — истории слишком мало")
+
+    llm_client = get_llm_client(user.llm_provider)
+    try:
+        summary_text = await summarize_records(llm_client, old_records)
+    except (httpx.HTTPError, EmptyLLMResponseError):
+        logger.exception("Ошибка сжатия истории диалога %s", item.id)
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY, "Не получилось сжать историю — провайдер LLM не ответил, попробуй ещё раз"
+        ) from None
+
+    # Более ранние сводки (is_summary), затесавшиеся в old_records — сжали
+    # уже сжатое — их snapshot_id больше не на что откатывать (сводка, на
+    # которую он указывал, только что поглощена новой). Не оставляем
+    # недостижимые снимки в JSONB. Undo-of-undo осознанно не поддерживаем —
+    # откатить можно только последнее сжатие, накрывающее нужный кусок.
+    absorbed_ids = {r["snapshot_id"] for r in old_records if r.get("is_summary") and r.get("snapshot_id")}
+
+    snapshot_id = str(uuid.uuid4())
+    snapshot = {"id": snapshot_id, "created_at": _now_iso(), "replaced_messages": old_records}
+    summary_record = {
+        "id": str(uuid.uuid4()),
+        "role": "assistant",
+        "content": summary_text,
+        "created_at": _now_iso(),
+        "is_summary": True,
+        "snapshot_id": snapshot_id,
+    }
+    new_records = [summary_record, *records[cut_index:]]
+    kept_snapshots = [s for s in item.properties.get("compaction_snapshots", []) if s["id"] not in absorbed_ids]
+
+    item.properties = {
+        **item.properties,
+        "messages": new_records,
+        "compaction_snapshots": [*kept_snapshots, snapshot],
+    }
+    item.content = _flatten_transcript(new_records)
+    await db.commit()
+    await db.refresh(item)
+    await realtime.notify_space(item.space_id, "dialogs")
+    return _serialize(item)
+
+
+@router.post("/{dialog_id}/compactions/{snapshot_id}/revert", response_model=DialogOut)
+async def revert_compaction(
+    dialog_id: uuid.UUID,
+    snapshot_id: str,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> DialogOut:
+    item = await _get_dialog(db, user, dialog_id)
+    snapshots: list[dict] = list(item.properties.get("compaction_snapshots", []))
+    snapshot = next((s for s in snapshots if s["id"] == snapshot_id), None)
+    if snapshot is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Точка отката не найдена")
+
+    records: list[dict] = list(item.properties.get("messages", []))
+    index = next(
+        (i for i, r in enumerate(records) if r.get("is_summary") and r.get("snapshot_id") == snapshot_id), None
+    )
+    if index is None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Эта сводка уже недоступна для отката")
+
+    restored = [*records[:index], *snapshot["replaced_messages"], *records[index + 1 :]]
+    item.properties = {
+        **item.properties,
+        "messages": restored,
+        "compaction_snapshots": [s for s in snapshots if s["id"] != snapshot_id],
+    }
+    item.content = _flatten_transcript(restored)
     await db.commit()
     await db.refresh(item)
     await realtime.notify_space(item.space_id, "dialogs")

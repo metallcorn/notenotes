@@ -60,7 +60,7 @@ def _strip_outer_fence(text: str) -> str:
     return text
 
 
-def _split_into_chunks(raw: str, max_chars: int) -> list[str]:
+def split_into_chunks(raw: str, max_chars: int) -> list[str]:
     """Реальный найденный баг: raw[:_MAX_CHARS] молча ОБРЕЗАЛ документ —
     для 24-страничного regulamin'а это значило "причёсаны первые ~5
     страниц, остальные 19 исчезли без следа" (transcription_status при
@@ -114,13 +114,13 @@ async def reflow_document_text(raw: str) -> str:
     текста (не вместо OCR/PyMuPDF-извлечения, а ПОСЛЕ) — только причёсывает
     вёрстку, не читает текст заново. При любой ошибке или пустом ключе —
     отдаёт исходный текст как есть, это улучшение, а не обязательный шаг.
-    Длинные документы бьются на куски (см. _split_into_chunks) — каждый
+    Длинные документы бьются на куски (см. split_into_chunks) — каждый
     прогоняется через reflow отдельно, ни один не отбрасывается."""
     settings = get_settings()
     if not settings.llm_api_key or not raw.strip():
         return raw
 
     client = get_llm_client()
-    chunks = _split_into_chunks(raw, _MAX_CHARS)
+    chunks = split_into_chunks(raw, _MAX_CHARS)
     reflowed_chunks = [await _reflow_chunk(client, chunk) for chunk in chunks]
     return "\n\n".join(reflowed_chunks)

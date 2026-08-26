@@ -114,6 +114,17 @@ export interface DialogMessage {
   name: string | null;
   suggested_replies: string[];
   created_at: string;
+  // Синтетическая сводка более ранней части истории (сжатие диалога) —
+  // обычная assistant-запись с этими двумя флагами. snapshot_id указывает
+  // на Dialog.compaction_snapshots, по нему фронт откатывает сжатие.
+  is_summary: boolean;
+  snapshot_id: string | null;
+}
+
+export interface CompactionSnapshot {
+  id: string;
+  created_at: string;
+  message_count: number;
 }
 
 export interface DialogSummary {
@@ -130,6 +141,7 @@ export interface DialogSummary {
 
 export interface Dialog extends DialogSummary {
   messages: DialogMessage[];
+  compaction_snapshots: CompactionSnapshot[];
 }
 
 export interface ListEntry {
