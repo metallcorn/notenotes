@@ -159,3 +159,27 @@ describe("AssistantChat — сжатие истории", () => {
     expect(revertCompaction.mutate).toHaveBeenCalledWith("snap-1");
   });
 });
+
+describe("AssistantChat — переключатель технических деталей вызовов инструментов", () => {
+  it("чипы вызовов инструментов скрыты по умолчанию, переключатель их показывает", async () => {
+    localStorage.clear();
+    setupCommonMocks();
+    hooks.useCompactDialog.mockReturnValue(mockMutation());
+    hooks.useRevertCompaction.mockReturnValue(mockMutation());
+    const withTool = msg({
+      role: "assistant",
+      content: "Готово",
+      tool_calls: [{ id: "c1", name: "search_base", arguments: {} }],
+    });
+    hooks.useDialog.mockReturnValue({ data: dialog([msg(), withTool]) });
+    const user = userEvent.setup();
+
+    renderChat();
+
+    expect(screen.queryByText("search_base")).not.toBeInTheDocument();
+    await user.click(screen.getByTitle("Показать технические детали вызовов инструментов"));
+    expect(screen.getByText("search_base")).toBeInTheDocument();
+
+    localStorage.clear();
+  });
+});

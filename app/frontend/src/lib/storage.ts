@@ -94,6 +94,13 @@ export const uiStorage = {
   // отдельный от ручной кнопки "озвучить" на каждой реплике.
   getAutoSpeak: (): boolean => read<boolean>("autoSpeak", false),
   setAutoSpeak: (v: boolean): void => write("autoSpeak", v),
+
+  // Реальная жалоба: технические чипы вызовов инструментов (ToolCallRow —
+  // "🔧 search_base" и т.п.) занимают место и выглядят некрасиво в обычном
+  // использовании, но крайне полезны для отладки — не убираем совсем, а
+  // прячем по умолчанию за переключателем в шапке чата.
+  getShowToolDebug: (): boolean => read<boolean>("showToolDebug", false),
+  setShowToolDebug: (v: boolean): void => write("showToolDebug", v),
 };
 
 export type ContentWidth = "narrow" | "wide" | "full";

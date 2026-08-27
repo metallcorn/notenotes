@@ -1168,6 +1168,7 @@ export default function AssistantChat({
   const [compactBannerDismissed, setCompactBannerDismissed] = useState(false);
   const [renamingTitle, setRenamingTitle] = useState(false);
   const [autoSpeak, setAutoSpeakState] = useState(() => uiStorage.getAutoSpeak());
+  const [showToolDebug, setShowToolDebugState] = useState(() => uiStorage.getShowToolDebug());
   const speakMutation = useSpeak();
   const currentAudioRef = useRef<HTMLAudioElement | null>(null);
   const speechRequestIdRef = useRef(0);
@@ -1266,6 +1267,14 @@ export default function AssistantChat({
     setAutoSpeakState((v) => {
       const next = !v;
       uiStorage.setAutoSpeak(next);
+      return next;
+    });
+  }
+
+  function toggleShowToolDebug() {
+    setShowToolDebugState((v) => {
+      const next = !v;
+      uiStorage.setShowToolDebug(next);
       return next;
     });
   }
@@ -1696,6 +1705,15 @@ export default function AssistantChat({
         >
           {autoSpeak ? <Volume2 size={14} /> : <VolumeX size={14} />}
         </button>
+        <button
+          onClick={toggleShowToolDebug}
+          title={showToolDebug ? "Скрыть технические детали вызовов инструментов" : "Показать технические детали вызовов инструментов"}
+          className={`flex h-7 w-7 shrink-0 items-center justify-center rounded ${
+            showToolDebug ? "bg-slate-200 text-slate-900" : "text-slate-400 hover:bg-slate-100"
+          }`}
+        >
+          <Wrench size={14} />
+        </button>
         <div className="hidden shrink-0 items-center gap-0.5 md:flex">
           {WIDTH_OPTIONS.map(({ value, title, icon: Icon }) => (
             <button
@@ -1793,7 +1811,9 @@ export default function AssistantChat({
                   ) : (
                     <div className="whitespace-pre-wrap">{message.content}</div>
                   ))}
-                {message.tool_calls.length > 0 && <ToolCallRow message={message} results={toolResults} />}
+                {showToolDebug && message.tool_calls.length > 0 && (
+                  <ToolCallRow message={message} results={toolResults} />
+                )}
                 {message.tool_calls.length > 0 && (
                   <CreatedItemLinks message={message} results={toolResults} onOpenItem={onOpenItem} />
                 )}

@@ -1264,6 +1264,21 @@ async def run_dialog_turn(db: AsyncSession, user: User, item: Item, content: str
     if item.title in ("", "Новый диалог"):
         item.title = content[:60]
 
+    # Реальная жалоба: реплика пользователя нигде не была видна на сервере,
+    # пока не завершится ВЕСЬ ход (агентный цикл иногда занимает долго) —
+    # свернул вкладку/перезагрузил посреди ожидания, вернулся — не
+    # понятно, отправилось сообщение или нет ("как будто ничего не было"),
+    # а ответ потом появляется как будто ниоткуда. Коммитим реплику
+    # пользователя сразу, отдельно от финального коммита в конце этой же
+    # функции (там же допишется ответ ассистента поверх этих же records) —
+    # не идеальная атомарность (сервер может упасть ровно между этим
+    # коммитом и концом хода, реплика останется без ответа), но строго
+    # лучше прежнего "либо всё разом, либо ничего", и снимает основную
+    # путаницу: GET /dialogs/{id} сразу покажет, что сообщение дошло.
+    item.properties = {**item.properties, "messages": records}
+    item.content = _flatten_transcript(records)
+    await db.commit()
+
     settings = get_settings()
     disabled_tool_names = set(user.disabled_tools)
     all_tool_definitions = get_tool_definitions(disabled=disabled_tool_names)
