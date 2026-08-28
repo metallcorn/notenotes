@@ -10,8 +10,10 @@ import TableHeader from "@tiptap/extension-table-header";
 import { createLowlight, common } from "lowlight";
 import { Markdown } from "tiptap-markdown";
 import { Suspense, lazy, useEffect, useMemo, useRef, useState } from "react";
-import type { ChangeEvent } from "react";
-import { Archive, ChevronLeft, Code2, Eye, FileText, Globe, History, Palette, Pin, PinOff, Sparkles, Tag as TagIcon, Trash2, Users, WifiOff } from "lucide-react";
+import type { ChangeEvent, RefObject } from "react";
+import { createPortal } from "react-dom";
+import { Archive, ChevronLeft, Code2, Eye, FileText, Globe, History, MoreVertical, Palette, Pin, PinOff, Sparkles, Tag as TagIcon, Trash2, Users, WifiOff } from "lucide-react";
+import type { Item } from "../api/types";
 import { uiStorage, type ContentWidth } from "../lib/storage";
 import { useVersionCheck } from "../lib/useVersionCheck";
 import { getVaultKey } from "../lib/vaultSession";
@@ -118,6 +120,171 @@ type Mode = "wysiwyg" | "raw";
 
 const COLORS = ["#ef4444", "#f97316", "#eab308", "#22c55e", "#14b8a6", "#3b82f6", "#a855f7", "#ec4899"];
 
+// Реальная жалоба: на мобильном вся строка действий (режим/цвет/закрепить/
+// поделиться/история/экспорт/архив/удалить) не схлопывалась — заголовку
+// заметки не оставалось места тапнуть и переименовать. Портал-в-body — тот
+// же приём, что у FolderMenu (FolderTree.tsx)/NoteTemplateMenu
+// (NoteList.tsx): позиционируется от кнопки-триггера через
+// getBoundingClientRect, не зависит от overflow предков.
+function MobileNoteActionsMenu({
+  triggerRef,
+  item,
+  mode,
+  switchMode,
+  updateItem,
+  showColorPicker,
+  setShowColorPicker,
+  currentSpaceIsPublicPages,
+  setShowShareModal,
+  setShowHistory,
+  handleExport,
+  archiveItem,
+  setConfirmingDelete,
+  deleteItem,
+  onClose,
+}: {
+  triggerRef: RefObject<HTMLButtonElement>;
+  item: Item;
+  mode: Mode;
+  switchMode: (m: Mode) => void;
+  updateItem: { mutate: (payload: { id: string; pinned?: boolean; color?: string | null }) => void };
+  showColorPicker: boolean;
+  setShowColorPicker: (v: boolean | ((prev: boolean) => boolean)) => void;
+  currentSpaceIsPublicPages: boolean;
+  setShowShareModal: (v: boolean) => void;
+  setShowHistory: (v: boolean | ((prev: boolean) => boolean)) => void;
+  handleExport: (format: "md" | "html") => Promise<void> | void;
+  archiveItem: { mutate: (id: string) => void; isPending: boolean };
+  setConfirmingDelete: (v: boolean) => void;
+  deleteItem: { isPending: boolean };
+  onClose: () => void;
+}) {
+  const [pos, setPos] = useState<{ top: number; right: number } | null>(null);
+
+  useEffect(() => {
+    if (!triggerRef.current) return;
+    const r = triggerRef.current.getBoundingClientRect();
+    setPos({ top: r.bottom + 4, right: window.innerWidth - r.right });
+  }, [triggerRef]);
+
+  if (!pos) return null;
+
+  const itemClass = "flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50";
+
+  return createPortal(
+    <>
+      <div className="fixed inset-0 z-40" onClick={onClose} />
+      <div style={{ top: pos.top, right: pos.right }} className="fixed z-50 w-56 rounded border bg-white py-1 shadow-lg">
+        <button
+          onClick={() => switchMode(mode === "wysiwyg" ? "raw" : "wysiwyg")}
+          className={itemClass}
+        >
+          {mode === "wysiwyg" ? <Code2 size={15} /> : <Eye size={15} />}
+          {mode === "wysiwyg" ? "Режим: Markdown" : "Режим: WYSIWYG"}
+        </button>
+        <button onClick={() => setShowColorPicker((v) => !v)} className={itemClass}>
+          <Palette size={15} /> Цвет заголовка
+        </button>
+        {showColorPicker && (
+          <div className="flex flex-wrap gap-1 px-3 py-2">
+            <button
+              onClick={() => {
+                updateItem.mutate({ id: item.id, color: null });
+                setShowColorPicker(false);
+              }}
+              title="Без цвета"
+              className="h-6 w-6 rounded-full border text-xs text-slate-400"
+            >
+              ×
+            </button>
+            {COLORS.map((c) => (
+              <button
+                key={c}
+                onClick={() => {
+                  updateItem.mutate({ id: item.id, color: c });
+                  setShowColorPicker(false);
+                }}
+                style={{ backgroundColor: c }}
+                className="h-6 w-6 rounded-full border"
+              />
+            ))}
+          </div>
+        )}
+        <button
+          onClick={() => {
+            updateItem.mutate({ id: item.id, pinned: !item.pinned });
+            onClose();
+          }}
+          className={itemClass}
+        >
+          {item.pinned ? <PinOff size={15} /> : <Pin size={15} />}
+          {item.pinned ? "Открепить" : "Закрепить как важное"}
+        </button>
+        {currentSpaceIsPublicPages && (
+          <button
+            onClick={() => {
+              setShowShareModal(true);
+              onClose();
+            }}
+            className={itemClass}
+          >
+            <Globe size={15} /> Публичная ссылка
+          </button>
+        )}
+        <button
+          onClick={() => {
+            setShowHistory((v) => !v);
+            onClose();
+          }}
+          className={itemClass}
+        >
+          <History size={15} /> История версий
+        </button>
+        <button
+          onClick={() => {
+            void handleExport("md");
+            onClose();
+          }}
+          className={itemClass}
+        >
+          <FileText size={15} /> Экспорт в Markdown
+        </button>
+        <button
+          onClick={() => {
+            void handleExport("html");
+            onClose();
+          }}
+          className={itemClass}
+        >
+          <FileText size={15} /> Экспорт в HTML
+        </button>
+        <div className="my-1 border-t" />
+        <button
+          onClick={() => {
+            archiveItem.mutate(item.id);
+            onClose();
+          }}
+          disabled={archiveItem.isPending}
+          className={`${itemClass} disabled:opacity-50`}
+        >
+          <Archive size={15} /> В архив
+        </button>
+        <button
+          onClick={() => {
+            setConfirmingDelete(true);
+            onClose();
+          }}
+          disabled={deleteItem.isPending}
+          className={`${itemClass} text-red-600 hover:bg-red-50 disabled:opacity-50`}
+        >
+          <Trash2 size={15} /> Удалить заметку
+        </button>
+      </div>
+    </>,
+    document.body,
+  );
+}
+
 export default function NoteEditor({
   itemId,
   onDeleted,
@@ -173,6 +340,13 @@ export default function NoteEditor({
   const [pendingSpaceId, setPendingSpaceId] = useState<string | null>(null);
   const [showMoveModal, setShowMoveModal] = useState(false);
   const [showColorPicker, setShowColorPicker] = useState(false);
+  // Реальная жалоба: на мобильном вся строка действий (режим/цвет/закрепить/
+  // поделиться/история/экспорт/архив/удалить) не схлопывалась — заголовку
+  // заметки не оставалось места тапнуть и переименовать. На узких экранах
+  // (< md) вся эта группа прячется под одну кнопку "⋮", на md и шире —
+  // как раньше, без изменений.
+  const [showMobileActions, setShowMobileActions] = useState(false);
+  const mobileActionsButtonRef = useRef<HTMLButtonElement>(null);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [reminderModalOpen, setReminderModalOpen] = useState(false);
   const [reminderAnchorPos, setReminderAnchorPos] = useState<number | null>(null);
@@ -1219,7 +1393,7 @@ export default function NoteEditor({
             style={item.color ? { color: item.color } : undefined}
             className="min-w-0 flex-1 text-lg font-semibold outline-none"
           />
-          <div className="flex shrink-0 items-center gap-1">
+          <div className="hidden shrink-0 items-center gap-1 md:flex">
             <span className="mr-1 flex items-center gap-1 whitespace-nowrap text-xs text-slate-400">
               {(collabStatus === "connecting" || collabStatus === "stale") && (
                 <>
@@ -1338,7 +1512,35 @@ export default function NoteEditor({
               {deleteItem.isPending ? <Spinner size={16} /> : <Trash2 size={16} />}
             </button>
           </div>
+          <button
+            ref={mobileActionsButtonRef}
+            onClick={() => setShowMobileActions((v) => !v)}
+            title="Действия с заметкой"
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded border text-slate-600 hover:bg-slate-50 md:hidden"
+          >
+            <MoreVertical size={16} />
+          </button>
         </div>
+
+        {showMobileActions && (
+          <MobileNoteActionsMenu
+            triggerRef={mobileActionsButtonRef}
+            item={item}
+            mode={mode}
+            switchMode={switchMode}
+            updateItem={updateItem}
+            showColorPicker={showColorPicker}
+            setShowColorPicker={setShowColorPicker}
+            currentSpaceIsPublicPages={currentSpaceIsPublicPages}
+            setShowShareModal={setShowShareModal}
+            setShowHistory={setShowHistory}
+            handleExport={handleExport}
+            archiveItem={archiveItem}
+            setConfirmingDelete={setConfirmingDelete}
+            deleteItem={deleteItem}
+            onClose={() => setShowMobileActions(false)}
+          />
+        )}
 
         {/* Ряд 2: папка + теги — здесь можно и перенестись на новую строку,
             заголовок сверху уже не задет. Теги свёрнуты в выпадающий список
