@@ -1306,7 +1306,22 @@ async def _run_dialog_turn_locked(db: AsyncSession, user: User, item: Item, cont
     # коммитом и концом хода, реплика останется без ответа), но строго
     # лучше прежнего "либо всё разом, либо ничего", и снимает основную
     # путаницу: GET /dialogs/{id} сразу покажет, что сообщение дошло.
-    item.properties = {**item.properties, "messages": records}
+    #
+    # Реальный найденный баг (пойман через прямое чтение из БД, не через
+    # тот же ORM-объект): list(records), НЕ records как есть — records
+    # мутируется дальше по ходу функции (записи дописываются в тот же
+    # list), а этот commit — не последний. Если положить сюда САМ records,
+    # "messages" в item.properties и то, что будет дальше дописываться в
+    # records — окажутся ОДНИМ И ТЕМ ЖЕ list-объектом по ссылке; когда
+    # ниже произойдёт повторное присваивание item.properties = {...,
+    # "messages": records}, SQLAlchemy сравнит "старое" и "новое" значение
+    # JSONB-колонки и, так как это буквально один и тот же (уже
+    # изменившийся) объект, не увидит разницы и молча не отправит апдейт
+    # этого поля в БД — итог: item.content (обычная строка, каждый раз
+    # новый объект) обновляется исправно, а properties["messages"]
+    # застревает на состоянии этого самого первого коммита навсегда,
+    # ответ ассистента "исчезает", хотя реально сгенерировался.
+    item.properties = {**item.properties, "messages": list(records)}
     item.content = _flatten_transcript(records)
     await db.commit()
 
@@ -1436,7 +1451,11 @@ async def _run_dialog_turn_locked(db: AsyncSession, user: User, item: Item, cont
                 "created_at": _now_iso(),
             }
         )
-        item.properties = {**item.properties, "messages": records}
+        # list(records) — см. комментарий у раннего коммита выше в этой
+        # же функции (тот же риск: records ещё будет использован/возвращён
+        # вызывающим кодом дальше, нельзя класть в properties сам
+        # мутируемый объект по ссылке).
+        item.properties = {**item.properties, "messages": list(records)}
         item.content = _flatten_transcript(records)
         await db.commit()
         await db.refresh(item)
@@ -1818,7 +1837,14 @@ async def _run_dialog_turn_locked(db: AsyncSession, user: User, item: Item, cont
             records[-1]["content"][:200],
         )
 
-    item.properties = {**item.properties, "messages": records}
+    # list(records) — та же причина, что у раннего коммита выше в этой же
+    # функции: после раннего коммита item.properties["messages"] уже
+    # ссылается на тот же список, что и переменная records — если
+    # присвоить сюда сам records (не копию), это будет ПОВТОРНОЕ
+    # присваивание ТОГО ЖЕ объекта, SQLAlchemy не увидит изменения в
+    # JSONB-колонке и не отправит апдейт, несмотря на то что записи
+    # реально дописались.
+    item.properties = {**item.properties, "messages": list(records)}
     item.content = _flatten_transcript(records)
     await db.commit()
     await db.refresh(item)

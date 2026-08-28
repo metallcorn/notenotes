@@ -65,6 +65,45 @@ async def test_delete_message_from_dialog(auth_client, db_session, test_user):
     assert r.json()["messages"] == []
 
 
+async def test_two_sequential_properties_commits_with_mutated_shared_list_both_persist(auth_client, db_session):
+    """Реальный найденный баг (не через run_dialog_turn — тот бьёт в
+    настоящий LLM, здесь чистый repro механизма): если item.properties
+    присваивается ДВАЖДЫ за один ход с тем же (мутируемым между
+    присваиваниями) list-объектом в значении "messages", SQLAlchemy не
+    видит второе присваивание как изменение JSONB-колонки и не шлёт по
+    нему апдейт — сохраняется только первый коммит. Ответ ассистента,
+    дописанный ПОСЛЕ раннего коммита реплики пользователя (см.
+    run_dialog_turn), от этого исчезал целиком, хотя реально
+    генерировался. Фикс — list(records) (копия) при каждом присваивании,
+    не сам объект по ссылке."""
+    from app.models import Item
+
+    space_id = await _make_space(auth_client)
+    r = await auth_client.post("/api/dialogs", json={"space_id": space_id})
+    dialog_id = uuid.UUID(r.json()["id"])
+    item = await db_session.get(Item, dialog_id)
+
+    records: list[dict] = []
+    records.append({"id": "m1", "role": "user", "content": "первое сообщение"})
+    item.properties = {**item.properties, "messages": list(records)}
+    await db_session.commit()
+
+    # Мутируем ТОТ ЖЕ list-объект (не переприсваиваем переменную records) —
+    # именно так это происходит в run_dialog_turn: records.append(...) в
+    # цикле после раннего коммита.
+    records.append({"id": "m2", "role": "assistant", "content": "второй ответ"})
+    item.properties = {**item.properties, "messages": list(records)}
+    await db_session.commit()
+
+    # Читаем СВЕЖИМ запросом, не через тот же ORM-объект (expire_on_commit=False
+    # иначе замаскировал бы баг — item.properties в Python-памяти и так уже
+    # содержит оба сообщения, вопрос именно в том, что реально дошло до БД).
+    db_session.expire_all()
+    fresh = await db_session.get(Item, dialog_id)
+    assert len(fresh.properties["messages"]) == 2
+    assert fresh.properties["messages"][1]["content"] == "второй ответ"
+
+
 async def test_delete_nonexistent_message_404(auth_client):
     space_id = await _make_space(auth_client)
     r = await auth_client.post("/api/dialogs", json={"space_id": space_id})
