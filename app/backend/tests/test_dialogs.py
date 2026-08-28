@@ -396,3 +396,22 @@ def test_scoped_tool_names_include_compacted_history_read():
     from app.routers.dialogs import _SCOPED_TOOL_NAMES
 
     assert "get_compacted_history" in _SCOPED_TOOL_NAMES
+
+
+def test_calendar_reminders_tools_are_core_regardless_of_keywords():
+    # Реальный найденный случай: "Какие у меня дела на сегодня?" не задело
+    # НИ ОДНО ключевое слово старой категории calendar_reminders —
+    # list_reminders не попадал в набор тулов вообще, модель откатывалась
+    # на search_base и отвечала выдуманными "делами" из содержимого
+    # случайно найденных заметок, хотя реальных напоминаний на сегодня не
+    # было ни одного. calendar_reminders теперь core — тест защищает от
+    # повторного скатывания в keyword-гейтинг для этой группы.
+    from app.routers.dialogs import _CORE_TOOL_NAMES, _relevant_tool_names
+
+    for name in ("create_calendar_event", "create_reminder", "list_reminders", "resolve_reminder"):
+        assert name in _CORE_TOOL_NAMES
+
+    all_names = {"list_reminders", "search_base", "web_search"}
+    relevant = _relevant_tool_names(all_names, "Какие у меня дела на сегодня?", set())
+    assert "list_reminders" in relevant
+    assert "web_search" not in relevant  # не задело web-категорию — не должен попасть

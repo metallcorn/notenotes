@@ -67,6 +67,19 @@ _CORE_TOOL_NAMES = {
     "list_memories", "add_tag", "list_tags", "create_list", "get_list",
     "add_list_entry", "toggle_list_entry", "create_table", "get_table",
     "add_table_row", "update_table_row", "delete_table_row", "add_table_column",
+    # Реальный найденный случай: "Какие у меня дела на сегодня?" не задело
+    # НИ ОДНО ключевое слово категории calendar_reminders ("напомни",
+    # "встреч", "дедлайн" и т.п.) — list_reminders не попал в набор тулов
+    # вообще, модель молча откатилась на search_base (полнотекстовый поиск
+    # по заметкам, не имеющий отношения к реальным напоминаниям) и
+    # ОТВЕТИЛА ТРЕМЯ ВЫДУМАННЫМИ "делами на сегодня" из содержимого
+    # случайно найденных заметок — при том что реальных напоминаний на
+    # сегодня не было ни одного. "Что запланировано" — слишком базовый и
+    # частый тип вопроса, чтобы полагаться на угадывание ключевых слов;
+    # calendar_reminders целиком (не только list_reminders) теперь core —
+    # create_reminder и так требует явного согласия перед созданием
+    # (не молчаливое действие), опасности в постоянной доступности нет.
+    "create_calendar_event", "create_reminder", "list_reminders", "resolve_reminder",
 }
 # Мини-чат "спроси ассистента в заметке" (scoped_item_id, см. create_dialog
 # ниже) — почти только чтение/поиск: применяет результат сам пользователь
@@ -96,7 +109,6 @@ _SCOPED_TOOL_NAMES = {
 }
 _TOOL_CATEGORIES: dict[str, set[str]] = {
     "web": {"web_search", "read_website", "create_maps_link", "test_url_request", "insert_url_check_block"},
-    "calendar_reminders": {"create_calendar_event", "create_reminder", "list_reminders", "resolve_reminder"},
     "structure": {"create_folder", "list_items_by_tag", "list_items_in_folder"},
     "utility": {"run_python"},
     "forget": {"forget_fact"},
@@ -107,10 +119,6 @@ _CATEGORY_KEYWORDS: dict[str, tuple[str, ...]] = {
         "маршрут", "как добраться", "где наход", "бар", "ресторан", "кафе", "музей",
         "закрыва", "открыт", "работает ли", "акци", "скидк", "магазин",
         "allegro", "amazon", "zalando", "curl", "статус", "отслежива", "проверя",
-    ),
-    "calendar_reminders": (
-        "напомни", "напоминани", "календар", "событи", "дедлайн", "не забыть",
-        "не забуд", "встреч", "во сколько", "к какому времени", "успеть", "выходны",
     ),
     "structure": ("папк", "тег", "по тегу"),
     "utility": ("посчита", "сумм", "вычисли", "процент", "сортир", "среднее", "разниц"),
