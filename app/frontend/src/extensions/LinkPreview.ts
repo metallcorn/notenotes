@@ -15,7 +15,16 @@ export const LinkPreview = Node.create({
   name: "linkPreview",
   group: "block",
   atom: true,
-  draggable: true,
+  // НЕ draggable: true. Реальный найденный баг (тот же класс, что в
+  // DeliveryAttachment.ts — см. комментарий там): draggable — атрибут
+  // УЗЛА, TipTap сам вешает его на внешнюю обёртку NodeView ДО того, как
+  // отрисуется React-компонент, независимо от каких-либо draggable-пропов
+  // внутри самого компонента. Без явного data-drag-handle на узкой части
+  // карточки весь wrapper — зона перетаскивания по умолчанию, а тут вся
+  // карточка целиком — это <a target=_blank> (LinkPreviewCard.tsx), сузить
+  // некуда — конфликтовало с нативным "перетащить ссылку" браузера,
+  // клик изредка открывал сразу две вкладки.
+
 
   addAttributes() {
     return {

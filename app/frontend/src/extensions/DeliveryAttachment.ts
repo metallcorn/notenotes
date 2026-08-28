@@ -16,7 +16,19 @@ export const DeliveryAttachment = Node.create({
   name: "delivery",
   group: "block",
   atom: true,
-  draggable: true,
+  // НЕ draggable: true. Реальный найденный баг: draggable — атрибут узла
+  // (Node.create), TipTap ставит его на ВНЕШНЮЮ обёртку NodeView САМ, ещё
+  // до всего, что рендерит React-компонент — предыдущая попытка починить
+  // "клик по ссылке открывает две вкладки" убирала draggable-проп у
+  // NodeViewWrapper внутри DeliveryWidgetCard.tsx, но это другой, более
+  // внутренний слой, отдельный от ЭТОГО атрибута узла — сам баг не
+  // трогала. Без явного data-drag-handle где-то внутри карточки ВЕСЬ
+  // wrapper становится зоной перетаскивания по умолчанию (см. DocumentAttachment.ts/
+  // TicketAttachment.ts — там drag-handle сужен до отдельной строки без
+  // ссылки внутри; здесь ссылка "Трекинг" — часть всей карточки, сузить
+  // некуда) — конфликтует с нативным "перетащить ссылку" браузера,
+  // изредка открывая клик сразу в двух вкладках.
+
 
   addAttributes() {
     return {
