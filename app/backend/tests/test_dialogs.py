@@ -415,3 +415,20 @@ def test_calendar_reminders_tools_are_core_regardless_of_keywords():
     relevant = _relevant_tool_names(all_names, "Какие у меня дела на сегодня?", set())
     assert "list_reminders" in relevant
     assert "web_search" not in relevant  # не задело web-категорию — не должен попасть
+
+
+def test_run_python_is_core_regardless_of_keywords():
+    # Реальный найденный случай (бенчмарк моделей на реальных вопросах
+    # пользователя): "через 48 дней от сегодня какой будет день недели?" —
+    # не задело ни одно ключевое слово старой категории "utility"
+    # ("посчита", "сумм", "вычисли" и т.п.), run_python не попадал в набор
+    # тулов вообще, все три проверенных модели (small/medium/large) считали
+    # дату в уме и ошибались. run_python теперь core.
+    from app.routers.dialogs import _CORE_TOOL_NAMES, _relevant_tool_names
+
+    assert "run_python" in _CORE_TOOL_NAMES
+
+    all_names = {"run_python", "search_base", "web_search"}
+    relevant = _relevant_tool_names(all_names, "какой день недели будет через 48 дней от сегодня?", set())
+    assert "run_python" in relevant
+    assert "web_search" not in relevant  # не задело web-категорию — не должен попасть
