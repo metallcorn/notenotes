@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 import re
@@ -1223,7 +1224,37 @@ def _build_folder_context(folder: Folder, folder_items: list[Item]) -> str:
     )
 
 
+# Реальный найденный случай: два хода одного диалога, наложившиеся друг на
+# друга (например, повторный клик/запрос, пока первый ещё не закончился —
+# агентный цикл с web_search может идти долго), гонялись параллельно НА
+# ОДНОМ И ТОМ ЖЕ item.properties["messages"] — каждый читает records в
+# начале, копит его в памяти и переписывает поле ЦЕЛИКОМ в конце.
+# Последний, кто закоммитил, стирает всё, что успел дописать первый —
+# конкретно найдено: ответ ассистента исчезал целиком, хотя реально
+# генерировался (несовпадение item.content и messages — content длиннее,
+# чем то, что реально осталось в messages, — прямое доказательство). Лок
+# на dialog_id сериализует ходы ОДНОГО диалога — второй запрос дождётся
+# первого и прочитает уже актуальный records, а не гонится с ним.
+_dialog_turn_locks: dict[uuid.UUID, asyncio.Lock] = {}
+
+
+def _get_dialog_turn_lock(dialog_id: uuid.UUID) -> asyncio.Lock:
+    lock = _dialog_turn_locks.get(dialog_id)
+    if lock is None:
+        lock = asyncio.Lock()
+        _dialog_turn_locks[dialog_id] = lock
+    return lock
+
+
 async def run_dialog_turn(db: AsyncSession, user: User, item: Item, content: str) -> list[dict]:
+    """Один ход агентного цикла над диалогом `item` — тонкая обёртка вокруг
+    _run_dialog_turn_locked, сериализующая параллельные ходы ОДНОГО и того
+    же диалога (см. комментарий у _dialog_turn_locks выше)."""
+    async with _get_dialog_turn_lock(item.id):
+        return await _run_dialog_turn_locked(db, user, item, content)
+
+
+async def _run_dialog_turn_locked(db: AsyncSession, user: User, item: Item, content: str) -> list[dict]:
     """Один ход агентного цикла над диалогом `item`: добавляет реплику
     пользователя, гоняет LLM+тулы до финального ответа или потолка
     итераций, коммитит и уведомляет по WS. Общее ядро для HTTP-эндпоинта
