@@ -17,7 +17,7 @@ from app.db import get_db
 from app.dialog_compaction import _DEFAULT_KEEP_LAST, _MIN_OLD_MESSAGES, find_cut_index, summarize_records
 from app.deps import ensure_space_access, get_current_user, is_vault_space
 from app.llm.base import EmptyLLMResponseError, Message, ToolCall
-from app.llm.factory import get_llm_client
+from app.llm.factory import get_escalated_llm_client, get_llm_client
 from app.models import AssistantMemory, Folder, Item, Space, SpaceMember, User
 from app.routers.items import create_item_row
 from app.schemas.dialog import DialogCompactCreate, DialogCreate, DialogOut, DialogSummaryOut, MessageCreate
@@ -1488,6 +1488,16 @@ async def _run_dialog_turn_locked(db: AsyncSession, user: User, item: Item, cont
         return records
 
     llm_client = get_llm_client(user.llm_provider)
+    # Тихая эскалация на модель покрупнее ТОЛЬКО при реальном сбое основной
+    # (см. места использования ниже) — не по угаданной "сложности" вопроса.
+    # Пользователь не видит разницы в успешном случае (обычный путь не
+    # трогается), лишняя задержка возникает лишь тогда, когда без неё
+    # ответа не было бы вообще или пришёл бы мусор. get_escalated_llm_client
+    # возвращает None, если для провайдера эскалация не настроена (тогда
+    # active_llm_client так и останется исходным клиентом).
+    escalated_llm_client = get_escalated_llm_client(user.llm_provider)
+    active_llm_client = llm_client
+    escalated_this_turn = False
 
     memories_result = await db.execute(
         select(AssistantMemory.content).where(AssistantMemory.user_id == user.id).order_by(AssistantMemory.created_at)
@@ -1525,9 +1535,19 @@ async def _run_dialog_turn_locked(db: AsyncSession, user: User, item: Item, cont
 
     for _ in range(MAX_TOOL_ITERATIONS):
         try:
-            response = await llm_client.chat(_to_llm_messages(records, system_prompt), tool_definitions)
+            response = await active_llm_client.chat(_to_llm_messages(records, system_prompt), tool_definitions)
         except (httpx.HTTPError, EmptyLLMResponseError):
             logger.exception("Ошибка обращения к LLM-провайдеру")
+            # Прежде чем сдаваться — одна тихая попытка на модели покрупнее,
+            # если она настроена и мы ещё не на ней (реальный найденный
+            # случай в бенчмарке: mistral-small/large изредка отвечают 500
+            # или пустым ответом на ровном месте, повтор той же моделью
+            # обычно повторяет ту же ошибку, повтор другой моделью — нет).
+            if escalated_llm_client is not None and not escalated_this_turn:
+                logger.warning("Эскалирую на более крупную модель после сбоя провайдера")
+                active_llm_client = escalated_llm_client
+                escalated_this_turn = True
+                continue
             records.append(
                 {
                     "id": str(uuid.uuid4()),
@@ -1544,13 +1564,18 @@ async def _run_dialog_turn_locked(db: AsyncSession, user: User, item: Item, cont
         # происходит (событие не создаётся), а пользователь видит в чате
         # сырой JSON вместо результата. Поймано вживую на реальном разговоре
         # (репорт пользователя: "ссылка на календарь не создалась"). Раз —
-        # молча повторяем тот же запрос без добавления в историю (обычно
-        # помогает), не удалось второй раз — показываем честную ошибку
-        # вместо мусора.
+        # молча повторяем тот же запрос без добавления в историю, заодно
+        # эскалируя на модель покрупнее, если ещё не на ней (та же модель
+        # обычно повторяет тот же паттерн, другая — с большей вероятностью
+        # нет), не удалось второй раз — показываем честную ошибку вместо
+        # мусора.
         if not assistant_msg.tool_calls and _looks_like_leaked_tool_call(assistant_msg.content, enabled_tool_names):
             logger.warning("Похоже на утёкший tool_call текстом вместо настоящего вызова: %r", assistant_msg.content[:200])
             if not tool_call_leak_retried:
                 tool_call_leak_retried = True
+                if escalated_llm_client is not None and not escalated_this_turn:
+                    active_llm_client = escalated_llm_client
+                    escalated_this_turn = True
                 continue
             records.append(
                 {
