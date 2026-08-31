@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import { X } from "lucide-react";
-import { useCreateDialog, useScopedDialogs } from "../api/hooks";
+import { Trash2, X } from "lucide-react";
+import { useCreateDialog, useDeleteItem, useScopedDialogs } from "../api/hooks";
 import type { DialogSummary } from "../api/types";
 import { uiStorage } from "../lib/storage";
 import AssistantChat from "./AssistantChat";
+import ConfirmDialog from "./ConfirmDialog";
 import Spinner from "./Spinner";
 
 function formatDialogDate(iso: string): string {
@@ -40,8 +41,13 @@ export default function NoteAssistantModal({
 }) {
   const createDialog = useCreateDialog();
   const scopedDialogs = useScopedDialogs();
+  const deleteItem = useDeleteItem(undefined);
   const [dialogId, setDialogId] = useState<string | null>(null);
   const [pastDialogs, setPastDialogs] = useState<DialogSummary[] | undefined>(undefined);
+  // Реальная жалоба: "как удалять чаты от заметки? надо в этом окне где
+  // они предлагаются сделать кнопку удаления" — тот же паттерн, что уже
+  // есть у DialogList.tsx (общий список диалогов ассистента).
+  const [deletingDialog, setDeletingDialog] = useState<DialogSummary | null>(null);
   const [width, setWidth] = useState(() => uiStorage.getNotePanelWidth());
   const [isDesktop, setIsDesktop] = useState(() => window.matchMedia("(min-width: 1024px)").matches);
   const draggingRef = useRef(false);
@@ -147,21 +153,26 @@ export default function NoteAssistantModal({
                 <p className="mb-2 text-sm text-secondary">У этой заметки уже есть разговоры с ассистентом:</p>
                 <div className="flex flex-col gap-1">
                   {pastDialogs.map((d) => (
-                    <button
-                      key={d.id}
-                      onClick={() => setDialogId(d.id)}
-                      className="rounded border px-3 py-2 text-left text-sm hover:bg-muted-hover"
-                    >
-                      {/* Заголовок у всех диалогов этой заметки одинаковый
-                          ("Ассистент: {название заметки}") — реальная
-                          жалоба: без превью первого вопроса их не отличить
-                          друг от друга. Показываем превью как основную
-                          строку, заголовок — не дублируем вовсе. */}
-                      <div className="truncate font-medium text-primary">
-                        {d.preview || "Новый диалог без сообщений"}
-                      </div>
-                      <div className="text-xs text-subtle">{formatDialogDate(d.updated_at)}</div>
-                    </button>
+                    <div key={d.id} className="flex items-center gap-1 rounded border hover:bg-muted-hover">
+                      <button onClick={() => setDialogId(d.id)} className="min-w-0 flex-1 px-3 py-2 text-left text-sm">
+                        {/* Заголовок у всех диалогов этой заметки одинаковый
+                            ("Ассистент: {название заметки}") — реальная
+                            жалоба: без превью первого вопроса их не отличить
+                            друг от друга. Показываем превью как основную
+                            строку, заголовок — не дублируем вовсе. */}
+                        <div className="truncate font-medium text-primary">
+                          {d.preview || "Новый диалог без сообщений"}
+                        </div>
+                        <div className="text-xs text-subtle">{formatDialogDate(d.updated_at)}</div>
+                      </button>
+                      <button
+                        onClick={() => setDeletingDialog(d)}
+                        title="Удалить диалог"
+                        className="mr-2 flex h-7 w-7 shrink-0 items-center justify-center text-subtle hover:text-danger"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
                   ))}
                 </div>
                 <button
@@ -187,6 +198,26 @@ export default function NoteAssistantModal({
           )}
         </div>
       </div>
+      {deletingDialog && (
+        <ConfirmDialog
+          title={`Удалить диалог «${deletingDialog.preview || "Новый диалог"}»? Он переместится в корзину.`}
+          danger
+          onConfirm={async () => {
+            const id = deletingDialog.id;
+            await deleteItem.mutateAsync(id);
+            setDeletingDialog(null);
+            setPastDialogs((prev) => {
+              const next = (prev ?? []).filter((d) => d.id !== id);
+              // Последний диалог заметки удалён — сразу открываем новый,
+              // не оставляем пустой тупиковый экран (тот же случай, что
+              // выше в useEffect, когда прошлых диалогов не было вообще).
+              if (next.length === 0) startNewDialog();
+              return next;
+            });
+          }}
+          onCancel={() => setDeletingDialog(null)}
+        />
+      )}
     </>
   );
 }
