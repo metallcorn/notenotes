@@ -259,15 +259,27 @@ async def _analyze(image_bytes: bytes, content_type: str, api_key: str) -> str:
     return content or ""
 
 
+# Реальная жалоба ("постоянно что-то зависает в фоне"): все точки отказа
+# ниже раньше молча оставляли плейсхолдер "⏳ ...обрабатывается…" висеть
+# НАВСЕГДА — transcription_status уходил в "failed" в БД, а сама заметка
+# продолжала показывать вечный "в процессе", неотличимый от настоящего
+# зависания. pdf_processing.py эту дыру уже не имеет (сбрасывает карточку
+# в "не обработано"); vision.py/transcription.py её унаследовали при
+# копировании паттерна и никогда не получили тот же фикс.
+_FAILURE_MESSAGE = "⚠️ Распознавание изображения не удалось."
+_EMPTY_MESSAGE = "🔍 Не удалось ничего распознать на изображении."
+
+
 async def _process(upload_id: uuid.UUID) -> None:
     settings = get_settings()
 
-    async def _fail() -> None:
+    async def _fail(message: str = _FAILURE_MESSAGE) -> None:
         async with async_session() as db:
             u = await db.get(Upload, upload_id)
             if u is not None:
                 u.transcription_status = "failed"
                 await db.commit()
+        await replace_recognized_text_card(upload_id, placeholder_text(upload_id), message)
 
     if not settings.llm_api_key:
         logger.error("LLM_API_KEY не задан — анализ изображения %s невозможен", upload_id)
@@ -336,6 +348,7 @@ async def _process(upload_id: uuid.UUID) -> None:
 
     if not description.strip():
         logger.warning("Mistral vision вернул пустой результат для %s", upload_id)
+        await replace_recognized_text_card(upload_id, placeholder_text(upload_id), _EMPTY_MESSAGE)
         return
 
     formatted = serialize_image_ocr_result(upload_id, description, content_type)

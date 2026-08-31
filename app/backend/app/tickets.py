@@ -303,10 +303,26 @@ async def _finalize_ticket_item(upload_id: uuid.UUID, old: str, new: str, proper
             await asyncio.sleep(_REPLACE_RETRY_DELAY_SECONDS)
 
 
+async def _fail_stuck_ticket(upload_id: uuid.UUID) -> None:
+    # Тот же класс бага, что чинили в vision.py/transcription.py: билет
+    # остаётся "processing" (см. vision.py._process) до тех пор, пока
+    # ЭТА функция не проставит финальный статус — если она сама выходит
+    # раньше срока, плейсхолдер "⏳ ...обрабатывается…" висит навсегда.
+    async with async_session() as db:
+        upload = await db.get(Upload, upload_id)
+        if upload is not None:
+            upload.transcription_status = "failed"
+            await db.commit()
+    await _replace_in_referencing_items(
+        upload_id, image_placeholder_text(upload_id), "⚠️ Не удалось обработать билет."
+    )
+
+
 async def _process(upload_id: uuid.UUID) -> None:
     settings = get_settings()
     if not settings.llm_api_key:
         logger.error("LLM_API_KEY не задан — извлечение данных билета %s невозможно", upload_id)
+        await _fail_stuck_ticket(upload_id)
         return
 
     async with async_session() as db:
@@ -319,6 +335,7 @@ async def _process(upload_id: uuid.UUID) -> None:
 
     if not transcript.strip():
         logger.warning("Пустой transcript для билета %s — извлечение пропущено", upload_id)
+        await _fail_stuck_ticket(upload_id)
         return
 
     try:

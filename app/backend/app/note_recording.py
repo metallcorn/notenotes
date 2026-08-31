@@ -71,15 +71,24 @@ async def _replace_in_referencing_items(upload_id: uuid.UUID, old: str, new: str
                 await collab.invalidate_room(item_id)
 
 
+# Реальная жалоба ("постоянно что-то зависает в фоне"): все точки отказа
+# ниже раньше молча оставляли плейсхолдер "⏳ ...обрабатывается…" висеть
+# НАВСЕГДА — тот же класс бага, что чинили в vision.py/transcription.py.
+_FAILURE_MESSAGE = "⚠️ Расшифровка записи не удалась."
+_TOO_SHORT_MESSAGE = "🔇 Запись слишком короткая для распознавания."
+_EMPTY_MESSAGE = "🔇 В записи не распознано речи."
+
+
 async def _process(upload_id: uuid.UUID) -> None:
     settings = get_settings()
 
-    async def _fail() -> None:
+    async def _fail(message: str = _FAILURE_MESSAGE) -> None:
         async with async_session() as db:
             u = await db.get(Upload, upload_id)
             if u is not None:
                 u.transcription_status = "failed"
                 await db.commit()
+        await _replace_in_referencing_items(upload_id, placeholder_text(upload_id), message)
 
     if not settings.deepgram_api_key:
         logger.error("DEEPGRAM_API_KEY не задан — расшифровка записи %s невозможна", upload_id)
@@ -95,7 +104,7 @@ async def _process(upload_id: uuid.UUID) -> None:
     audio_bytes = path.read_bytes()
     if len(audio_bytes) < _MIN_RECORDING_BYTES:
         logger.info("Запись %s слишком короткая (%d байт) — распознавание пропущено", upload_id, len(audio_bytes))
-        await _fail()
+        await _fail(_TOO_SHORT_MESSAGE)
         return
 
     async with async_session() as db:
@@ -128,6 +137,7 @@ async def _process(upload_id: uuid.UUID) -> None:
 
     if not transcript.strip():
         logger.warning("Deepgram не распознал речь в записи %s (пустой транскрипт, %d байт)", upload_id, len(audio_bytes))
+        await _replace_in_referencing_items(upload_id, placeholder_text(upload_id), _EMPTY_MESSAGE)
         return
 
     url = f"/api/uploads/{upload_id}"

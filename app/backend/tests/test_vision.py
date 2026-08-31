@@ -1,7 +1,8 @@
 import uuid
 
+from app.core.config import get_settings
 from app.models import Item
-from app.vision import _split_ticket_marker, placeholder_text, replace_recognized_text_card, serialize_image_ocr_result
+from app.vision import _process, _split_ticket_marker, placeholder_text, replace_recognized_text_card, serialize_image_ocr_result
 
 
 def test_ticket_marker_plain():
@@ -183,5 +184,50 @@ async def test_replace_recognized_text_card_snapshot_version():
             for v in versions:
                 await db.delete(v)
             await db.commit()
+    finally:
+        await _cleanup_real_item(item_id, user_id)
+
+
+# --- _process: реальная жалоба "постоянно что-то зависает в фоне" ----------
+# Раньше отказ (нет API-ключа, файл не найден, пустой результат) молча
+# оставлял плейсхолдер "⏳ ...обрабатывается…" висеть навсегда —
+# transcription_status уходил в "failed" в БД, а заметка выглядела так,
+# будто распознавание идёт вечно. Теперь любой отказ заменяет плейсхолдер
+# на честное сообщение.
+
+async def test_process_without_llm_key_replaces_placeholder_with_failure_message(monkeypatch):
+    settings = get_settings()
+    monkeypatch.setattr(settings, "llm_api_key", "")
+
+    uid = uuid.uuid4()
+    item_id, user_id = await _make_real_item(f"![]( /x )\n\n{placeholder_text(uid)}\n")
+    try:
+        await _process(uid)
+
+        from app.db import async_session as real_async_session
+
+        async with real_async_session() as db:
+            item = await db.get(Item, item_id)
+            assert placeholder_text(uid) not in item.content
+            assert "не удал" in item.content.lower()
+    finally:
+        await _cleanup_real_item(item_id, user_id)
+
+
+async def test_process_missing_file_replaces_placeholder_with_failure_message(monkeypatch):
+    settings = get_settings()
+    monkeypatch.setattr(settings, "llm_api_key", "test-key")
+
+    uid = uuid.uuid4()  # заведомо нет файла на диске для этого id
+    item_id, user_id = await _make_real_item(f"![]( /x )\n\n{placeholder_text(uid)}\n")
+    try:
+        await _process(uid)
+
+        from app.db import async_session as real_async_session
+
+        async with real_async_session() as db:
+            item = await db.get(Item, item_id)
+            assert placeholder_text(uid) not in item.content
+            assert "не удал" in item.content.lower()
     finally:
         await _cleanup_real_item(item_id, user_id)

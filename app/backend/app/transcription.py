@@ -95,6 +95,16 @@ async def _replace_in_referencing_items(upload_id: uuid.UUID, old: str, new: str
                 await collab.invalidate_room(item_id)
 
 
+
+# Реальная жалоба ("постоянно что-то зависает в фоне"): все точки отказа
+# ниже раньше молча оставляли плейсхолдер "⏳ ...обрабатывается…" висеть
+# НАВСЕГДА — transcription_status уходил в "failed" в БД, а сама заметка
+# продолжала показывать вечный "в процессе", неотличимый от настоящего
+# зависания (тот же паттерн бага, что и в vision.py — см. комментарий там).
+_FAILURE_MESSAGE = "⚠️ Расшифровка видео не удалась."
+_EMPTY_MESSAGE = "🔇 В видео не распознано речи."
+
+
 async def _process(upload_id: uuid.UUID) -> None:
     async with async_session() as db:
         upload = await db.get(Upload, upload_id)
@@ -107,12 +117,13 @@ async def _process(upload_id: uuid.UUID) -> None:
     video_path = _upload_path(upload_id)
     settings = get_settings()
 
-    async def _fail() -> None:
+    async def _fail(message: str = _FAILURE_MESSAGE) -> None:
         async with async_session() as db2:
             u = await db2.get(Upload, upload_id)
             if u is not None:
                 u.transcription_status = "failed"
                 await db2.commit()
+        await _replace_in_referencing_items(upload_id, placeholder_text(upload_id), message)
 
     if not video_path.is_file():
         logger.error("Файл видео для %s не найден на диске (%s)", upload_id, video_path)
@@ -158,16 +169,17 @@ async def _process(upload_id: uuid.UUID) -> None:
 
     if not transcript.strip():
         logger.warning("Deepgram не распознал речь в %s (пустой транскрипт, аудио %d байт)", upload_id, len(audio_bytes))
+        await _replace_in_referencing_items(upload_id, placeholder_text(upload_id), _EMPTY_MESSAGE)
+        return
 
-    if transcript.strip():
-        # Та же сворачиваемая карточка (спойлер + копирование + полноэкранное
-        # чтение), что уже есть у распознавания картинок/PDF и у записи
-        # прямо в заметке (note_recording.py уже так делает) — раньше здесь
-        # был голый markdown-абзац, из всех источников распознанного текста
-        # только видео/голосовые в Telegram выглядели иначе. Суть та же
-        # самая (текст, извлечённый из медиа) — вид тоже должен быть тот же.
-        formatted = serialize_image_ocr_result(upload_id, transcript, content_type)
-        await _replace_in_referencing_items(upload_id, placeholder_text(upload_id), formatted)
+    # Та же сворачиваемая карточка (спойлер + копирование + полноэкранное
+    # чтение), что уже есть у распознавания картинок/PDF и у записи прямо в
+    # заметке (note_recording.py уже так делает) — раньше здесь был голый
+    # markdown-абзац, из всех источников распознанного текста только видео/
+    # голосовые в Telegram выглядели иначе. Суть та же самая (текст,
+    # извлечённый из медиа) — вид тоже должен быть тот же.
+    formatted = serialize_image_ocr_result(upload_id, transcript, content_type)
+    await _replace_in_referencing_items(upload_id, placeholder_text(upload_id), formatted)
 
 
 async def run_worker() -> None:
