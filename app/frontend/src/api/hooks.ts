@@ -1333,10 +1333,15 @@ export function useTelegramUnlink() {
 
 // --- mail (приём почты как заметок) -----------------------------------------
 
+interface MailStatus {
+  address: string | null;
+  own_addresses: string[];
+}
+
 export function useMailStatus() {
-  return useQuery<{ address: string | null }>({
+  return useQuery<MailStatus>({
     queryKey: ["mail-status"],
-    queryFn: () => api.get<{ address: string | null }>("/mail/status"),
+    queryFn: () => api.get<MailStatus>("/mail/status"),
   });
 }
 
@@ -1344,7 +1349,13 @@ export function useGenerateMailAddress() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: () => api.post<{ address: string | null }>("/mail/generate"),
-    onSuccess: (data) => qc.setQueryData(["mail-status"], data),
+    // Слияние, не замена — данный эндпоинт own_addresses не отдаёт, полная
+    // замена кэша стёрла бы уже загруженный список до следующего рефетча.
+    onSuccess: (data) =>
+      qc.setQueryData<MailStatus>(["mail-status"], (prev) => ({
+        address: data.address,
+        own_addresses: prev?.own_addresses ?? [],
+      })),
   });
 }
 
@@ -1352,7 +1363,11 @@ export function useRegenerateMailAddress() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: () => api.post<{ address: string | null }>("/mail/regenerate"),
-    onSuccess: (data) => qc.setQueryData(["mail-status"], data),
+    onSuccess: (data) =>
+      qc.setQueryData<MailStatus>(["mail-status"], (prev) => ({
+        address: data.address,
+        own_addresses: prev?.own_addresses ?? [],
+      })),
   });
 }
 
@@ -1360,7 +1375,36 @@ export function useDisableMailInbox() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: () => api.delete("/mail/inbox"),
-    onSuccess: () => qc.setQueryData(["mail-status"], { address: null }),
+    onSuccess: () => qc.setQueryData<MailStatus>(["mail-status"], { address: null, own_addresses: [] }),
+  });
+}
+
+// Реальная жалоба: пересылаешь себе письмо (или ставишь notenotes в копию
+// письма, которое написал сам) — заметка группируется по собственному
+// имени, а не по реальному собеседнику. "Свои адреса" — единственный
+// способ бэкенду отличить этот случай от письма от постороннего
+// (routers/mail_webhook.py::_sender_folder_name).
+export function useAddOwnMailAddress() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (email: string) => api.post<{ own_addresses: string[] }>("/mail/own-addresses", { email }),
+    onSuccess: (data) =>
+      qc.setQueryData<MailStatus>(["mail-status"], (prev) => ({
+        address: prev?.address ?? null,
+        own_addresses: data.own_addresses,
+      })),
+  });
+}
+
+export function useRemoveOwnMailAddress() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (email: string) => api.delete<{ own_addresses: string[] }>(`/mail/own-addresses/${encodeURIComponent(email)}`),
+    onSuccess: (data) =>
+      qc.setQueryData<MailStatus>(["mail-status"], (prev) => ({
+        address: prev?.address ?? null,
+        own_addresses: data.own_addresses,
+      })),
   });
 }
 

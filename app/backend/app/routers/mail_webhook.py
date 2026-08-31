@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.db import get_db
+from app.mail_forward import first_other_recipient, is_own_address, parse_forwarded_sender
 from app.models import EmailInbox, Folder, Upload, User
 from app.pdf_processing import AUTO_OCR_MAX_PDF_BYTES
 from app.pdf_processing import enqueue_ocr as enqueue_pdf_ocr
@@ -35,12 +36,39 @@ def _verify_signature(timestamp: str, token: str, signature: str) -> bool:
     return hmac.compare_digest(expected, signature)
 
 
-def _sender_folder_name(from_header: str, sender: str) -> str:
+def _sender_folder_name(
+    from_header: str,
+    sender: str,
+    *,
+    content: str,
+    to_header: str,
+    cc_header: str,
+    own_addresses: list[str],
+    mail_domain: str,
+) -> str:
     """Имя папки для писем от этого адресата — приоритет отображаемому
     имени ("Иван Иванов <ivan@example.com>"), иначе сам email. Та же
     логика, что у Telegram-форвардов (_forward_sender_name в
     telegram_bot.py): письма от одного человека группируются, не сыплются
-    плоско в спейс."""
+    плоско в спейс.
+
+    Реальная жалоба: письмо, пересланное СЕБЕ на notenotes-адрес, или
+    письмо, которое пользователь сам отправил кому-то, поставив
+    notenotes-адрес в копию — в обоих случаях From: это сам пользователь,
+    а не тот, с кем на самом деле переписка. Если From: — известный свой
+    адрес (own_addresses, настройки почты), ищем реального собеседника:
+    сначала в теле письма (маркер пересылки + оригинальный From:,
+    mail_forward.parse_forwarded_sender), иначе среди получателей To:/Cc:
+    (mail_forward.first_other_recipient) — письмо, которое пользователь
+    написал сам и скопировал себе, не пересылка, но собеседник там же."""
+    if is_own_address(from_header, own_addresses):
+        name, email_addr = parse_forwarded_sender(content)
+        if not name and not email_addr:
+            name, email_addr = first_other_recipient(to_header, cc_header, own_addresses, mail_domain)
+        if name or email_addr:
+            return (name or email_addr or "").strip()[:255]
+        return "Без отправителя"
+
     display_name, email_addr = parseaddr(from_header)
     return (display_name or email_addr or sender or "Без отправителя").strip()[:255]
 
@@ -137,11 +165,25 @@ async def webhook(request: Request, db: AsyncSession = Depends(get_db)) -> dict:
         # Адрес когда-то удалён/невалиден — не ретраить, но и не создавать.
         return {"ok": True}
 
-    folder_name = _sender_folder_name(str(form.get("from", "")), str(form.get("sender", "")))
-    folder_id = await _get_or_create_folder(db, inbox.space_id, folder_name)
-
     title = str(form.get("subject", "")).strip() or "Письмо без темы"
     content = str(form.get("stripped-text", "") or form.get("body-plain", "")).strip()
+
+    # Mailgun отдаёт заголовки как есть из письма — регистр поля у To/Cc
+    # не документирован так же чётко, как у "from"/"sender"/"recipient"
+    # (те — собственные поля Mailgun, всегда нижним регистром); пробуем
+    # оба варианта написания, отсутствие обоих — просто нет сигнала.
+    to_header = str(form.get("To", "") or form.get("to", ""))
+    cc_header = str(form.get("Cc", "") or form.get("cc", ""))
+    folder_name = _sender_folder_name(
+        str(form.get("from", "")),
+        str(form.get("sender", "")),
+        content=content,
+        to_header=to_header,
+        cc_header=cc_header,
+        own_addresses=inbox.own_addresses,
+        mail_domain=settings.mail_domain,
+    )
+    folder_id = await _get_or_create_folder(db, inbox.space_id, folder_name)
 
     attachment_count = int(form.get("attachment-count", 0) or 0)
     blocks: list[str] = []

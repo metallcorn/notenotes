@@ -1,6 +1,6 @@
 async def test_status_no_address_by_default(auth_client):
     r = await auth_client.get("/api/mail/status")
-    assert r.status_code == 200 and r.json() == {"address": None}
+    assert r.status_code == 200 and r.json() == {"address": None, "own_addresses": []}
 
 
 async def test_generate_creates_inbox_and_space(auth_client, db_session, test_user):
@@ -58,3 +58,46 @@ async def test_disable_removes_inbox_but_keeps_notes(auth_client, db_session, te
 
     r = await auth_client.get(f"/api/items/{item.id}")
     assert r.status_code == 200 and r.json()["title"] == "t"
+
+
+# --- own-addresses: реальная жалоба "пересылаю себе письмо — папка по мне" ---
+
+async def test_add_own_address_without_inbox_returns_404(auth_client):
+    r = await auth_client.post("/api/mail/own-addresses", json={"email": "me@gmail.com"})
+    assert r.status_code == 404
+
+
+async def test_add_own_address_rejects_invalid_email(auth_client):
+    await auth_client.post("/api/mail/generate")
+    r = await auth_client.post("/api/mail/own-addresses", json={"email": "not-an-email"})
+    assert r.status_code == 400
+
+
+async def test_add_own_address_normalizes_and_lists_in_status(auth_client):
+    await auth_client.post("/api/mail/generate")
+    r = await auth_client.post("/api/mail/own-addresses", json={"email": "Me@Gmail.com"})
+    assert r.status_code == 200
+    assert r.json()["own_addresses"] == ["me@gmail.com"]
+
+    r = await auth_client.get("/api/mail/status")
+    assert r.json()["own_addresses"] == ["me@gmail.com"]
+
+
+async def test_add_own_address_does_not_duplicate(auth_client):
+    await auth_client.post("/api/mail/generate")
+    await auth_client.post("/api/mail/own-addresses", json={"email": "me@gmail.com"})
+    r = await auth_client.post("/api/mail/own-addresses", json={"email": "me@gmail.com"})
+    assert r.json()["own_addresses"] == ["me@gmail.com"]
+
+
+async def test_remove_own_address(auth_client):
+    await auth_client.post("/api/mail/generate")
+    await auth_client.post("/api/mail/own-addresses", json={"email": "me@gmail.com"})
+    r = await auth_client.delete("/api/mail/own-addresses/me@gmail.com")
+    assert r.status_code == 200
+    assert r.json()["own_addresses"] == []
+
+
+async def test_remove_own_address_without_inbox_returns_404(auth_client):
+    r = await auth_client.delete("/api/mail/own-addresses/me@gmail.com")
+    assert r.status_code == 404

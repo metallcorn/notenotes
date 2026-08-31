@@ -361,6 +361,15 @@ class EmailInbox(Base):
     local_part: Mapped[str] = mapped_column(String(32), unique=True, index=True)
     space_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("spaces.id", ondelete="CASCADE"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    # Внешние адреса, которые пользователь считает СВОИМИ (личная почта,
+    # рабочая и т.п.) — не путать с local_part выше (это приёмный
+    # notenotes-адрес). Реальная жалоба: пересылаешь себе письмо — папка
+    # называется по своему имени, потому что From: в пересланном письме —
+    # это ты сам, а не оригинальный отправитель. Зная свои адреса,
+    # mail_webhook.py может отличить "это я переслал/скопировал себе" от
+    # "это письмо от постороннего" и искать реального собеседника
+    # (mail_forward.py) вместо заголовка From:.
+    own_addresses: Mapped[list[str]] = mapped_column(JSONB, default=list, server_default="[]")
 
 
 class LinkPreview(Base):

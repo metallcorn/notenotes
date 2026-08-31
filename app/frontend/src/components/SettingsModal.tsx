@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Check, Copy, Plus, Send, Trash2, X } from "lucide-react";
 import {
   useAddMemory,
+  useAddOwnMailAddress,
   useCreateInviteCode,
   useDeleteMemory,
   useDisableMailInbox,
@@ -11,6 +12,7 @@ import {
   useMe,
   useMemories,
   useRegenerateMailAddress,
+  useRemoveOwnMailAddress,
   useSkills,
   useTelegramLinkCode,
   useTelegramStatus,
@@ -58,6 +60,8 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
   const generateMailAddress = useGenerateMailAddress();
   const regenerateMailAddress = useRegenerateMailAddress();
   const disableMailInbox = useDisableMailInbox();
+  const addOwnMailAddress = useAddOwnMailAddress();
+  const removeOwnMailAddress = useRemoveOwnMailAddress();
 
   const [instructions, setInstructions] = useState(me?.custom_instructions ?? "");
   const [saved, setSaved] = useState(false);
@@ -65,6 +69,7 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
   const [telegramDeepLink, setTelegramDeepLink] = useState<string | null>(null);
   const [copiedCodeId, setCopiedCodeId] = useState<string | null>(null);
   const [mailCopied, setMailCopied] = useState(false);
+  const [newOwnAddress, setNewOwnAddress] = useState("");
   const [mediaCacheLimitMb, setMediaCacheLimitMbState] = useState(DEFAULT_MEDIA_CACHE_LIMIT_MB);
   const [mediaCacheSaved, setMediaCacheSaved] = useState(false);
   const [newMemoryText, setNewMemoryText] = useState("");
@@ -395,6 +400,56 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
                   >
                     {disableMailInbox.isPending ? <Spinner size={12} /> : "Отключить"}
                   </button>
+                </div>
+
+                <div className="border-t pt-2">
+                  <div className="mb-1 text-xs font-medium text-slate-700">Свои адреса</div>
+                  <div className="mb-2 text-xs text-slate-400">
+                    Письма, которые вы пересылаете себе или ставите этот адрес в копию, будут группироваться по
+                    имени собеседника (отправителя пересланного письма или получателя), а не по вам самим.
+                  </div>
+                  {mailStatus.own_addresses.length > 0 && (
+                    <div className="mb-2 space-y-1">
+                      {mailStatus.own_addresses.map((addr) => (
+                        <div key={addr} className="flex items-center justify-between gap-2 rounded border px-2 py-1 text-xs">
+                          <span className="truncate font-mono text-slate-700">{addr}</span>
+                          <button
+                            onClick={() => removeOwnMailAddress.mutate(addr)}
+                            disabled={removeOwnMailAddress.isPending}
+                            title="Убрать"
+                            className="shrink-0 text-slate-400 hover:text-red-600 disabled:opacity-50"
+                          >
+                            <Trash2 size={12} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <div className="flex gap-2">
+                    <input
+                      value={newOwnAddress}
+                      onChange={(e) => setNewOwnAddress(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key !== "Enter" || !newOwnAddress.trim() || addOwnMailAddress.isPending) return;
+                        addOwnMailAddress.mutate(newOwnAddress.trim(), { onSuccess: () => setNewOwnAddress("") });
+                      }}
+                      placeholder="your@email.com"
+                      className="min-w-0 flex-1 rounded border px-2 py-1 text-xs"
+                    />
+                    <button
+                      onClick={() => {
+                        if (!newOwnAddress.trim() || addOwnMailAddress.isPending) return;
+                        addOwnMailAddress.mutate(newOwnAddress.trim(), { onSuccess: () => setNewOwnAddress("") });
+                      }}
+                      disabled={addOwnMailAddress.isPending || !newOwnAddress.trim()}
+                      className="shrink-0 rounded border border-slate-300 px-2 py-1 text-xs text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                    >
+                      {addOwnMailAddress.isPending ? <Spinner size={12} /> : "Добавить"}
+                    </button>
+                  </div>
+                  {addOwnMailAddress.isError && (
+                    <div className="mt-1 text-xs text-red-600">Некорректный email.</div>
+                  )}
                 </div>
               </div>
             ) : (

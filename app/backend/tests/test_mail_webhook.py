@@ -100,6 +100,123 @@ async def test_webhook_groups_notes_by_sender_folder(client, db_session, test_us
     assert all(item.folder_id == folders[0].id for item in items)
 
 
+async def test_webhook_forwarded_by_self_groups_by_original_sender(client, db_session, test_user, monkeypatch):
+    # Реальная жалоба: пересылаешь себе письмо на notenotes-адрес — папка
+    # называется по собственному имени пользователя (From: — это он сам),
+    # а не по реальному отправителю оригинала, хотя тот виден в тексте
+    # (пересланный Gmail-блок с "From: ...").
+    from app.models import EmailInbox, Folder, Item, Space, SpaceMember
+
+    monkeypatch.setattr(get_settings(), "mailgun_webhook_signing_key", _SIGNING_KEY)
+    monkeypatch.setattr(get_settings(), "mail_domain", "mail.notenotes.example")
+
+    space = Space(name="Почта", owner_id=test_user.id)
+    db_session.add(space)
+    await db_session.flush()
+    db_session.add(SpaceMember(space_id=space.id, user_id=test_user.id))
+    db_session.add(
+        EmailInbox(user_id=test_user.id, local_part="mytoken123", space_id=space.id, own_addresses=["me@gmail.com"])
+    )
+    await db_session.commit()
+
+    body = (
+        "---------- Forwarded message ---------\n"
+        "From: Piotr Zieliński <piotr.zielinski@example.com>\n"
+        "Date: Mon, 1 Sep 2026 at 10:00\n"
+        "Subject: Что-то интересное\n"
+        "To: mytoken123@mail.notenotes.example\n\n"
+        "Текст письма.\n"
+    )
+    form = _signed_form(
+        recipient="mytoken123@mail.notenotes.example",
+        subject="Fwd: Что-то интересное",
+        **{"from": "Me <me@gmail.com>", "stripped-text": body},
+    )
+    r = await client.post("/api/mail/webhook", data=form)
+    assert r.status_code == 200
+
+    from sqlalchemy import select
+
+    folders = (await db_session.execute(select(Folder).where(Folder.space_id == space.id))).scalars().all()
+    assert len(folders) == 1
+    assert folders[0].name == "Piotr Zieliński"
+
+    item = (await db_session.execute(select(Item).where(Item.space_id == space.id))).scalar_one()
+    assert item.folder_id == folders[0].id
+
+
+async def test_webhook_self_sent_cc_groups_by_recipient(client, db_session, test_user, monkeypatch):
+    # Второй кейс той же жалобы: письмо, которое пользователь пишет САМ и
+    # ставит notenotes-адрес в копию — не пересылка, но собеседник должен
+    # определяться так же (получатель, не сам пользователь).
+    from app.models import EmailInbox, Folder, Item, Space, SpaceMember
+
+    monkeypatch.setattr(get_settings(), "mailgun_webhook_signing_key", _SIGNING_KEY)
+    monkeypatch.setattr(get_settings(), "mail_domain", "mail.notenotes.example")
+
+    space = Space(name="Почта", owner_id=test_user.id)
+    db_session.add(space)
+    await db_session.flush()
+    db_session.add(SpaceMember(space_id=space.id, user_id=test_user.id))
+    db_session.add(
+        EmailInbox(user_id=test_user.id, local_part="mytoken123", space_id=space.id, own_addresses=["me@gmail.com"])
+    )
+    await db_session.commit()
+
+    form = _signed_form(
+        recipient="mytoken123@mail.notenotes.example",
+        subject="Договорились на среду",
+        **{
+            "from": "Me <me@gmail.com>",
+            "stripped-text": "Обычное письмо без пересылки, просто текст.",
+            "To": "Alina <alina@example.com>",
+            "Cc": "mytoken123@mail.notenotes.example",
+        },
+    )
+    r = await client.post("/api/mail/webhook", data=form)
+    assert r.status_code == 200
+
+    from sqlalchemy import select
+
+    folders = (await db_session.execute(select(Folder).where(Folder.space_id == space.id))).scalars().all()
+    assert len(folders) == 1
+    assert folders[0].name == "Alina"
+
+    item = (await db_session.execute(select(Item).where(Item.space_id == space.id))).scalar_one()
+    assert item.folder_id == folders[0].id
+
+
+async def test_webhook_self_sent_with_no_signal_falls_back_to_default_folder(client, db_session, test_user, monkeypatch):
+    # Свой адрес, но ни пересылки, ни постороннего получателя — не должно
+    # падать, просто нечего определить.
+    from app.models import EmailInbox, Folder, Space, SpaceMember
+
+    monkeypatch.setattr(get_settings(), "mailgun_webhook_signing_key", _SIGNING_KEY)
+
+    space = Space(name="Почта", owner_id=test_user.id)
+    db_session.add(space)
+    await db_session.flush()
+    db_session.add(SpaceMember(space_id=space.id, user_id=test_user.id))
+    db_session.add(
+        EmailInbox(user_id=test_user.id, local_part="mytoken123", space_id=space.id, own_addresses=["me@gmail.com"])
+    )
+    await db_session.commit()
+
+    form = _signed_form(
+        recipient="mytoken123@mail.notenotes.example",
+        subject="Заметка себе",
+        **{"from": "Me <me@gmail.com>", "stripped-text": "Просто заметка себе, без пересылки и без других получателей."},
+    )
+    r = await client.post("/api/mail/webhook", data=form)
+    assert r.status_code == 200
+
+    from sqlalchemy import select
+
+    folders = (await db_session.execute(select(Folder).where(Folder.space_id == space.id))).scalars().all()
+    assert len(folders) == 1
+    assert folders[0].name == "Без отправителя"
+
+
 async def test_webhook_queues_pdf_attachment_for_ocr(client, db_session, test_user, monkeypatch):
     # Реальная жалоба: вложения письма падали голыми markdown-ссылками —
     # ничего не ставило PDF в очередь распознавания, как это делает
