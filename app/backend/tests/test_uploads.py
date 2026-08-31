@@ -76,6 +76,17 @@ async def test_video_and_audio_exempt_from_generic_limit(auth_client):
     assert r.status_code == 201
 
 
+async def test_upload_response_reports_exact_size_bytes(auth_client):
+    """Реальная просьба: показать вес видео оверлеем в заметке ДО
+    воспроизведения — фронту нужен точный размер файла прямо в ответе
+    на загрузку, вычислять/угадывать его самому негде."""
+    space_id = await _make_space(auth_client)
+    blob = b"x" * (3 * 1024 * 1024 + 777)
+    r = await auth_client.post(f"/api/uploads?space_id={space_id}", files={"file": ("v.mp4", blob, "video/mp4")})
+    assert r.status_code == 201
+    assert r.json()["size_bytes"] == len(blob)
+
+
 async def test_docx_upload_extracts_text_preview(auth_client):
     import io
 

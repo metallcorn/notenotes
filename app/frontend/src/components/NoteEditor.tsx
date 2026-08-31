@@ -43,6 +43,7 @@ import VersionHistoryPanel from "./VersionHistoryPanel";
 import EditorToolbar from "./EditorToolbar";
 import AiMenu, { type AiAction } from "./AiMenu";
 import ImageToolbar from "./ImageToolbar";
+import VideoToolbar from "./VideoToolbar";
 import CodeBlockToolbar from "./CodeBlockToolbar";
 import TableToolbar from "./TableToolbar";
 import Spinner from "./Spinner";
@@ -1159,6 +1160,7 @@ export default function NoteEditor({
       pdf_text: string | null;
       pdf_ocr_queued: boolean;
       preview_text: string | null;
+      size_bytes: number;
     },
     sourceFile?: File,
   ): number {
@@ -1189,7 +1191,9 @@ export default function NoteEditor({
     let nextPos = typeof pos === "number" ? pos : pos.from;
     if (mode === "wysiwyg" && editor) {
       if (isVideo) {
-        const content: Record<string, unknown>[] = [{ type: "video", attrs: { src: uploaded.url, filename: uploaded.filename } }];
+        const content: Record<string, unknown>[] = [
+          { type: "video", attrs: { src: uploaded.url, filename: uploaded.filename, size: uploaded.size_bytes || null } },
+        ];
         if (!isVaultNote) content.push({ type: "paragraph", content: [{ type: "text", text: placeholder }] });
         editor.chain().focus().insertContentAt(pos, content).run();
         nextPos = editor.state.selection.to;
@@ -1219,9 +1223,10 @@ export default function NoteEditor({
         nextPos = editor.state.selection.to;
       }
     } else if (isVideo) {
+      const sizeAttr = uploaded.size_bytes ? ` data-size="${uploaded.size_bytes}"` : "";
       setContent(
         (c) =>
-          `${c}\n\n<video src="${uploaded.url}" controls preload="metadata" style="max-width: 100%; max-height: 70vh;"></video>\n\n${isVaultNote ? "" : placeholder + "\n"}`,
+          `${c}\n\n<video src="${uploaded.url}" controls preload="metadata" style="max-width: 100%; max-height: 70vh;"${sizeAttr}></video>\n\n${isVaultNote ? "" : placeholder + "\n"}`,
       );
     } else if (isAudio) {
       setContent(
@@ -1346,6 +1351,7 @@ export default function NoteEditor({
   );
   const tagExactMatch = (allTags ?? []).some((t) => t.name.toLowerCase() === tagQuery.trim().toLowerCase());
   const showImageToolbar = mode === "wysiwyg" && !!editor?.isActive("image");
+  const showVideoToolbar = mode === "wysiwyg" && !!editor?.isActive("video");
   const showCodeBlockToolbar = mode === "wysiwyg" && !!editor?.isActive("codeBlock");
   const showTableToolbar = mode === "wysiwyg" && !!editor?.isActive("table");
 
@@ -1747,6 +1753,7 @@ export default function NoteEditor({
           <div className="border-b bg-red-50 px-3 py-1.5 text-xs text-red-700">{aiError}</div>
         )}
         {showImageToolbar && editor && <ImageToolbar editor={editor} />}
+        {showVideoToolbar && editor && <VideoToolbar editor={editor} />}
         {showCodeBlockToolbar && editor && <CodeBlockToolbar editor={editor} />}
         {showTableToolbar && editor && <TableToolbar editor={editor} />}
         <div className="relative flex min-h-0 flex-1 overflow-hidden">

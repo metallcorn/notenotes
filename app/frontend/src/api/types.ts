@@ -199,6 +199,7 @@ export interface UploadResult {
   pdf_ocr_queued: boolean;
   preview_text: string | null;
   has_thumbnail: boolean;
+  size_bytes: number;
 }
 
 // Виджет «Проверить по ссылке» (UrlCheckCard.tsx) — состояние читается

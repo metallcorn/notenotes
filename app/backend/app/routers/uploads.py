@@ -300,6 +300,7 @@ async def create_upload(
         pdf_ocr_queued=pdf_ocr_queued,
         preview_text=preview_text,
         has_thumbnail=has_thumbnail,
+        size_bytes=total,
     )
 
 
