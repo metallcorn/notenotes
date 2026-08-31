@@ -57,14 +57,14 @@ function FolderMenu({ folder, triggerRef, onAddChild, onRename, onMove, onDelete
       <div className="fixed inset-0 z-40" onClick={onClose} />
       <div
         style={{ top: pos.top, left: pos.left }}
-        className="fixed z-50 w-44 rounded border bg-white py-1 shadow-lg"
+        className="fixed z-50 w-44 rounded border bg-surface py-1 shadow-lg"
       >
         <button
           onClick={() => {
             onAddChild(folder.id);
             onClose();
           }}
-          className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-slate-600 hover:bg-slate-50"
+          className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-secondary hover:bg-muted-hover"
         >
           <Plus size={14} /> Подпапка
         </button>
@@ -73,7 +73,7 @@ function FolderMenu({ folder, triggerRef, onAddChild, onRename, onMove, onDelete
             onRename(folder);
             onClose();
           }}
-          className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-slate-600 hover:bg-slate-50"
+          className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-secondary hover:bg-muted-hover"
         >
           <Pencil size={13} /> Переименовать
         </button>
@@ -82,7 +82,7 @@ function FolderMenu({ folder, triggerRef, onAddChild, onRename, onMove, onDelete
             onMove(folder);
             onClose();
           }}
-          className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-slate-600 hover:bg-slate-50"
+          className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-secondary hover:bg-muted-hover"
         >
           <FolderInput size={13} /> Перенести в другой спейс
         </button>
@@ -91,7 +91,7 @@ function FolderMenu({ folder, triggerRef, onAddChild, onRename, onMove, onDelete
             onDelete(folder);
             onClose();
           }}
-          className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-red-600 hover:bg-red-50"
+          className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-danger hover:bg-danger/10"
         >
           <X size={14} /> Удалить
         </button>
@@ -109,7 +109,7 @@ function FolderNode({ folder, all, selectedFolderId, onSelect, onAddChild, onRen
     <li>
       <div
         className={`flex items-center justify-between rounded px-2 py-1 text-sm ${
-          selectedFolderId === folder.id ? "bg-slate-200 font-medium" : "hover:bg-slate-100"
+          selectedFolderId === folder.id ? "bg-muted-active font-medium" : "hover:bg-muted-hover"
         }`}
       >
         <button className="flex-1 truncate text-left" onClick={() => onSelect(folder.id)}>
@@ -125,7 +125,7 @@ function FolderNode({ folder, all, selectedFolderId, onSelect, onAddChild, onRen
             ref={triggerRef}
             title="Действия с папкой"
             onClick={() => setMenuOpen((v) => !v)}
-            className="flex h-8 w-8 items-center justify-center text-slate-400 hover:text-slate-700"
+            className="flex h-8 w-8 items-center justify-center text-subtle hover:text-secondary"
           >
             <MoreVertical size={15} />
           </button>
@@ -196,10 +196,10 @@ export default function FolderTree({
   return (
     <div className="mb-4">
       <div className="mb-1 flex items-center justify-between">
-        <span className="text-xs font-medium uppercase tracking-wide text-slate-400">Папки</span>
+        <span className="text-xs font-medium uppercase tracking-wide text-subtle">Папки</span>
         <button
           onClick={() => setAddingParentId(addingParentId === null ? undefined : null)}
-          className="text-xs text-slate-400 hover:text-slate-700"
+          className="text-xs text-subtle hover:text-secondary"
         >
           + новая
         </button>
@@ -210,7 +210,7 @@ export default function FolderTree({
           <button
             onClick={() => onSelect(null)}
             className={`w-full rounded px-2 py-1 text-left text-sm ${
-              selectedFolderId === null ? "bg-slate-200 font-medium" : "hover:bg-slate-100"
+              selectedFolderId === null ? "bg-muted-active font-medium" : "hover:bg-muted-hover"
             }`}
           >
             Все заметки
@@ -220,7 +220,7 @@ export default function FolderTree({
           <button
             onClick={() => onSelect("root")}
             className={`w-full rounded px-2 py-1 text-left text-sm ${
-              selectedFolderId === "root" ? "bg-slate-200 font-medium" : "hover:bg-slate-100"
+              selectedFolderId === "root" ? "bg-muted-active font-medium" : "hover:bg-muted-hover"
             }`}
           >
             Без папки
@@ -253,7 +253,7 @@ export default function FolderTree({
           <button
             type="submit"
             disabled={createFolder.isPending}
-            className="flex shrink-0 items-center justify-center gap-1 rounded bg-slate-900 px-2 py-1 text-xs text-white disabled:opacity-50"
+            className="flex shrink-0 items-center justify-center gap-1 rounded bg-accent px-2 py-1 text-xs text-white disabled:opacity-50"
           >
             {createFolder.isPending ? <Spinner size={12} /> : "OK"}
           </button>
@@ -264,7 +264,7 @@ export default function FolderTree({
               setAddingParentId(undefined);
             }}
             title="Отменить"
-            className="flex shrink-0 items-center justify-center rounded border px-2 py-1 text-xs text-slate-500 hover:bg-slate-100"
+            className="flex shrink-0 items-center justify-center rounded border px-2 py-1 text-xs text-subtle hover:bg-muted-hover"
           >
             <X size={14} />
           </button>

@@ -66,7 +66,7 @@ export default function AiMenu({
         onClick={() => setOpen((v) => !v)}
         disabled={disabled || loading}
         className={`flex h-8 w-8 shrink-0 items-center justify-center rounded disabled:opacity-30 ${
-          open ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-slate-100"
+          open ? "bg-accent text-white" : "text-secondary hover:bg-muted-hover"
         }`}
       >
         {loading ? <Spinner size={16} /> : <Sparkles size={16} />}
@@ -78,17 +78,17 @@ export default function AiMenu({
             <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
             <div
               style={{ top: position.top, left: position.left }}
-              className="fixed z-50 w-64 rounded border bg-white py-1 shadow-lg"
+              className="fixed z-50 w-64 rounded border bg-surface py-1 shadow-lg"
             >
               <button
                 onClick={() => run("summarize")}
-                className="block w-full px-3 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50"
+                className="block w-full px-3 py-1.5 text-left text-sm text-secondary hover:bg-muted-hover"
               >
                 Суммаризировать
               </button>
               <button
                 onClick={() => run("reformat")}
-                className="block w-full px-3 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50"
+                className="block w-full px-3 py-1.5 text-left text-sm text-secondary hover:bg-muted-hover"
               >
                 Переформатировать
               </button>
@@ -98,20 +98,20 @@ export default function AiMenu({
                     setOpen(false);
                     onOpenAssistant();
                   }}
-                  className="flex w-full items-center gap-1.5 border-t px-3 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50"
+                  className="flex w-full items-center gap-1.5 border-t px-3 py-1.5 text-left text-sm text-secondary hover:bg-muted-hover"
                 >
-                  <Search size={13} className="text-slate-400" />
+                  <Search size={13} className="text-subtle" />
                   Спросить ассистента
                 </button>
               )}
               <div className="border-t px-3 py-1.5">
-                <div className="mb-1 text-xs font-medium uppercase tracking-wide text-slate-400">Переписать</div>
+                <div className="mb-1 text-xs font-medium uppercase tracking-wide text-subtle">Переписать</div>
                 <div className="mb-1.5 flex flex-wrap gap-1">
                   {REWRITE_PRESETS.map((p) => (
                     <button
                       key={p}
                       onClick={() => run("rewrite", p.toLowerCase())}
-                      className="rounded-full border border-slate-300 px-2 py-0.5 text-xs text-slate-700 hover:bg-slate-50"
+                      className="rounded-full border border-default px-2 py-0.5 text-xs text-secondary hover:bg-muted-hover"
                     >
                       {p}
                     </button>
@@ -130,7 +130,7 @@ export default function AiMenu({
                   <button
                     onClick={() => customInstruction.trim() && run("rewrite", customInstruction.trim())}
                     disabled={!customInstruction.trim()}
-                    className="shrink-0 rounded bg-slate-900 px-2 py-1 text-xs text-white disabled:opacity-30"
+                    className="shrink-0 rounded bg-accent px-2 py-1 text-xs text-white disabled:opacity-30"
                   >
                     ОК
                   </button>

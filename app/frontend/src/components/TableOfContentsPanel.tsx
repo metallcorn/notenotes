@@ -49,27 +49,27 @@ export default function TableOfContentsPanel({ editor, onClose }: { editor: Edit
 
   return (
     <div className="pointer-events-none absolute inset-y-0 left-0 z-10 w-56 max-w-[70vw] p-2">
-      <div className="pointer-events-auto flex max-h-full flex-col overflow-hidden rounded-lg border border-slate-200/70 bg-white/75 shadow-sm backdrop-blur-sm">
-        <div className="flex shrink-0 items-center justify-between border-b border-slate-200/70 px-2 py-1">
-          <span className="text-xs font-medium text-slate-500">Содержание</span>
+      <div className="pointer-events-auto flex max-h-full flex-col overflow-hidden rounded-lg border border-default/70 bg-surface/75 shadow-sm backdrop-blur-sm">
+        <div className="flex shrink-0 items-center justify-between border-b border-default/70 px-2 py-1">
+          <span className="text-xs font-medium text-subtle">Содержание</span>
           <button
             onClick={onClose}
             title="Скрыть содержание"
-            className="rounded p-0.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+            className="rounded p-0.5 text-subtle hover:bg-muted-hover hover:text-secondary"
           >
             <X size={13} />
           </button>
         </div>
         <div className="overflow-y-auto py-1">
           {headings.length === 0 ? (
-            <p className="px-2 py-1.5 text-xs text-slate-400">В заметке нет заголовков</p>
+            <p className="px-2 py-1.5 text-xs text-subtle">В заметке нет заголовков</p>
           ) : (
             headings.map((h) => (
               <button
                 key={h.pos}
                 onClick={() => goTo(h.pos)}
                 title={h.text || "Без текста"}
-                className="block w-full truncate px-2 py-1 text-left text-xs text-slate-600 hover:bg-slate-100"
+                className="block w-full truncate px-2 py-1 text-left text-xs text-secondary hover:bg-muted-hover"
                 style={{ paddingLeft: `${8 + (h.level - 1) * 10}px` }}
               >
                 {h.text || "…"}

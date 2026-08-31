@@ -70,7 +70,7 @@ export default function CreateSpaceButton({ onCreated }: { onCreated: (spaceId: 
 
   if (!adding) {
     return (
-      <button onClick={() => setAdding(true)} className="text-xs text-slate-400 hover:text-slate-700">
+      <button onClick={() => setAdding(true)} className="text-xs text-subtle hover:text-secondary">
         + спейс
       </button>
     );
@@ -82,12 +82,12 @@ export default function CreateSpaceButton({ onCreated }: { onCreated: (spaceId: 
         <form
           onClick={(e) => e.stopPropagation()}
           onSubmit={submitVaultPassword}
-          className="w-full max-w-sm rounded-lg bg-white p-4 shadow-xl"
+          className="w-full max-w-sm rounded-lg bg-surface p-4 shadow-xl"
         >
-          <div className="mb-1 flex items-center gap-1.5 text-sm font-medium text-slate-900">
+          <div className="mb-1 flex items-center gap-1.5 text-sm font-medium text-primary">
             <Lock size={14} /> Пароль сейфа «{name.trim()}»
           </div>
-          <p className="mb-3 text-xs text-slate-500">
+          <p className="mb-3 text-xs text-subtle">
             Пароль нигде не хранится и не передаётся на сервер. При утере доступ к содержимому
             сейфа восстановить нельзя — единственный выход тогда — удалить сейф целиком.
           </p>
@@ -106,19 +106,19 @@ export default function CreateSpaceButton({ onCreated }: { onCreated: (spaceId: 
             placeholder="Повторите пароль"
             className="w-full rounded border px-3 py-2 text-sm"
           />
-          {error && <div className="mt-2 text-xs text-red-600">{error}</div>}
+          {error && <div className="mt-2 text-xs text-danger">{error}</div>}
           <div className="mt-3 flex justify-end gap-2">
             <button
               type="button"
               onClick={reset}
-              className="rounded px-3 py-1.5 text-sm text-slate-500 hover:bg-slate-100"
+              className="rounded px-3 py-1.5 text-sm text-subtle hover:bg-muted-hover"
             >
               Отмена
             </button>
             <button
               type="submit"
               disabled={createSpace.isPending}
-              className="flex items-center gap-1.5 rounded bg-slate-900 px-3 py-1.5 text-sm text-white disabled:opacity-50"
+              className="flex items-center gap-1.5 rounded bg-accent px-3 py-1.5 text-sm text-white disabled:opacity-50"
             >
               {createSpace.isPending && <Spinner size={12} />}
               Создать сейф
@@ -147,7 +147,7 @@ export default function CreateSpaceButton({ onCreated }: { onCreated: (spaceId: 
           setIsPublicPages(false);
         }}
         className={`flex h-5 w-5 shrink-0 items-center justify-center rounded ${
-          isVault ? "bg-slate-900 text-white" : "text-slate-400 hover:text-slate-700"
+          isVault ? "bg-accent text-white" : "text-subtle hover:text-secondary"
         }`}
       >
         <Lock size={12} />
@@ -160,7 +160,7 @@ export default function CreateSpaceButton({ onCreated }: { onCreated: (spaceId: 
           setIsVault(false);
         }}
         className={`flex h-5 w-5 shrink-0 items-center justify-center rounded ${
-          isPublicPages ? "bg-slate-900 text-white" : "text-slate-400 hover:text-slate-700"
+          isPublicPages ? "bg-accent text-white" : "text-subtle hover:text-secondary"
         }`}
       >
         <Globe size={12} />
@@ -168,7 +168,7 @@ export default function CreateSpaceButton({ onCreated }: { onCreated: (spaceId: 
       <button
         type="submit"
         disabled={createSpace.isPending}
-        className="flex shrink-0 items-center justify-center gap-1 rounded bg-slate-900 px-2 py-0.5 text-xs text-white disabled:opacity-50"
+        className="flex shrink-0 items-center justify-center gap-1 rounded bg-accent px-2 py-0.5 text-xs text-white disabled:opacity-50"
       >
         {createSpace.isPending ? <Spinner size={12} /> : "OK"}
       </button>

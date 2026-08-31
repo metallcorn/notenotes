@@ -95,13 +95,13 @@ function NotificationRow({
   const overdue = !resolved && !!notification.trigger_at && new Date(notification.trigger_at).getTime() <= Date.now();
 
   return (
-    <div className={`flex items-start gap-2 border-b px-4 py-3 ${!resolved && !notification.read_at ? "bg-slate-50" : ""}`}>
+    <div className={`flex items-start gap-2 border-b px-4 py-3 ${!resolved && !notification.read_at ? "bg-muted" : ""}`}>
       <button
         title={resolved ? "Вернуть в активные" : "Отметить выполненным"}
         onClick={() => (resolved ? unresolve.mutate(notification.id) : resolve.mutate(notification.id))}
         disabled={resolve.isPending || unresolve.isPending}
         className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border disabled:opacity-50 ${
-          resolved ? "border-green-600 bg-green-600 text-white" : "border-slate-300 text-transparent hover:border-slate-400"
+          resolved ? "border-success bg-success text-white" : "border-default text-transparent hover:border-strong"
         }`}
       >
         <Check size={12} />
@@ -116,13 +116,13 @@ function NotificationRow({
       >
         <div
           className={`truncate text-sm ${
-            resolved ? "text-slate-400 line-through" : !notification.read_at ? "font-medium text-slate-900" : "text-slate-700"
+            resolved ? "text-subtle line-through" : !notification.read_at ? "font-medium text-primary" : "text-secondary"
           }`}
         >
           {notification.title}
         </div>
-        {notification.body && <div className="mt-0.5 truncate text-xs text-slate-500">{notification.body}</div>}
-        <div className="mt-0.5 flex items-center gap-1 text-xs text-slate-400">
+        {notification.body && <div className="mt-0.5 truncate text-xs text-subtle">{notification.body}</div>}
+        <div className="mt-0.5 flex items-center gap-1 text-xs text-subtle">
           <CalendarClock size={11} />
           {resolved
             ? `выполнено ${formatWhen(notification.resolved_at!)}`
@@ -130,7 +130,7 @@ function NotificationRow({
               ? `${overdue ? "должно было сработать" : "сработает"} ${formatWhen(notification.trigger_at)}`
               : formatWhen(notification.created_at)}
           {overdue && (
-            <span className="ml-1 rounded-full bg-amber-100 px-1.5 py-0 text-[10px] font-medium text-amber-700">
+            <span className="ml-1 rounded-full bg-warning/15 px-1.5 py-0 text-[10px] font-medium text-warning">
               просрочено
             </span>
           )}
@@ -140,7 +140,7 @@ function NotificationRow({
         title="Удалить"
         onClick={() => del.mutate(notification.id)}
         disabled={del.isPending}
-        className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-slate-400 hover:bg-red-50 hover:text-red-600 disabled:opacity-50"
+        className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-subtle hover:bg-danger/10 hover:text-danger disabled:opacity-50"
       >
         <X size={14} />
       </button>
@@ -161,14 +161,14 @@ function DetectedEventRow({
   const dismiss = useDismissDetectedEvent();
 
   return (
-    <div className="flex items-start gap-2 border-b bg-violet-50/40 px-4 py-3">
-      <Calendar size={14} className="mt-0.5 shrink-0 text-violet-400" />
+    <div className="flex items-start gap-2 border-b bg-brand/10 px-4 py-3">
+      <Calendar size={14} className="mt-0.5 shrink-0 text-brand" />
       <button
         onClick={() => onOpen(event.space_id, event.item_id)}
         className="min-w-0 flex-1 cursor-pointer text-left hover:opacity-80"
       >
-        <div className="truncate text-sm text-slate-700">{event.event_title}</div>
-        <div className="mt-0.5 flex items-center gap-1 truncate text-xs text-slate-400">
+        <div className="truncate text-sm text-secondary">{event.event_title}</div>
+        <div className="mt-0.5 flex items-center gap-1 truncate text-xs text-subtle">
           <CalendarClock size={11} />
           {formatWhen(event.event_at)} · {event.item_title}
         </div>
@@ -179,7 +179,7 @@ function DetectedEventRow({
           dismiss.mutate({ itemId: event.item_id, eventAt: event.event_at, eventTitle: event.event_title })
         }
         disabled={dismiss.isPending}
-        className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-slate-400 hover:bg-red-50 hover:text-red-600 disabled:opacity-50"
+        className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-subtle hover:bg-danger/10 hover:text-danger disabled:opacity-50"
       >
         <X size={14} />
       </button>
@@ -252,7 +252,7 @@ function NotificationsTab({
 
   if (notificationsLoading || eventsLoading) {
     return (
-      <div className="flex items-center gap-2 p-4 text-sm text-slate-400">
+      <div className="flex items-center gap-2 p-4 text-sm text-subtle">
         <Spinner /> Загрузка…
       </div>
     );
@@ -260,7 +260,7 @@ function NotificationsTab({
 
   if (today.length === 0 && active.length === 0 && resolved.length === 0) {
     return (
-      <div className="flex flex-col items-center gap-2 p-8 text-center text-sm text-slate-400">
+      <div className="flex flex-col items-center gap-2 p-8 text-center text-sm text-subtle">
         <BellOff size={24} />
         Пока нет уведомлений
       </div>
@@ -271,7 +271,7 @@ function NotificationsTab({
     <div>
       {today.length > 0 && (
         <>
-          <div className="bg-slate-50 px-4 py-1.5 text-xs font-medium uppercase tracking-wide text-slate-400">
+          <div className="bg-muted px-4 py-1.5 text-xs font-medium uppercase tracking-wide text-subtle">
             Сегодня
           </div>
           {today.map((e) => (
@@ -281,14 +281,14 @@ function NotificationsTab({
       )}
       {active.length > 0 && (
         <>
-          <div className="flex items-center gap-1.5 bg-slate-50 px-4 py-1.5">
-            <span className="mr-0.5 text-xs font-medium uppercase tracking-wide text-slate-400">Активные</span>
+          <div className="flex items-center gap-1.5 bg-muted px-4 py-1.5">
+            <span className="mr-0.5 text-xs font-medium uppercase tracking-wide text-subtle">Активные</span>
             {(Object.keys(HORIZON_LABELS) as Horizon[]).map((h) => (
               <button
                 key={h}
                 onClick={() => setHorizon(h)}
                 className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${
-                  horizon === h ? "bg-slate-900 text-white" : "bg-slate-200 text-slate-600 hover:bg-slate-300"
+                  horizon === h ? "bg-accent text-white" : "bg-muted-active text-secondary hover:bg-muted-active"
                 }`}
               >
                 {HORIZON_LABELS[h]}
@@ -302,7 +302,7 @@ function NotificationsTab({
       )}
       {resolved.length > 0 && (
         <>
-          <div className="bg-slate-50 px-4 py-1.5 text-xs font-medium uppercase tracking-wide text-slate-400">
+          <div className="bg-muted px-4 py-1.5 text-xs font-medium uppercase tracking-wide text-subtle">
             Выполненные
           </div>
           {resolved.map((n) => (
@@ -365,14 +365,14 @@ function RecentTab({
 
   if (itemsLoading || dialogsLoading) {
     return (
-      <div className="flex items-center gap-2 p-4 text-sm text-slate-400">
+      <div className="flex items-center gap-2 p-4 text-sm text-subtle">
         <Spinner /> Загрузка…
       </div>
     );
   }
 
   if (entries.length === 0) {
-    return <div className="p-4 text-sm text-slate-400">Пока пусто</div>;
+    return <div className="p-4 text-sm text-subtle">Пока пусто</div>;
   }
 
   return (
@@ -383,12 +383,12 @@ function RecentTab({
           <button
             key={`${e.kind}-${e.id}`}
             onClick={() => (e.kind === "dialog" ? onOpenDialog(e.id) : onOpenItem(e.spaceId, e.id))}
-            className="flex w-full items-center gap-2.5 border-b px-4 py-2.5 text-left hover:bg-slate-50"
+            className="flex w-full items-center gap-2.5 border-b px-4 py-2.5 text-left hover:bg-muted-hover"
           >
-            <Icon size={15} className="shrink-0 text-slate-400" />
+            <Icon size={15} className="shrink-0 text-subtle" />
             <div className="min-w-0 flex-1">
-              <div className="truncate text-sm text-slate-900">{e.title}</div>
-              <div className="truncate text-xs text-slate-400">
+              <div className="truncate text-sm text-primary">{e.title}</div>
+              <div className="truncate text-xs text-subtle">
                 {e.spaceName} · {formatWhen(e.updatedAt)}
               </div>
             </div>
@@ -417,17 +417,17 @@ export default function ActivityView({
       <div className="flex items-center gap-1 border-b p-3">
         <button
           onClick={onBack}
-          className="-ml-1 flex h-8 w-8 shrink-0 items-center justify-center text-slate-500 lg:hidden"
+          className="-ml-1 flex h-8 w-8 shrink-0 items-center justify-center text-subtle lg:hidden"
         >
           <ChevronLeft size={18} />
         </button>
-        <div className="text-sm font-medium text-slate-900">Активность</div>
+        <div className="text-sm font-medium text-primary">Активность</div>
       </div>
       <div className="flex border-b">
         <button
           onClick={() => setTab("notifications")}
           className={`flex flex-1 items-center justify-center gap-1.5 py-2 text-sm ${
-            tab === "notifications" ? "border-b-2 border-slate-900 font-medium text-slate-900" : "text-slate-500"
+            tab === "notifications" ? "border-b-2 border-strong font-medium text-primary" : "text-subtle"
           }`}
         >
           <Bell size={14} /> Уведомления
@@ -435,7 +435,7 @@ export default function ActivityView({
         <button
           onClick={() => setTab("recent")}
           className={`flex flex-1 items-center justify-center gap-1.5 py-2 text-sm ${
-            tab === "recent" ? "border-b-2 border-slate-900 font-medium text-slate-900" : "text-slate-500"
+            tab === "recent" ? "border-b-2 border-strong font-medium text-primary" : "text-subtle"
           }`}
         >
           <CalendarClock size={14} /> Недавнее

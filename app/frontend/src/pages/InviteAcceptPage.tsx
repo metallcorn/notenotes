@@ -26,23 +26,23 @@ export default function InviteAcceptPage() {
   }, [token]);
 
   return (
-    <div className="flex min-h-dvh items-center justify-center bg-slate-50 p-4">
-      <div className="w-full max-w-sm rounded-lg bg-white p-5 text-center shadow-sm">
-        <Link2 size={20} className="mx-auto mb-2 text-slate-400" />
+    <div className="flex min-h-dvh items-center justify-center bg-muted p-4">
+      <div className="w-full max-w-sm rounded-lg bg-surface p-5 text-center shadow-sm">
+        <Link2 size={20} className="mx-auto mb-2 text-subtle" />
         {accept.isPending && (
-          <div className="flex items-center justify-center gap-2 text-sm text-slate-500">
+          <div className="flex items-center justify-center gap-2 text-sm text-subtle">
             <Spinner size={14} /> Принимаем приглашение…
           </div>
         )}
-        {error && <div className="text-sm text-red-600">{error}</div>}
+        {error && <div className="text-sm text-danger">{error}</div>}
         {spaceName && (
           <>
-            <div className="mb-3 text-sm text-slate-700">
+            <div className="mb-3 text-sm text-secondary">
               Вы вступили в спейс «{spaceName}»
             </div>
             <button
               onClick={() => navigate("/")}
-              className="rounded bg-slate-900 px-4 py-2 text-sm text-white hover:bg-slate-800"
+              className="rounded bg-accent px-4 py-2 text-sm text-white hover:bg-accent/90"
             >
               Перейти в Notenotes
             </button>

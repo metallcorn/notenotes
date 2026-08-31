@@ -51,7 +51,7 @@ export default function UrlCheckCard({ node }: NodeViewProps) {
   if (isLoading || !widget) {
     return (
       <NodeViewWrapper as="div" className="my-1">
-        <div className="max-w-md overflow-hidden rounded border bg-slate-50 px-3 py-2 text-xs text-slate-400">
+        <div className="max-w-md overflow-hidden rounded border bg-muted px-3 py-2 text-xs text-subtle">
           <Spinner size={12} className="mr-1 inline" /> Загрузка…
         </div>
       </NodeViewWrapper>
@@ -73,53 +73,53 @@ export default function UrlCheckCard({ node }: NodeViewProps) {
 
   return (
     <NodeViewWrapper as="div" className="my-1">
-      <div ref={cardRef} className="max-w-md overflow-hidden rounded border bg-slate-50">
+      <div ref={cardRef} className="max-w-md overflow-hidden rounded border bg-muted">
         <div data-drag-handle draggable className="flex items-center gap-2 px-3 py-2">
-          <Link2 size={16} className="shrink-0 text-slate-400" />
+          <Link2 size={16} className="shrink-0 text-subtle" />
           <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-1 truncate text-sm font-medium text-slate-800">
+            <div className="flex items-center gap-1 truncate text-sm font-medium text-primary">
               {domain}
               {hasCredentials && (
                 <span
                   title="Использует сохранённые заголовки авторизации — доступны всем с доступом к спейсу для этого запроса"
                   className="shrink-0"
                 >
-                  <KeyRound size={11} className="text-amber-500" aria-label="Использует сохранённую авторизацию" />
+                  <KeyRound size={11} className="text-warning" aria-label="Использует сохранённую авторизацию" />
                 </span>
               )}
             </div>
-            <div className="truncate text-xs text-slate-400">
+            <div className="truncate text-xs text-subtle">
               {lastFetchedAt ? `Обновлено ${formatWhen(lastFetchedAt)}` : "Ещё не запрашивалось"}
-              {lastStatus !== null && lastStatus >= 400 && <span className="ml-1 text-amber-600">(код {lastStatus})</span>}
+              {lastStatus !== null && lastStatus >= 400 && <span className="ml-1 text-warning">(код {lastStatus})</span>}
             </div>
           </div>
           <button
             onClick={() => refresh.mutate()}
             disabled={refresh.isPending}
             title="Обновить"
-            className="flex h-8 w-8 shrink-0 items-center justify-center text-slate-400 hover:text-slate-700 disabled:opacity-50"
+            className="flex h-8 w-8 shrink-0 items-center justify-center text-subtle hover:text-secondary disabled:opacity-50"
           >
             {refresh.isPending ? <Spinner size={14} /> : <RotateCw size={14} />}
           </button>
         </div>
 
         {fields.length > 0 && parsed !== null && (
-          <div className="space-y-1 border-t px-3 py-2 text-xs text-slate-700">
+          <div className="space-y-1 border-t px-3 py-2 text-xs text-secondary">
             {fields.map((f) => (
               <div key={f.path} className="flex items-center justify-between gap-2">
-                <span className="text-slate-500">{f.label}</span>
+                <span className="text-subtle">{f.label}</span>
                 <span className="font-medium">{resolvePath(parsed, f.path)}</span>
               </div>
             ))}
           </div>
         )}
 
-        {refresh.isError && <div className="border-t px-3 py-1.5 text-xs text-red-600">Не удалось обновить</div>}
+        {refresh.isError && <div className="border-t px-3 py-1.5 text-xs text-danger">Не удалось обновить</div>}
 
         {lastResult && (
           <button
             onClick={() => setExpanded((v) => !v)}
-            className="flex w-full items-center gap-1 border-t px-3 py-1.5 text-xs text-slate-500 hover:bg-slate-100"
+            className="flex w-full items-center gap-1 border-t px-3 py-1.5 text-xs text-subtle hover:bg-muted-hover"
           >
             {expanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
             {expanded ? "Скрыть сырой ответ" : "Показать сырой ответ"}

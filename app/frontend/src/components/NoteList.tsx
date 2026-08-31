@@ -44,11 +44,11 @@ function FolderDialogPicker({
       <div className="fixed inset-0 z-40" onClick={onClose} />
       <div
         style={{ top: pos.top, left: pos.left }}
-        className="fixed z-50 max-h-72 w-64 overflow-y-auto rounded border bg-white py-1 shadow-lg"
+        className="fixed z-50 max-h-72 w-64 overflow-y-auto rounded border bg-surface py-1 shadow-lg"
       >
         <button
           onClick={onNew}
-          className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm font-medium text-violet-700 hover:bg-violet-50"
+          className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm font-medium text-brand hover:bg-brand/10"
         >
           <Plus size={14} /> Новый диалог
         </button>
@@ -57,10 +57,10 @@ function FolderDialogPicker({
           <button
             key={d.id}
             onClick={() => onPick(d.id)}
-            className="block w-full px-3 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50"
+            className="block w-full px-3 py-1.5 text-left text-sm text-secondary hover:bg-muted-hover"
           >
             <div className="truncate">{d.preview || d.title}</div>
-            <div className="text-xs text-slate-400">{new Date(d.updated_at).toLocaleString("ru-RU")}</div>
+            <div className="text-xs text-subtle">{new Date(d.updated_at).toLocaleString("ru-RU")}</div>
           </button>
         ))}
       </div>
@@ -143,8 +143,8 @@ function NoteTemplateMenu({
         title="Шаблон заметки"
         className={
           align === "top"
-            ? "flex h-full items-center justify-center rounded-r border-l border-slate-700 bg-slate-900 px-2 text-white disabled:opacity-50"
-            : "flex h-6 w-6 items-center justify-center rounded-full bg-white text-slate-600 shadow ring-1 ring-slate-200 disabled:opacity-50"
+            ? "flex h-full items-center justify-center rounded-r border-l border-strong bg-accent px-2 text-on-accent disabled:opacity-50"
+            : "flex h-6 w-6 items-center justify-center rounded-full bg-surface text-secondary shadow ring-1 ring-default disabled:opacity-50"
         }
       >
         <ChevronDown size={14} />
@@ -154,7 +154,7 @@ function NoteTemplateMenu({
         createPortal(
           <>
             <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-            <div style={pos} className="fixed z-50 w-48 rounded border bg-white py-1 shadow-lg">
+            <div style={pos} className="fixed z-50 w-48 rounded border bg-surface py-1 shadow-lg">
               {NOTE_TEMPLATES.map((t) => (
                 <button
                   key={t.id}
@@ -162,7 +162,7 @@ function NoteTemplateMenu({
                     setOpen(false);
                     onSelect(t);
                   }}
-                  className="block w-full px-3 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50"
+                  className="block w-full px-3 py-1.5 text-left text-sm text-secondary hover:bg-muted-hover"
                 >
                   {t.label}
                 </button>
@@ -201,13 +201,13 @@ function NoteRow({ item, selected, onSelect }: { item: Item; selected: boolean; 
     <li>
       <button
         onClick={() => onSelect(item.id)}
-        className={`block w-full border-b px-3 py-2 text-left ${selected ? "bg-slate-100" : "hover:bg-slate-50"}`}
+        className={`block w-full border-b px-3 py-2 text-left ${selected ? "bg-muted-hover" : "hover:bg-muted-hover"}`}
       >
         <div className="flex items-center gap-1.5 truncate text-sm font-medium">
           {isList ? (
-            <ListChecks size={13} className="shrink-0 text-slate-400" />
+            <ListChecks size={13} className="shrink-0 text-subtle" />
           ) : isTable ? (
-            <TableIcon size={13} className="shrink-0 text-slate-400" />
+            <TableIcon size={13} className="shrink-0 text-subtle" />
           ) : (
             item.icon && <span>{item.icon}</span>
           )}
@@ -215,8 +215,8 @@ function NoteRow({ item, selected, onSelect }: { item: Item; selected: boolean; 
             {item.title || "Без названия"}
           </span>
         </div>
-        {preview && <div className="mt-0.5 truncate text-xs text-slate-500">{preview}</div>}
-        <div className="mt-0.5 truncate text-xs text-slate-400">
+        {preview && <div className="mt-0.5 truncate text-xs text-subtle">{preview}</div>}
+        <div className="mt-0.5 truncate text-xs text-subtle">
           {new Date(item.updated_at).toLocaleString("ru-RU")}
           {item.tags.length > 0 && " · " + item.tags.map((t) => `#${t.name}`).join(" ")}
         </div>
@@ -332,7 +332,7 @@ export default function NoteList({
           <button
             onClick={() => createNote()}
             disabled={createItem.isPending}
-            className="flex min-w-0 flex-1 items-center justify-center gap-2 rounded-l bg-slate-900 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
+            className="flex min-w-0 flex-1 items-center justify-center gap-2 rounded-l bg-accent px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
           >
             {createItem.isPending && <Spinner />}
             <span className="truncate">{createItem.isPending ? "Создаём…" : "+ Заметка"}</span>
@@ -344,7 +344,7 @@ export default function NoteList({
             onClick={createNewList}
             disabled={createList.isPending}
             title="Новый список"
-            className="flex h-9 w-9 shrink-0 items-center justify-center rounded border border-slate-900 text-slate-900 disabled:opacity-50"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded border border-strong text-primary disabled:opacity-50"
           >
             {createList.isPending ? <Spinner size={16} /> : <ListChecks size={16} />}
           </button>
@@ -354,7 +354,7 @@ export default function NoteList({
             onClick={createNewTable}
             disabled={createTable.isPending}
             title="Новая таблица"
-            className="flex h-9 w-9 shrink-0 items-center justify-center rounded border border-slate-900 text-slate-900 disabled:opacity-50"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded border border-strong text-primary disabled:opacity-50"
           >
             {createTable.isPending ? <Spinner size={16} /> : <TableIcon size={16} />}
           </button>
@@ -362,12 +362,12 @@ export default function NoteList({
       </div>
       <ul className="min-h-0 flex-1 overflow-y-auto pb-20 md:pb-0">
         {isRealFolder && (
-          <li className="border-b bg-violet-50">
+          <li className="border-b bg-brand/10">
             <button
               ref={assistantRowRef}
               onClick={openFolderAssistant}
               disabled={scopedFolderDialogs.isPending || createDialog.isPending}
-              className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm font-medium text-violet-700 hover:bg-violet-100 disabled:opacity-50"
+              className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm font-medium text-brand hover:bg-brand/15 disabled:opacity-50"
             >
               {scopedFolderDialogs.isPending || createDialog.isPending ? (
                 <Spinner size={14} />
@@ -379,16 +379,16 @@ export default function NoteList({
           </li>
         )}
         {isLoading && (
-          <li className="flex items-center gap-2 p-3 text-sm text-slate-400">
+          <li className="flex items-center gap-2 p-3 text-sm text-subtle">
             <Spinner /> Загрузка…
           </li>
         )}
         {!isLoading && (items ?? []).length === 0 && (
-          <li className="p-3 text-sm text-slate-400">Здесь пока пусто</li>
+          <li className="p-3 text-sm text-subtle">Здесь пока пусто</li>
         )}
         {pinned.length > 0 && (
           <>
-            <li className="bg-slate-50 px-3 py-1 text-xs font-medium uppercase tracking-wide text-slate-400">
+            <li className="bg-muted px-3 py-1 text-xs font-medium uppercase tracking-wide text-subtle">
               Важное
             </li>
             {pinned.map((item) => (
@@ -406,7 +406,7 @@ export default function NoteList({
             onClick={createNewTable}
             disabled={createTable.isPending}
             title="Новая таблица"
-            className="flex h-11 w-11 items-center justify-center rounded-full bg-white text-slate-900 shadow-lg ring-1 ring-slate-200 disabled:opacity-50"
+            className="flex h-11 w-11 items-center justify-center rounded-full bg-surface text-primary shadow-lg ring-1 ring-default disabled:opacity-50"
           >
             {createTable.isPending ? <Spinner size={18} /> : <TableIcon size={18} />}
           </button>
@@ -416,7 +416,7 @@ export default function NoteList({
             onClick={createNewList}
             disabled={createList.isPending}
             title="Новый список"
-            className="flex h-11 w-11 items-center justify-center rounded-full bg-white text-slate-900 shadow-lg ring-1 ring-slate-200 disabled:opacity-50"
+            className="flex h-11 w-11 items-center justify-center rounded-full bg-surface text-primary shadow-lg ring-1 ring-default disabled:opacity-50"
           >
             {createList.isPending ? <Spinner size={18} /> : <ListChecks size={18} />}
           </button>
@@ -426,7 +426,7 @@ export default function NoteList({
             onClick={() => createNote()}
             disabled={createItem.isPending}
             title="Новая заметка"
-            className="flex h-14 w-14 items-center justify-center rounded-full bg-slate-900 text-white shadow-lg disabled:opacity-50"
+            className="flex h-14 w-14 items-center justify-center rounded-full bg-accent text-white shadow-lg disabled:opacity-50"
           >
             {createItem.isPending ? <Spinner size={20} /> : <Plus size={24} />}
           </button>

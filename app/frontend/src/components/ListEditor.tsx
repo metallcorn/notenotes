@@ -31,7 +31,7 @@ export function renderEntryText(text: string): ReactNode[] {
         target="_blank"
         rel="noopener noreferrer"
         onClick={(e) => e.stopPropagation()}
-        className="text-blue-600 underline hover:text-blue-800"
+        className="text-link underline hover:text-link"
       >
         {m[1]}
       </a>,
@@ -63,7 +63,7 @@ export function renderEntryText(text: string): ReactNode[] {
         target="_blank"
         rel="noopener noreferrer"
         onClick={(e) => e.stopPropagation()}
-        className="text-blue-600 underline hover:text-blue-800"
+        className="text-link underline hover:text-link"
       >
         {label}
       </a>,
@@ -107,13 +107,13 @@ function ListEntryRow({
   return (
     <li
       id={`list-entry-${entry.id}`}
-      className="group flex items-center gap-2 rounded px-1 py-1.5 transition-colors duration-500 hover:bg-slate-50"
+      className="group flex items-center gap-2 rounded px-1 py-1.5 transition-colors duration-500 hover:bg-muted-hover"
     >
       <input
         type="checkbox"
         checked={entry.checked}
         onChange={(e) => onToggle(e.target.checked)}
-        className="h-4 w-4 shrink-0 accent-slate-900"
+        className="h-4 w-4 shrink-0 accent-accent"
       />
       {editing || !hasLink ? (
         <input
@@ -125,14 +125,14 @@ function ListEntryRow({
             if (e.key === "Enter") (e.target as HTMLInputElement).blur();
           }}
           className={`min-w-0 flex-1 border-none bg-transparent text-sm outline-none ${
-            entry.checked ? "text-slate-400 line-through" : "text-slate-900"
+            entry.checked ? "text-subtle line-through" : "text-primary"
           }`}
         />
       ) : (
         <div
           onClick={() => setEditing(true)}
           className={`min-w-0 flex-1 cursor-text truncate text-sm ${
-            entry.checked ? "text-slate-400 line-through" : "text-slate-900"
+            entry.checked ? "text-subtle line-through" : "text-primary"
           }`}
         >
           {renderEntryText(text)}
@@ -141,7 +141,7 @@ function ListEntryRow({
       <button
         onClick={onDelete}
         title="Удалить пункт"
-        className="flex h-6 w-6 shrink-0 items-center justify-center text-slate-300 hover:text-red-600"
+        className="flex h-6 w-6 shrink-0 items-center justify-center text-subtle hover:text-danger"
       >
         <X size={14} />
       </button>
@@ -176,8 +176,8 @@ export default function ListEditor({
     const el = document.getElementById(`list-entry-${highlightEntryId}`);
     if (!el) return;
     el.scrollIntoView({ behavior: "smooth", block: "center" });
-    el.classList.add("bg-amber-100");
-    setTimeout(() => el.classList.remove("bg-amber-100"), 2500);
+    el.classList.add("bg-warning/15");
+    setTimeout(() => el.classList.remove("bg-warning/15"), 2500);
   }, [highlightEntryId, list]);
 
   const updateItem = useUpdateItem();
@@ -216,7 +216,7 @@ export default function ListEditor({
 
   if (!list) {
     return (
-      <div className="flex h-full items-center justify-center text-slate-400">
+      <div className="flex h-full items-center justify-center text-subtle">
         <Spinner />
       </div>
     );
@@ -230,7 +230,7 @@ export default function ListEditor({
       <div className="flex items-center gap-1 border-b p-3">
         <button
           onClick={onBack}
-          className="-ml-1 flex h-8 w-8 shrink-0 items-center justify-center text-slate-500 lg:hidden"
+          className="-ml-1 flex h-8 w-8 shrink-0 items-center justify-center text-subtle lg:hidden"
         >
           <ChevronLeft size={18} />
         </button>
@@ -239,24 +239,24 @@ export default function ListEditor({
           onChange={(e) => setTitle(e.target.value)}
           onBlur={saveTitle}
           placeholder="Название списка"
-          className="min-w-0 flex-1 truncate border-none bg-transparent text-sm font-medium text-slate-900 outline-none"
+          className="min-w-0 flex-1 truncate border-none bg-transparent text-sm font-medium text-primary outline-none"
         />
         {list.entries.length > 0 && (
-          <span className="shrink-0 text-xs text-slate-400">
+          <span className="shrink-0 text-xs text-subtle">
             {doneCount}/{list.entries.length}
           </span>
         )}
         <button
           onClick={() => setShowHistory((v) => !v)}
           title="История версий"
-          className="flex h-8 w-8 shrink-0 items-center justify-center text-slate-400 hover:text-slate-700"
+          className="flex h-8 w-8 shrink-0 items-center justify-center text-subtle hover:text-secondary"
         >
           <History size={16} />
         </button>
         <button
           title="Удалить список"
           onClick={() => setConfirmingDelete(true)}
-          className="flex h-8 w-8 shrink-0 items-center justify-center text-slate-400 hover:text-red-600"
+          className="flex h-8 w-8 shrink-0 items-center justify-center text-subtle hover:text-danger"
         >
           <Trash2 size={16} />
         </button>
@@ -269,7 +269,7 @@ export default function ListEditor({
           // ввода СНИЗУ, а не кликом по самой пустой области списка.
           <button
             onClick={() => newEntryInputRef.current?.focus()}
-            className="flex h-full w-full flex-col items-center justify-center gap-2 p-3 text-center text-sm text-slate-400"
+            className="flex h-full w-full flex-col items-center justify-center gap-2 p-3 text-center text-sm text-subtle"
           >
             <div>Пока пусто</div>
             <div className="flex items-center gap-1 text-xs">
@@ -303,7 +303,7 @@ export default function ListEditor({
         <button
           type="submit"
           disabled={addEntry.isPending || !newEntryText.trim()}
-          className="flex shrink-0 items-center justify-center rounded bg-slate-900 px-4 py-2 text-sm text-white disabled:opacity-50"
+          className="flex shrink-0 items-center justify-center rounded bg-accent px-4 py-2 text-sm text-white disabled:opacity-50"
         >
           {addEntry.isPending ? <Spinner size={14} className="text-white" /> : <Plus size={14} />}
         </button>

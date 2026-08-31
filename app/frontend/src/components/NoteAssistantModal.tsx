@@ -116,7 +116,7 @@ export default function NoteAssistantModal({
       <div className="pointer-events-none fixed inset-0 z-50 flex items-center justify-center p-4 lg:items-stretch lg:justify-end lg:p-0">
         <div
           style={isDesktop ? { width } : undefined}
-          className="panel-slide-in pointer-events-auto relative flex h-[85vh] w-full max-w-xl flex-col overflow-hidden rounded-lg bg-white shadow-xl lg:h-full lg:max-w-none lg:rounded-none lg:border-l lg:shadow-2xl"
+          className="panel-slide-in pointer-events-auto relative flex h-[85vh] w-full max-w-xl flex-col overflow-hidden rounded-lg bg-surface shadow-xl lg:h-full lg:max-w-none lg:rounded-none lg:border-l lg:shadow-2xl"
         >
           {/* Ручка изменения ширины — только на десктопе, на телефоне
               панель на всю ширину, тянуть нечего. */}
@@ -138,35 +138,35 @@ export default function NoteAssistantModal({
           ) : pastDialogs && pastDialogs.length > 0 ? (
             <div className="flex h-full flex-col">
               <div className="flex items-center justify-between border-b px-3 py-2">
-                <span className="text-sm font-medium text-slate-500">Ассистент</span>
-                <button onClick={onClose} className="flex h-7 w-7 items-center justify-center rounded text-slate-400 hover:bg-slate-100">
+                <span className="text-sm font-medium text-subtle">Ассистент</span>
+                <button onClick={onClose} className="flex h-7 w-7 items-center justify-center rounded text-subtle hover:bg-muted-hover">
                   <X size={16} />
                 </button>
               </div>
               <div className="flex-1 overflow-y-auto px-3 py-3">
-                <p className="mb-2 text-sm text-slate-600">У этой заметки уже есть разговоры с ассистентом:</p>
+                <p className="mb-2 text-sm text-secondary">У этой заметки уже есть разговоры с ассистентом:</p>
                 <div className="flex flex-col gap-1">
                   {pastDialogs.map((d) => (
                     <button
                       key={d.id}
                       onClick={() => setDialogId(d.id)}
-                      className="rounded border px-3 py-2 text-left text-sm hover:bg-slate-50"
+                      className="rounded border px-3 py-2 text-left text-sm hover:bg-muted-hover"
                     >
                       {/* Заголовок у всех диалогов этой заметки одинаковый
                           ("Ассистент: {название заметки}") — реальная
                           жалоба: без превью первого вопроса их не отличить
                           друг от друга. Показываем превью как основную
                           строку, заголовок — не дублируем вовсе. */}
-                      <div className="truncate font-medium text-slate-800">
+                      <div className="truncate font-medium text-primary">
                         {d.preview || "Новый диалог без сообщений"}
                       </div>
-                      <div className="text-xs text-slate-400">{formatDialogDate(d.updated_at)}</div>
+                      <div className="text-xs text-subtle">{formatDialogDate(d.updated_at)}</div>
                     </button>
                   ))}
                 </div>
                 <button
                   onClick={startNewDialog}
-                  className="mt-3 w-full rounded bg-slate-900 px-3 py-1.5 text-sm text-white hover:bg-slate-800"
+                  className="mt-3 w-full rounded bg-accent px-3 py-1.5 text-sm text-white hover:bg-accent/90"
                 >
                   Начать новый разговор
                 </button>
@@ -175,12 +175,12 @@ export default function NoteAssistantModal({
           ) : (
             <div className="flex h-full flex-col">
               <div className="flex items-center justify-between border-b px-3 py-2">
-                <span className="text-sm font-medium text-slate-500">Ассистент</span>
-                <button onClick={onClose} className="flex h-7 w-7 items-center justify-center rounded text-slate-400 hover:bg-slate-100">
+                <span className="text-sm font-medium text-subtle">Ассистент</span>
+                <button onClick={onClose} className="flex h-7 w-7 items-center justify-center rounded text-subtle hover:bg-muted-hover">
                   <X size={16} />
                 </button>
               </div>
-              <div className="flex flex-1 items-center justify-center text-slate-400">
+              <div className="flex flex-1 items-center justify-center text-subtle">
                 <Spinner />
               </div>
             </div>

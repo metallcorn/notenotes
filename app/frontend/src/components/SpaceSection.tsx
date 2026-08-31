@@ -64,23 +64,23 @@ export default function SpaceSection({
       <div className="flex items-center gap-0.5">
         <button
           onClick={onToggleCollapse}
-          className="flex min-w-0 flex-1 items-center gap-1 rounded px-1 py-1 text-left text-sm font-semibold text-slate-800 hover:bg-slate-100"
+          className="flex min-w-0 flex-1 items-center gap-1 rounded px-1 py-1 text-left text-sm font-semibold text-primary hover:bg-muted-hover"
         >
           <span
-            className={`inline-block w-3 shrink-0 text-slate-400 transition-transform ${collapsed ? "" : "rotate-90"}`}
+            className={`inline-block w-3 shrink-0 text-subtle transition-transform ${collapsed ? "" : "rotate-90"}`}
           >
             &#9656;
           </span>
           {space.is_vault && (
-            <Lock size={12} className={`shrink-0 ${unlocked ? "text-amber-500" : "text-slate-400"}`} />
+            <Lock size={12} className={`shrink-0 ${unlocked ? "text-warning" : "text-subtle"}`} />
           )}
           {isShared && (
-            <span title="Общий спейс — несколько участников" className="flex shrink-0 items-center text-slate-400">
+            <span title="Общий спейс — несколько участников" className="flex shrink-0 items-center text-subtle">
               <Users size={12} />
             </span>
           )}
           {space.is_public_pages && (
-            <span title="Публичные страницы" className="flex shrink-0 items-center text-slate-400">
+            <span title="Публичные страницы" className="flex shrink-0 items-center text-subtle">
               <Globe size={12} />
             </span>
           )}
@@ -94,21 +94,21 @@ export default function SpaceSection({
           <button
             title="Действия со спейсом"
             onClick={() => setMenuOpen((v) => !v)}
-            className="flex h-6 w-6 items-center justify-center text-slate-400 hover:text-slate-700"
+            className="flex h-6 w-6 items-center justify-center text-subtle hover:text-secondary"
           >
             <MoreVertical size={13} />
           </button>
           {menuOpen && (
             <>
               <div className="fixed inset-0 z-20" onClick={() => setMenuOpen(false)} />
-              <div className="absolute right-0 top-full z-30 w-52 rounded border bg-white py-1 shadow-lg">
+              <div className="absolute right-0 top-full z-30 w-52 rounded border bg-surface py-1 shadow-lg">
                 {space.is_vault && unlocked && (
                   <button
                     onClick={() => {
                       lockVault(space.id);
                       setMenuOpen(false);
                     }}
-                    className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-amber-600 hover:bg-amber-50"
+                    className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-warning hover:bg-warning/10"
                   >
                     <LockOpen size={14} /> Закрыть сейф
                   </button>
@@ -119,7 +119,7 @@ export default function SpaceSection({
                       setChangingPassword(true);
                       setMenuOpen(false);
                     }}
-                    className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-slate-600 hover:bg-slate-50"
+                    className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-secondary hover:bg-muted-hover"
                   >
                     <KeyRound size={14} /> Сменить пароль сейфа
                   </button>
@@ -129,7 +129,7 @@ export default function SpaceSection({
                     setManagingMembers(true);
                     setMenuOpen(false);
                   }}
-                  className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-slate-600 hover:bg-slate-50"
+                  className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-secondary hover:bg-muted-hover"
                 >
                   <Users size={14} /> Участники спейса
                 </button>
@@ -138,7 +138,7 @@ export default function SpaceSection({
                     setRenaming(true);
                     setMenuOpen(false);
                   }}
-                  className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-slate-600 hover:bg-slate-50"
+                  className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-secondary hover:bg-muted-hover"
                 >
                   <Pencil size={14} /> Переименовать спейс
                 </button>
@@ -150,7 +150,7 @@ export default function SpaceSection({
                     setConfirmingDelete(true);
                     setMenuOpen(false);
                   }}
-                  className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-red-600 hover:bg-red-50"
+                  className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-danger hover:bg-danger/10"
                 >
                   <Trash2 size={14} /> Удалить спейс
                 </button>
@@ -202,17 +202,17 @@ export default function SpaceSection({
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
           onClick={() => setConfirmingDelete(false)}
         >
-          <div onClick={(e) => e.stopPropagation()} className="w-full max-w-sm rounded-lg bg-white p-4 shadow-xl">
-            <div className="mb-1 text-sm text-slate-900">Удалить спейс «{space.name}»?</div>
-            <p className="mb-3 text-xs text-slate-500">Можно удалить только пустой спейс — без заметок, списков и папок.</p>
-            {deleteError && <div className="mb-2 text-xs text-red-600">{deleteError}</div>}
+          <div onClick={(e) => e.stopPropagation()} className="w-full max-w-sm rounded-lg bg-surface p-4 shadow-xl">
+            <div className="mb-1 text-sm text-primary">Удалить спейс «{space.name}»?</div>
+            <p className="mb-3 text-xs text-subtle">Можно удалить только пустой спейс — без заметок, списков и папок.</p>
+            {deleteError && <div className="mb-2 text-xs text-danger">{deleteError}</div>}
             {needsForce && (
               // Отдельный чекбокс, не автоматический retry — по прямой
               // просьбе: "чтобы вот прям никак не получилось что
               // пользователь нечаянно удалил". Удаление вместе с
               // содержимым необратимо (файлы стираются с диска, а не
               // просто из корзины) — второй явный шаг обязателен.
-              <label className="mb-3 flex items-start gap-2 rounded border border-red-200 bg-red-50 p-2 text-xs text-red-700">
+              <label className="mb-3 flex items-start gap-2 rounded border border-danger/30 bg-danger/10 p-2 text-xs text-danger">
                 <input
                   type="checkbox"
                   checked={forceConfirmed}
@@ -225,14 +225,14 @@ export default function SpaceSection({
             <div className="flex justify-end gap-2">
               <button
                 onClick={() => setConfirmingDelete(false)}
-                className="rounded px-3 py-1.5 text-sm text-slate-500 hover:bg-slate-100"
+                className="rounded px-3 py-1.5 text-sm text-subtle hover:bg-muted-hover"
               >
                 Отмена
               </button>
               <button
                 onClick={handleDeleteSpace}
                 disabled={deleteSpace.isPending || (needsForce && !forceConfirmed)}
-                className="rounded bg-red-600 px-3 py-1.5 text-sm text-white hover:bg-red-700 disabled:opacity-50"
+                className="rounded bg-danger px-3 py-1.5 text-sm text-white hover:bg-danger/90 disabled:opacity-50"
               >
                 {deleteSpace.isPending ? "Удаляем…" : "Удалить"}
               </button>

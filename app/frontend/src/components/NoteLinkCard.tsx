@@ -33,7 +33,7 @@ export default function NoteLinkCard({ node, extension, updateAttributes }: Node
         onClick={() => itemId && !isError && onOpen(itemId)}
         disabled={isError}
         contentEditable={false}
-        className="inline-flex items-center gap-1 rounded bg-violet-50 px-1.5 py-0.5 align-baseline text-sm font-medium text-violet-700 hover:bg-violet-100 disabled:cursor-default disabled:bg-slate-100 disabled:text-slate-400 disabled:hover:bg-slate-100"
+        className="inline-flex items-center gap-1 rounded bg-brand/10 px-1.5 py-0.5 align-baseline text-sm font-medium text-brand hover:bg-brand/15 disabled:cursor-default disabled:bg-muted-hover disabled:text-subtle disabled:hover:bg-muted-hover"
       >
         <FileText size={12} className="shrink-0" />
         {displayTitle}

@@ -43,13 +43,13 @@ function FolderOption({
         onClick={() => onMove(spaceId, folder.id)}
         disabled={isCurrent}
         style={{ paddingLeft: `${24 + depth * 16}px` }}
-        className={`flex w-full items-center gap-2 py-2 pr-4 text-left text-sm hover:bg-slate-100 disabled:cursor-default disabled:hover:bg-transparent ${
-          isCurrent ? "font-medium text-slate-400" : "text-slate-700"
+        className={`flex w-full items-center gap-2 py-2 pr-4 text-left text-sm hover:bg-muted-hover disabled:cursor-default disabled:hover:bg-transparent ${
+          isCurrent ? "font-medium text-subtle" : "text-secondary"
         }`}
       >
-        <FolderIcon size={13} className="shrink-0 text-slate-400" />
+        <FolderIcon size={13} className="shrink-0 text-subtle" />
         <span className="truncate">{folder.name}</span>
-        {isCurrent && <span className="text-xs text-slate-400">(здесь)</span>}
+        {isCurrent && <span className="text-xs text-subtle">(здесь)</span>}
       </button>
       {children.map((child) => (
         <FolderOption
@@ -90,11 +90,11 @@ export default function MoveItemModal({
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
       <div
         onClick={(e) => e.stopPropagation()}
-        className="flex max-h-[80vh] w-full max-w-sm flex-col overflow-hidden rounded-lg bg-white shadow-xl"
+        className="flex max-h-[80vh] w-full max-w-sm flex-col overflow-hidden rounded-lg bg-surface shadow-xl"
       >
         <div className="flex items-center justify-between border-b px-4 py-3">
-          <div className="text-sm font-medium text-slate-900">Переместить в…</div>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-700">
+          <div className="text-sm font-medium text-primary">Переместить в…</div>
+          <button onClick={onClose} className="text-subtle hover:text-secondary">
             <X size={16} />
           </button>
         </div>
@@ -112,29 +112,29 @@ export default function MoveItemModal({
                     }
                     setExpandedSpaceId(expanded ? null : space.id);
                   }}
-                  className="flex w-full items-center justify-between gap-2 px-4 py-2.5 text-left text-sm text-slate-900 hover:bg-slate-50"
+                  className="flex w-full items-center justify-between gap-2 px-4 py-2.5 text-left text-sm text-primary hover:bg-muted-hover"
                 >
                   <span className="truncate">
                     {space.name}
-                    {isCurrentSpace && <span className="text-xs text-slate-400"> (текущий)</span>}
+                    {isCurrentSpace && <span className="text-xs text-subtle"> (текущий)</span>}
                     {space.is_vault && " 🔒"}
                   </span>
                   {!space.is_vault && (
-                    <ChevronRight size={14} className={`shrink-0 text-slate-400 transition-transform ${expanded ? "rotate-90" : ""}`} />
+                    <ChevronRight size={14} className={`shrink-0 text-subtle transition-transform ${expanded ? "rotate-90" : ""}`} />
                   )}
                 </button>
                 {expanded && (
-                  <div className="bg-slate-50 pb-1">
+                  <div className="bg-muted pb-1">
                     <button
                       onClick={() => onMove(space.id, null)}
                       disabled={isCurrentSpace && currentFolderId === null}
-                      className={`flex w-full items-center gap-2 px-6 py-2 text-left text-sm hover:bg-slate-100 disabled:cursor-default disabled:hover:bg-transparent ${
-                        isCurrentSpace && currentFolderId === null ? "font-medium text-slate-400" : "text-slate-700"
+                      className={`flex w-full items-center gap-2 px-6 py-2 text-left text-sm hover:bg-muted-hover disabled:cursor-default disabled:hover:bg-transparent ${
+                        isCurrentSpace && currentFolderId === null ? "font-medium text-subtle" : "text-secondary"
                       }`}
                     >
                       Без папки {isCurrentSpace && currentFolderId === null && <span className="text-xs">(здесь)</span>}
                     </button>
-                    {foldersLoading && <div className="px-6 py-2 text-xs text-slate-400">Загрузка…</div>}
+                    {foldersLoading && <div className="px-6 py-2 text-xs text-subtle">Загрузка…</div>}
                     {roots.map((folder) => (
                       <FolderOption
                         key={folder.id}

@@ -119,7 +119,7 @@ function buildMarkdownComponents(onImageClick: (src: string, alt: string) => voi
         loading="lazy"
         role="button"
         onClick={() => src && onImageClick(src, alt ?? "")}
-        className="my-1 max-h-64 max-w-full cursor-zoom-in rounded border border-slate-200 object-contain"
+        className="my-1 max-h-64 max-w-full cursor-zoom-in rounded border border-default object-contain"
       />
     ),
   };
@@ -202,15 +202,15 @@ function SummaryMessageCard({
 }) {
   return (
     <div className="message-fade-in flex justify-start">
-      <div className="max-w-[85%] rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-        <div className="mb-1 flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-amber-700">
+      <div className="max-w-[85%] rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-sm text-warning">
+        <div className="mb-1 flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-warning">
           <Archive size={12} /> Сводка более ранней части разговора
         </div>
         <div className="whitespace-pre-wrap">{message.content}</div>
         <button
           onClick={onRevert}
           disabled={isReverting}
-          className="mt-2 flex items-center gap-1 text-xs text-amber-700 underline hover:text-amber-900 disabled:opacity-50"
+          className="mt-2 flex items-center gap-1 text-xs text-warning underline hover:text-warning disabled:opacity-50"
         >
           {isReverting ? <Spinner size={11} /> : <RotateCcw size={11} />} Отменить сжатие
         </button>
@@ -277,7 +277,7 @@ function CreatedItemLinks({
         <button
           key={link.id}
           onClick={() => onOpenItem(link.id, link.materialType)}
-          className="flex items-center gap-1 rounded-full border border-slate-300 bg-white px-3 py-1 text-xs text-slate-700 hover:border-slate-400 hover:bg-slate-50"
+          className="flex items-center gap-1 rounded-full border border-default bg-surface px-3 py-1 text-xs text-secondary hover:border-strong hover:bg-muted-hover"
         >
           Открыть «{link.title}» <ChevronRight size={11} />
         </button>
@@ -352,7 +352,7 @@ function ImageSourceLinks({
         <button
           key={note.id}
           onClick={() => onOpenItem(note.id, note.materialType)}
-          className="flex items-center gap-1 rounded-full border border-slate-300 bg-white px-3 py-1 text-xs text-slate-700 hover:border-slate-400 hover:bg-slate-50"
+          className="flex items-center gap-1 rounded-full border border-default bg-surface px-3 py-1 text-xs text-secondary hover:border-strong hover:bg-muted-hover"
         >
           Открыть «{note.title}» <ChevronRight size={11} />
         </button>
@@ -393,7 +393,7 @@ function ImageGalleryLinks({
         <button
           key={index}
           onClick={() => onOpenItem(note.id, note.materialType)}
-          className="flex items-center gap-1 rounded-full border border-slate-300 bg-white px-3 py-1 text-xs text-slate-700 hover:border-slate-400 hover:bg-slate-50"
+          className="flex items-center gap-1 rounded-full border border-default bg-surface px-3 py-1 text-xs text-secondary hover:border-strong hover:bg-muted-hover"
         >
           {index + 1}. Открыть «{note.title}» <ChevronRight size={11} />
         </button>
@@ -476,7 +476,7 @@ function NoteResultLinks({
         <button
           key={note.id}
           onClick={() => onOpenItem(note.id, note.materialType)}
-          className="flex items-center gap-1 rounded-full border border-slate-300 bg-white px-3 py-1 text-xs text-slate-700 hover:border-slate-400 hover:bg-slate-50"
+          className="flex items-center gap-1 rounded-full border border-default bg-surface px-3 py-1 text-xs text-secondary hover:border-strong hover:bg-muted-hover"
         >
           Открыть «{note.title}» <ChevronRight size={11} />
         </button>
@@ -525,7 +525,7 @@ function ChatLinkPreviewCard({ url }: { url: string }) {
 
   if (isLoading || !data || data.fetch_failed || !data.title) {
     return (
-      <a href={url} target="_blank" rel="noopener noreferrer" className="text-sm text-blue-600 underline">
+      <a href={url} target="_blank" rel="noopener noreferrer" className="text-sm text-link underline">
         {url}
       </a>
     );
@@ -536,7 +536,7 @@ function ChatLinkPreviewCard({ url }: { url: string }) {
       href={url}
       target="_blank"
       rel="noopener noreferrer"
-      className="flex max-w-xs items-center gap-2 rounded border bg-slate-50 px-3 py-2 text-sm text-slate-800 no-underline hover:bg-slate-100"
+      className="flex max-w-xs items-center gap-2 rounded border bg-muted px-3 py-2 text-sm text-primary no-underline hover:bg-muted-hover"
     >
       {data.favicon_url ? (
         <img
@@ -548,7 +548,7 @@ function ChatLinkPreviewCard({ url }: { url: string }) {
           }}
         />
       ) : (
-        <Globe size={14} className="shrink-0 text-slate-400" />
+        <Globe size={14} className="shrink-0 text-subtle" />
       )}
       <span className="truncate font-medium">{data.title}</span>
     </a>
@@ -722,18 +722,18 @@ function CalendarEventLinks({ message, results }: { message: DialogMessage; resu
         });
         return (
           <div key={i} className="flex flex-wrap items-center gap-1.5">
-            <span className="text-xs text-slate-500">{event.title}:</span>
+            <span className="text-xs text-subtle">{event.title}:</span>
             <a
               href={googleCalendarUrl(event)}
               target="_blank"
               rel="noopener noreferrer"
-              className="flex items-center gap-1 rounded-full border border-slate-300 bg-white px-3 py-1 text-xs text-slate-700 hover:border-slate-400 hover:bg-slate-50"
+              className="flex items-center gap-1 rounded-full border border-default bg-surface px-3 py-1 text-xs text-secondary hover:border-strong hover:bg-muted-hover"
             >
               <CalendarPlus size={13} /> Google Календарь
             </a>
             <a
               href={`/api/calendar/event.ics?${icsParams.toString()}`}
-              className="flex items-center gap-1 rounded-full border border-slate-300 bg-white px-3 py-1 text-xs text-slate-700 hover:border-slate-400 hover:bg-slate-50"
+              className="flex items-center gap-1 rounded-full border border-default bg-surface px-3 py-1 text-xs text-secondary hover:border-strong hover:bg-muted-hover"
             >
               <CalendarPlus size={13} /> Скачать .ics
             </a>
@@ -823,19 +823,19 @@ function ChatTicketQrOverlay({ code, title, onClose }: { code: string; title: st
   }, [code]);
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-4 bg-white p-6">
+    <div className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-4 bg-surface p-6">
       <button
         onClick={onClose}
         title="Закрыть (Esc)"
-        className="absolute right-4 top-4 flex h-9 w-9 items-center justify-center rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200"
+        className="absolute right-4 top-4 flex h-9 w-9 items-center justify-center rounded-full bg-muted-hover text-subtle hover:bg-muted-active"
       >
         <X size={18} />
       </button>
-      {title && <div className="text-center text-lg font-medium text-slate-800">{title}</div>}
+      {title && <div className="text-center text-lg font-medium text-primary">{title}</div>}
       {dataUrl ? (
         <img src={dataUrl} alt="QR-код билета" style={{ width: "100%", maxWidth: "24rem" }} />
       ) : (
-        <div className="flex h-64 w-64 items-center justify-center text-sm text-slate-400">Генерация QR…</div>
+        <div className="flex h-64 w-64 items-center justify-center text-sm text-subtle">Генерация QR…</div>
       )}
     </div>
   );
@@ -900,37 +900,37 @@ function TicketResultCards({
         const Icon = TICKET_ICONS[ticket.ticketType] ?? Ticket;
         const label = TICKET_LABELS[ticket.ticketType] ?? TICKET_LABELS.other;
         return (
-          <div key={ticket.id} className="max-w-xs rounded border border-violet-200 bg-white">
+          <div key={ticket.id} className="max-w-xs rounded border border-brand/30 bg-surface">
             {ticket.uploadId ? (
               <button
                 onClick={() => setPreviewTicket(ticket)}
-                className="flex w-full items-start gap-2 px-3 py-2 text-left hover:bg-violet-50"
+                className="flex w-full items-start gap-2 px-3 py-2 text-left hover:bg-brand/10"
               >
-                <Icon size={16} className="mt-0.5 shrink-0 text-violet-600" />
+                <Icon size={16} className="mt-0.5 shrink-0 text-brand" />
                 <div className="min-w-0 flex-1">
-                  <div className="text-xs font-medium uppercase tracking-wide text-violet-600">{label}</div>
-                  <div className="truncate text-sm font-medium text-slate-800">{ticket.title}</div>
+                  <div className="text-xs font-medium uppercase tracking-wide text-brand">{label}</div>
+                  <div className="truncate text-sm font-medium text-primary">{ticket.title}</div>
                 </div>
               </button>
             ) : (
               <div className="flex items-start gap-2 px-3 py-2">
-                <Icon size={16} className="mt-0.5 shrink-0 text-violet-600" />
+                <Icon size={16} className="mt-0.5 shrink-0 text-brand" />
                 <div className="min-w-0 flex-1">
-                  <div className="text-xs font-medium uppercase tracking-wide text-violet-600">{label}</div>
-                  <div className="truncate text-sm font-medium text-slate-800">{ticket.title}</div>
+                  <div className="text-xs font-medium uppercase tracking-wide text-brand">{label}</div>
+                  <div className="truncate text-sm font-medium text-primary">{ticket.title}</div>
                 </div>
               </div>
             )}
-            <div className="space-y-1 border-t border-violet-100 px-3 py-2 text-xs text-slate-700">
+            <div className="space-y-1 border-t border-brand/20 px-3 py-2 text-xs text-secondary">
               {ticket.datetimeStart && (
                 <div className="flex items-center gap-1.5">
-                  <Calendar size={12} className="shrink-0 text-slate-400" />
+                  <Calendar size={12} className="shrink-0 text-subtle" />
                   {formatTicketDateTime(ticket.datetimeStart)}
                 </div>
               )}
               {(ticket.locationFrom || ticket.locationTo) && (
                 <div className="flex items-center gap-1.5">
-                  <MapPin size={12} className="shrink-0 text-slate-400" />
+                  <MapPin size={12} className="shrink-0 text-subtle" />
                   <span className="truncate">
                     {ticket.locationFrom}
                     {ticket.locationFrom && ticket.locationTo && " → "}
@@ -940,23 +940,23 @@ function TicketResultCards({
               )}
               {ticket.seat && (
                 <div className="flex items-center gap-1.5">
-                  <Armchair size={12} className="shrink-0 text-slate-400" />
+                  <Armchair size={12} className="shrink-0 text-subtle" />
                   {ticket.seat}
                 </div>
               )}
             </div>
-            <div className="flex flex-wrap items-center gap-1.5 border-t border-violet-100 px-2 py-1.5">
+            <div className="flex flex-wrap items-center gap-1.5 border-t border-brand/20 px-2 py-1.5">
               {ticket.code && (
                 <button
                   onClick={() => setQrTicket(ticket)}
-                  className="flex items-center gap-1 rounded-full bg-violet-600 px-2.5 py-1 text-xs text-white hover:bg-violet-700"
+                  className="flex items-center gap-1 rounded-full bg-brand px-2.5 py-1 text-xs text-white hover:bg-brand/90"
                 >
                   <QrCode size={12} /> Предъявить билет
                 </button>
               )}
               <button
                 onClick={() => onOpenItem(ticket.id, "note")}
-                className="flex items-center gap-1 rounded-full border border-slate-300 bg-white px-2.5 py-1 text-xs text-slate-700 hover:border-slate-400 hover:bg-slate-50"
+                className="flex items-center gap-1 rounded-full border border-default bg-surface px-2.5 py-1 text-xs text-secondary hover:border-strong hover:bg-muted-hover"
               >
                 Открыть заметку <ChevronRight size={11} />
               </button>
@@ -1002,12 +1002,12 @@ function MapsLinkButtons({ message, results }: { message: DialogMessage; results
     <div className="mt-1.5 flex flex-col gap-1">
       {links.map((link, i) => (
         <div key={i} className="flex flex-wrap items-center gap-1.5">
-          <span className="text-xs text-slate-500">{link.query}:</span>
+          <span className="text-xs text-subtle">{link.query}:</span>
           <a
             href={link.url}
             target="_blank"
             rel="noopener noreferrer"
-            className="flex items-center gap-1 rounded-full border border-slate-300 bg-white px-3 py-1 text-xs text-slate-700 hover:border-slate-400 hover:bg-slate-50"
+            className="flex items-center gap-1 rounded-full border border-default bg-surface px-3 py-1 text-xs text-secondary hover:border-strong hover:bg-muted-hover"
           >
             <MapPin size={13} /> Google Карты
           </a>
@@ -1015,7 +1015,7 @@ function MapsLinkButtons({ message, results }: { message: DialogMessage; results
             href={`https://maps.apple.com/?q=${encodeURIComponent(link.query)}`}
             target="_blank"
             rel="noopener noreferrer"
-            className="flex items-center gap-1 rounded-full border border-slate-300 bg-white px-3 py-1 text-xs text-slate-700 hover:border-slate-400 hover:bg-slate-50"
+            className="flex items-center gap-1 rounded-full border border-default bg-surface px-3 py-1 text-xs text-secondary hover:border-strong hover:bg-muted-hover"
           >
             <MapPin size={13} /> Apple Карты
           </a>
@@ -1032,24 +1032,24 @@ function ToolCallRow({ message, results }: { message: DialogMessage; results: Di
       {message.tool_calls.map((tc) => {
         const result = results.find((r) => r.tool_call_id === tc.id);
         return (
-          <div key={tc.id} className="rounded border border-slate-200 bg-white text-xs">
+          <div key={tc.id} className="rounded border border-default bg-surface text-xs">
             <button
               onClick={() => setExpanded((v) => !v)}
-              className="flex w-full items-center gap-1.5 px-2 py-1.5 text-left text-slate-500 hover:text-slate-700"
+              className="flex w-full items-center gap-1.5 px-2 py-1.5 text-left text-subtle hover:text-secondary"
             >
               {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
               <Wrench size={12} />
               <span className="font-mono">{tc.name}</span>
             </button>
             {expanded && (
-              <div className="space-y-1 break-all border-t border-slate-200 px-2 py-1.5 font-mono text-[11px] text-slate-500">
+              <div className="space-y-1 break-all border-t border-default px-2 py-1.5 font-mono text-[11px] text-subtle">
                 <div>
-                  <span className="text-slate-400">аргументы: </span>
+                  <span className="text-subtle">аргументы: </span>
                   {JSON.stringify(tc.arguments)}
                 </div>
                 {result && (
                   <div>
-                    <span className="text-slate-400">результат: </span>
+                    <span className="text-subtle">результат: </span>
                     {result.content}
                   </div>
                 )}
@@ -1079,7 +1079,7 @@ function SpeakButton({
     <button
       onClick={onClick}
       title={isActive ? "Остановить" : "Озвучить"}
-      className="mt-1 flex h-6 w-6 items-center justify-center rounded text-slate-400 hover:text-slate-700"
+      className="mt-1 flex h-6 w-6 items-center justify-center rounded text-subtle hover:text-secondary"
     >
       {isLoading ? <Spinner size={12} /> : isActive ? <VolumeX size={12} /> : <Volume2 size={12} />}
     </button>
@@ -1100,9 +1100,9 @@ function CopyButton({ text }: { text: string }) {
         }
       }}
       title={copied ? "Скопировано" : "Скопировать"}
-      className="mt-1 flex h-6 w-6 items-center justify-center rounded text-slate-400 hover:text-slate-700"
+      className="mt-1 flex h-6 w-6 items-center justify-center rounded text-subtle hover:text-secondary"
     >
-      {copied ? <Check size={12} className="text-green-600" /> : <Copy size={12} />}
+      {copied ? <Check size={12} className="text-success" /> : <Copy size={12} />}
     </button>
   );
 }
@@ -1682,16 +1682,16 @@ export default function AssistantChat({
         <button
           onClick={onBack}
           title="Закрыть"
-          className={`-ml-1 flex h-8 w-8 shrink-0 items-center justify-center text-slate-500 ${alwaysShowBack ? "" : "lg:hidden"}`}
+          className={`-ml-1 flex h-8 w-8 shrink-0 items-center justify-center text-subtle ${alwaysShowBack ? "" : "lg:hidden"}`}
         >
           <ChevronLeft size={18} />
         </button>
         <div className="flex min-w-0 flex-1 items-center gap-1">
-          <span className="truncate text-sm font-medium text-slate-900">{dialog?.title || "Диалог"}</span>
+          <span className="truncate text-sm font-medium text-primary">{dialog?.title || "Диалог"}</span>
           <button
             onClick={() => setRenamingTitle(true)}
             title="Переименовать диалог"
-            className="flex h-6 w-6 shrink-0 items-center justify-center text-slate-300 hover:text-slate-700"
+            className="flex h-6 w-6 shrink-0 items-center justify-center text-subtle hover:text-secondary"
           >
             <Pencil size={12} />
           </button>
@@ -1700,7 +1700,7 @@ export default function AssistantChat({
           onClick={toggleAutoSpeak}
           title={autoSpeak ? "Не озвучивать ответы автоматически" : "Озвучивать ответы автоматически"}
           className={`flex h-7 w-7 shrink-0 items-center justify-center rounded ${
-            autoSpeak ? "bg-slate-200 text-slate-900" : "text-slate-400 hover:bg-slate-100"
+            autoSpeak ? "bg-muted-active text-primary" : "text-subtle hover:bg-muted-hover"
           }`}
         >
           {autoSpeak ? <Volume2 size={14} /> : <VolumeX size={14} />}
@@ -1709,7 +1709,7 @@ export default function AssistantChat({
           onClick={toggleShowToolDebug}
           title={showToolDebug ? "Скрыть технические детали вызовов инструментов" : "Показать технические детали вызовов инструментов"}
           className={`flex h-7 w-7 shrink-0 items-center justify-center rounded ${
-            showToolDebug ? "bg-slate-200 text-slate-900" : "text-slate-400 hover:bg-slate-100"
+            showToolDebug ? "bg-muted-active text-primary" : "text-subtle hover:bg-muted-hover"
           }`}
         >
           <Wrench size={14} />
@@ -1721,7 +1721,7 @@ export default function AssistantChat({
               title={title}
               onClick={() => changeChatWidth(value)}
               className={`flex h-7 w-7 items-center justify-center rounded ${
-                chatWidth === value ? "bg-slate-200 text-slate-900" : "text-slate-400 hover:bg-slate-100"
+                chatWidth === value ? "bg-muted-active text-primary" : "text-subtle hover:bg-muted-hover"
               }`}
             >
               <Icon size={14} />
@@ -1732,7 +1732,7 @@ export default function AssistantChat({
           onClick={() => setConfirmingCompact(true)}
           disabled={(dialog?.messages.length ?? 0) < 10}
           title="Сжать историю"
-          className="ml-1 flex h-7 w-7 shrink-0 items-center justify-center rounded text-slate-400 hover:bg-slate-100 disabled:opacity-30"
+          className="ml-1 flex h-7 w-7 shrink-0 items-center justify-center rounded text-subtle hover:bg-muted-hover disabled:opacity-30"
         >
           <Archive size={14} />
         </button>
@@ -1744,12 +1744,12 @@ export default function AssistantChat({
       <div className="min-h-0 flex-1 overflow-y-auto p-4">
         <div className={`space-y-3 ${widthClass}`}>
           {contextNote && (
-            <div className="mx-auto max-w-[85%] rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+            <div className="mx-auto max-w-[85%] rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-warning">
               Обсуждается выделенный фрагмент: «{contextNote.length > 160 ? contextNote.slice(0, 160) + "…" : contextNote}»
             </div>
           )}
           {!compactBannerDismissed && (dialog?.messages.length ?? 0) > 60 && (
-            <div className="mx-auto flex max-w-[85%] items-center gap-2 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-800">
+            <div className="mx-auto flex max-w-[85%] items-center gap-2 rounded-lg border border-link/30 bg-link/10 px-3 py-2 text-xs text-link">
               <span className="flex-1">
                 Диалог уже большой ({dialog?.messages.length} сообщений) — каждый ответ становится медленнее.
                 Сжать более раннюю часть в сводку?
@@ -1760,14 +1760,14 @@ export default function AssistantChat({
               <button
                 onClick={() => setCompactBannerDismissed(true)}
                 title="Скрыть подсказку"
-                className="shrink-0 text-sky-400 hover:text-sky-700"
+                className="shrink-0 text-link hover:text-link"
               >
                 <X size={12} />
               </button>
             </div>
           )}
           {groups.length === 0 && (
-            <div className="flex h-full items-center justify-center text-center text-sm text-slate-400">
+            <div className="flex h-full items-center justify-center text-center text-sm text-subtle">
               Спросите что-нибудь о своих заметках или попросите создать новую
             </div>
           )}
@@ -1791,14 +1791,14 @@ export default function AssistantChat({
                 <button
                   onClick={() => setDeletingMessageId(message.id)}
                   title="Удалить"
-                  className="mt-2 flex h-6 w-6 shrink-0 items-center justify-center text-slate-300 hover:text-red-600"
+                  className="mt-2 flex h-6 w-6 shrink-0 items-center justify-center text-subtle hover:text-danger"
                 >
                   <Trash2 size={13} />
                 </button>
               )}
               <div
                 className={`max-w-[85%] rounded-lg px-3 py-2 text-sm ${
-                  message.role === "user" ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-900"
+                  message.role === "user" ? "bg-accent text-white" : "bg-muted-hover text-primary"
                 }`}
               >
                 {message.content &&
@@ -1849,7 +1849,7 @@ export default function AssistantChat({
                       <button
                         onClick={() => onApplyToNote(message.content)}
                         title="Вставить в заметку"
-                        className="flex h-6 w-6 items-center justify-center rounded text-slate-400 hover:bg-slate-200 hover:text-slate-700"
+                        className="flex h-6 w-6 items-center justify-center rounded text-subtle hover:bg-muted-active hover:text-secondary"
                       >
                         <ClipboardPaste size={13} />
                       </button>
@@ -1867,7 +1867,7 @@ export default function AssistantChat({
                         <button
                           key={option}
                           onClick={() => sendQuickReply(option)}
-                          className="rounded-full border border-slate-300 bg-white px-3 py-1 text-xs text-slate-700 hover:border-slate-400 hover:bg-slate-50"
+                          className="rounded-full border border-default bg-surface px-3 py-1 text-xs text-secondary hover:border-strong hover:bg-muted-hover"
                         >
                           {option}
                         </button>
@@ -1879,7 +1879,7 @@ export default function AssistantChat({
                 <button
                   onClick={() => setDeletingMessageId(message.id)}
                   title="Удалить"
-                  className="mt-2 flex h-6 w-6 shrink-0 items-center justify-center text-slate-300 hover:text-red-600"
+                  className="mt-2 flex h-6 w-6 shrink-0 items-center justify-center text-subtle hover:text-danger"
                 >
                   <Trash2 size={13} />
                 </button>
@@ -1889,18 +1889,18 @@ export default function AssistantChat({
           })}
           {pendingUserText && (
             <div className="message-fade-in flex justify-end">
-              <div className="max-w-[85%] rounded-lg bg-slate-900 px-3 py-2 text-sm text-white opacity-60">
+              <div className="max-w-[85%] rounded-lg bg-accent px-3 py-2 text-sm text-white opacity-60">
                 <div className="whitespace-pre-wrap">{pendingUserText}</div>
               </div>
             </div>
           )}
           {sendMessage.isPending && (
             <div className="flex justify-start">
-              <div className="flex items-center gap-2 rounded-lg bg-slate-100 px-3 py-2 text-sm text-slate-500">
+              <div className="flex items-center gap-2 rounded-lg bg-muted-hover px-3 py-2 text-sm text-subtle">
                 <Spinner size={14} /> Ассистент думает…
                 <button
                   onClick={cancelSend}
-                  className="ml-1 rounded border border-slate-300 px-2 py-0.5 text-xs text-slate-600 hover:bg-slate-200"
+                  className="ml-1 rounded border border-default px-2 py-0.5 text-xs text-secondary hover:bg-muted-active"
                 >
                   Отменить
                 </button>
@@ -1909,9 +1909,9 @@ export default function AssistantChat({
           )}
           {queuedMessages.map((q, i) => (
             <div key={i} className="message-fade-in flex justify-end">
-              <div className="max-w-[85%] rounded-lg border border-dashed border-slate-300 px-3 py-2 text-sm text-slate-400">
+              <div className="max-w-[85%] rounded-lg border border-dashed border-default px-3 py-2 text-sm text-subtle">
                 <div className="whitespace-pre-wrap">{q}</div>
-                <div className="mt-0.5 text-xs text-slate-400">В очереди — уйдёт, когда ассистент ответит</div>
+                <div className="mt-0.5 text-xs text-subtle">В очереди — уйдёт, когда ассистент ответит</div>
               </div>
             </div>
           ))}
@@ -1920,20 +1920,20 @@ export default function AssistantChat({
       </div>
 
       {isRecording && (
-        <div className="border-t bg-slate-50 px-3 py-1.5">
+        <div className="border-t bg-muted px-3 py-1.5">
           <canvas ref={canvasRef} width={600} height={28} className="h-7 w-full" />
         </div>
       )}
 
-      {voiceError && <div className="border-t bg-amber-50 px-3 py-1.5 text-xs text-amber-700">{voiceError}</div>}
+      {voiceError && <div className="border-t bg-warning/10 px-3 py-1.5 text-xs text-warning">{voiceError}</div>}
 
       {pendingAttachment && (
-        <div className={`border-t bg-slate-50 px-3 pt-2 ${widthClass}`}>
-          <div className="flex items-center gap-2 rounded border bg-white px-2 py-1.5 text-xs text-slate-600">
+        <div className={`border-t bg-muted px-3 pt-2 ${widthClass}`}>
+          <div className="flex items-center gap-2 rounded border bg-surface px-2 py-1.5 text-xs text-secondary">
             {pendingAttachment.status === "processing" ? (
               <Spinner size={12} />
             ) : (
-              <Paperclip size={12} className={pendingAttachment.status === "error" ? "text-amber-500" : "text-slate-400"} />
+              <Paperclip size={12} className={pendingAttachment.status === "error" ? "text-warning" : "text-subtle"} />
             )}
             <span className="flex-1 truncate">
               {pendingAttachment.filename}
@@ -1944,7 +1944,7 @@ export default function AssistantChat({
               type="button"
               onClick={() => setPendingAttachment(null)}
               title="Убрать вложение"
-              className="shrink-0 text-slate-400 hover:text-red-600"
+              className="shrink-0 text-subtle hover:text-danger"
             >
               <X size={13} />
             </button>
@@ -1969,7 +1969,7 @@ export default function AssistantChat({
             onClick={() => attachInputRef.current?.click()}
             title="Прикрепить файл"
             disabled={sendMessage.isPending}
-            className="flex shrink-0 items-center justify-center rounded border px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 disabled:opacity-50"
+            className="flex shrink-0 items-center justify-center rounded border px-3 py-2 text-sm text-subtle hover:bg-muted-hover disabled:opacity-50"
           >
             <Paperclip size={14} />
           </button>
@@ -1978,13 +1978,13 @@ export default function AssistantChat({
             onClick={toggleRecording}
             title={isRecording ? "Остановить запись" : "Голосовой ввод"}
             className={`relative flex shrink-0 items-center justify-center overflow-hidden rounded border px-3 py-2 text-sm ${
-              isRecording ? "border-red-300 bg-red-50 text-red-600" : "text-slate-500 hover:bg-slate-100"
+              isRecording ? "border-danger/40 bg-danger/10 text-danger" : "text-subtle hover:bg-muted-hover"
             }`}
           >
             {isRecording && (
               <span
                 ref={micPulseRef}
-                className="pointer-events-none absolute inset-0 rounded bg-red-300"
+                className="pointer-events-none absolute inset-0 rounded bg-danger/40"
                 style={{ opacity: 0.25 }}
               />
             )}
@@ -1993,7 +1993,7 @@ export default function AssistantChat({
           <div className="relative flex-1">
             {isRecording && silenceProgress > 0 && (
               <div
-                className="pointer-events-none absolute inset-y-0 left-0 rounded bg-emerald-100 transition-[width]"
+                className="pointer-events-none absolute inset-y-0 left-0 rounded bg-success/15 transition-[width]"
                 style={{ width: `${silenceProgress * 100}%` }}
               />
             )}
@@ -2017,7 +2017,7 @@ export default function AssistantChat({
             type="submit"
             disabled={pendingAttachment?.status === "processing" || (!input.trim() && !pendingAttachment)}
             title={sendMessage.isPending ? "Ассистент ещё отвечает — сообщение уйдёт следующим ходом" : undefined}
-            className="flex shrink-0 items-center justify-center rounded bg-slate-900 px-4 py-2 text-sm text-white disabled:opacity-50"
+            className="flex shrink-0 items-center justify-center rounded bg-accent px-4 py-2 text-sm text-white disabled:opacity-50"
           >
             {sendMessage.isPending ? "В очередь" : "Отправить"}
           </button>

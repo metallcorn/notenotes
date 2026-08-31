@@ -38,12 +38,12 @@ export default function RegisterPage() {
   }
 
   return (
-    <div className="flex min-h-dvh items-center justify-center bg-slate-50 p-4">
-      <form onSubmit={onSubmit} className="w-full max-w-sm space-y-4 rounded-lg border bg-white p-6 shadow-sm">
-        <h1 className="text-xl font-semibold text-slate-900">Регистрация</h1>
-        {error && <p className="rounded bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
+    <div className="flex min-h-dvh items-center justify-center bg-muted p-4">
+      <form onSubmit={onSubmit} className="w-full max-w-sm space-y-4 rounded-lg border bg-surface p-6 shadow-sm">
+        <h1 className="text-xl font-semibold text-primary">Регистрация</h1>
+        {error && <p className="rounded bg-danger/10 px-3 py-2 text-sm text-danger">{error}</p>}
         <div className="space-y-1">
-          <label className="text-sm text-slate-600">Имя</label>
+          <label className="text-sm text-secondary">Имя</label>
           <input
             name="name"
             required
@@ -53,7 +53,7 @@ export default function RegisterPage() {
           />
         </div>
         <div className="space-y-1">
-          <label className="text-sm text-slate-600">Логин</label>
+          <label className="text-sm text-secondary">Логин</label>
           <input
             type="text"
             name="username"
@@ -71,7 +71,7 @@ export default function RegisterPage() {
           />
         </div>
         <div className="space-y-1">
-          <label className="text-sm text-slate-600">Пароль</label>
+          <label className="text-sm text-secondary">Пароль</label>
           <div className="relative">
             <input
               type={showPassword ? "text" : "password"}
@@ -87,14 +87,14 @@ export default function RegisterPage() {
               type="button"
               onClick={() => setShowPassword((v) => !v)}
               title={showPassword ? "Скрыть пароль" : "Показать пароль"}
-              className="absolute right-0 top-0 flex h-full w-10 items-center justify-center text-slate-400 hover:text-slate-700"
+              className="absolute right-0 top-0 flex h-full w-10 items-center justify-center text-subtle hover:text-secondary"
             >
               {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
             </button>
           </div>
         </div>
         <div className="space-y-1">
-          <label className="text-sm text-slate-600">Инвайт-код</label>
+          <label className="text-sm text-secondary">Инвайт-код</label>
           <input
             type="text"
             name="invite_code"
@@ -111,14 +111,14 @@ export default function RegisterPage() {
         <button
           type="submit"
           disabled={register.isPending}
-          className="flex w-full items-center justify-center gap-2 rounded bg-slate-900 px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
+          className="flex w-full items-center justify-center gap-2 rounded bg-accent px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
         >
           {register.isPending && <Spinner />}
           {register.isPending ? "Создаём…" : "Создать аккаунт"}
         </button>
-        <p className="text-center text-sm text-slate-500">
+        <p className="text-center text-sm text-subtle">
           Уже есть аккаунт?{" "}
-          <Link to="/login" className="text-slate-900 underline">
+          <Link to="/login" className="text-primary underline">
             Войти
           </Link>
         </p>

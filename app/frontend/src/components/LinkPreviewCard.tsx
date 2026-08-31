@@ -19,7 +19,7 @@ function RichCard({ url, favicon, title, imageUrl, description }: {
       href={url}
       target="_blank"
       rel="noopener noreferrer"
-      className="flex max-w-md overflow-hidden rounded border bg-slate-50 text-sm text-slate-800 no-underline hover:bg-slate-100"
+      className="flex max-w-md overflow-hidden rounded border bg-muted text-sm text-primary no-underline hover:bg-muted-hover"
     >
       {imageUrl && <img src={imageUrl} alt="" className="h-24 w-24 shrink-0 object-cover" />}
       <div className="min-w-0 flex-1 p-2">
@@ -34,11 +34,11 @@ function RichCard({ url, favicon, title, imageUrl, description }: {
               }}
             />
           ) : (
-            <Globe size={12} className="shrink-0 text-slate-400" />
+            <Globe size={12} className="shrink-0 text-subtle" />
           )}
           <span className="truncate font-medium">{title}</span>
         </div>
-        {description && <div className="line-clamp-2 text-xs text-slate-600">{description}</div>}
+        {description && <div className="line-clamp-2 text-xs text-secondary">{description}</div>}
       </div>
     </a>
   );
@@ -61,7 +61,7 @@ export default function LinkPreviewCard({ node }: NodeViewProps) {
   if (isLoading || !data) {
     return (
       <NodeViewWrapper as="div" className="my-1">
-        <a href={url} target="_blank" rel="noopener noreferrer" className="text-blue-600 underline">
+        <a href={url} target="_blank" rel="noopener noreferrer" className="text-link underline">
           {url}
         </a>
       </NodeViewWrapper>
@@ -82,9 +82,9 @@ export default function LinkPreviewCard({ node }: NodeViewProps) {
           target="_blank"
           rel="noopener noreferrer"
           title="Не удалось загрузить превью — сайт не ответил или требует авторизацию"
-          className="inline-flex items-center gap-1 text-blue-600 underline decoration-dotted"
+          className="inline-flex items-center gap-1 text-link underline decoration-dotted"
         >
-          <Globe size={12} className="shrink-0 text-slate-400" />
+          <Globe size={12} className="shrink-0 text-subtle" />
           {url}
         </a>
       </NodeViewWrapper>

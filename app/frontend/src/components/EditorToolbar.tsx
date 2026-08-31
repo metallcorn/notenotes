@@ -52,7 +52,7 @@ function ToolbarButton({
       onClick={onClick}
       disabled={disabled}
       className={`flex h-8 w-8 shrink-0 items-center justify-center rounded disabled:opacity-30 ${
-        active ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-slate-100"
+        active ? "bg-accent text-white" : "text-secondary hover:bg-muted-hover"
       }`}
     >
       {children}
@@ -100,10 +100,10 @@ export default function EditorToolbar({
   const uploading = uploadProgress !== null;
 
   return (
-    <div className="flex flex-nowrap items-center gap-0.5 overflow-x-auto border-b bg-slate-50 px-2 py-1">
+    <div className="flex flex-nowrap items-center gap-0.5 overflow-x-auto border-b bg-muted px-2 py-1">
       <div className={`flex flex-nowrap items-center gap-0.5 ${readOnly ? "pointer-events-none opacity-40" : ""}`}>
       <AiMenu onAction={onAiAction} onOpenAssistant={onOpenAssistant} loading={aiLoading} />
-      <span className="mx-1 h-4 w-px shrink-0 bg-slate-300" />
+      <span className="mx-1 h-4 w-px shrink-0 bg-default" />
       <ToolbarButton
         title="Заголовок 1"
         active={editor.isActive("heading", { level: 1 })}
@@ -125,7 +125,7 @@ export default function EditorToolbar({
       >
         <Heading3 size={16} />
       </ToolbarButton>
-      <span className="mx-1 h-4 w-px shrink-0 bg-slate-300" />
+      <span className="mx-1 h-4 w-px shrink-0 bg-default" />
       <ToolbarButton
         title="Жирный"
         active={editor.isActive("bold")}
@@ -154,7 +154,7 @@ export default function EditorToolbar({
       >
         <Code size={16} />
       </ToolbarButton>
-      <span className="mx-1 h-4 w-px shrink-0 bg-slate-300" />
+      <span className="mx-1 h-4 w-px shrink-0 bg-default" />
       <ToolbarButton
         title="Маркированный список"
         active={editor.isActive("bulletList")}
@@ -222,7 +222,7 @@ export default function EditorToolbar({
           <TableProperties size={16} />
         </ToolbarButton>
       )}
-      <span className="mx-1 h-4 w-px shrink-0 bg-slate-300" />
+      <span className="mx-1 h-4 w-px shrink-0 bg-default" />
       <ToolbarButton title="Картинка" disabled={uploading} onClick={onInsertImage}>
         {uploading ? <Spinner size={16} /> : <ImageIcon size={16} />}
       </ToolbarButton>
@@ -235,12 +235,12 @@ export default function EditorToolbar({
         </ToolbarButton>
       )}
       {uploading && (
-        <span className="shrink-0 text-xs tabular-nums text-slate-500">
+        <span className="shrink-0 text-xs tabular-nums text-subtle">
           {uploadBatch && uploadBatch.total > 1 ? `${uploadBatch.current}/${uploadBatch.total} · ` : ""}
           {uploadProgress}%
         </span>
       )}
-      <span className="mx-1 h-4 w-px shrink-0 bg-slate-300" />
+      <span className="mx-1 h-4 w-px shrink-0 bg-default" />
       <ToolbarButton title="Отменить" disabled={!editor.can().undo()} onClick={() => editor.chain().focus().undo().run()}>
         <Undo2 size={16} />
       </ToolbarButton>
@@ -248,7 +248,7 @@ export default function EditorToolbar({
         <Redo2 size={16} />
       </ToolbarButton>
       </div>
-      <span className="mx-1 h-4 w-px shrink-0 bg-slate-300" />
+      <span className="mx-1 h-4 w-px shrink-0 bg-default" />
       <ToolbarButton title="Узкий текст" active={contentWidth === "narrow"} onClick={() => onContentWidthChange("narrow")}>
         <AlignCenter size={16} />
       </ToolbarButton>
@@ -258,7 +258,7 @@ export default function EditorToolbar({
       <ToolbarButton title="Во весь экран" active={contentWidth === "full"} onClick={() => onContentWidthChange("full")}>
         <Maximize2 size={16} />
       </ToolbarButton>
-      <span className="mx-1 h-4 w-px shrink-0 bg-slate-300" />
+      <span className="mx-1 h-4 w-px shrink-0 bg-default" />
       <ToolbarButton title="Содержание заметки" active={showToc} onClick={onToggleToc}>
         <ListTree size={16} />
       </ToolbarButton>

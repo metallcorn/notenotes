@@ -22,7 +22,7 @@ export default function DeliveryWidgetCard({ node }: NodeViewProps) {
   if (isLoading || !widget) {
     return (
       <NodeViewWrapper as="div" className="my-1">
-        <div className="max-w-md rounded-lg border bg-slate-50 px-3 py-2 text-xs text-slate-400">
+        <div className="max-w-md rounded-lg border bg-muted px-3 py-2 text-xs text-subtle">
           <Spinner size={12} className="mr-1 inline" /> Загрузка…
         </div>
       </NodeViewWrapper>
@@ -44,7 +44,7 @@ export default function DeliveryWidgetCard({ node }: NodeViewProps) {
       onClick={() => refresh.mutate()}
       disabled={refresh.isPending}
       title="Обновить"
-      className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-slate-400 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-50"
+      className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-subtle hover:bg-muted-hover hover:text-secondary disabled:opacity-50"
     >
       {refresh.isPending ? <Spinner size={13} /> : <RotateCw size={13} />}
     </button>
@@ -65,7 +65,7 @@ export default function DeliveryWidgetCard({ node }: NodeViewProps) {
     <NodeViewWrapper as="div" className="my-1">
       <div className="max-w-md">
         <DeliveryCard data={data} headerExtra={refreshButton} />
-        {refresh.isError && <div className="mt-1 text-xs text-red-600">Не удалось обновить</div>}
+        {refresh.isError && <div className="mt-1 text-xs text-danger">Не удалось обновить</div>}
       </div>
     </NodeViewWrapper>
   );

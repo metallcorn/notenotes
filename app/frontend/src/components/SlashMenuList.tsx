@@ -45,14 +45,14 @@ const SlashMenuList = forwardRef<SlashMenuListHandle, Props>(({ items, command }
 
   if (items.length === 0) {
     return (
-      <div data-testid="slash-command-menu" className="w-56 rounded border bg-white p-2 text-xs text-slate-400 shadow-lg">
+      <div data-testid="slash-command-menu" className="w-56 rounded border bg-surface p-2 text-xs text-subtle shadow-lg">
         Ничего не найдено
       </div>
     );
   }
 
   return (
-    <div data-testid="slash-command-menu" className="w-56 overflow-hidden rounded border bg-white py-1 shadow-lg">
+    <div data-testid="slash-command-menu" className="w-56 overflow-hidden rounded border bg-surface py-1 shadow-lg">
       {items.map((item, i) => (
         <button
           key={item.title}
@@ -67,7 +67,7 @@ const SlashMenuList = forwardRef<SlashMenuListHandle, Props>(({ items, command }
           onMouseDown={(e) => e.preventDefault()}
           onClick={() => command(item)}
           className={`block w-full px-3 py-1.5 text-left text-sm ${
-            i === selected ? "bg-slate-100" : "hover:bg-slate-50"
+            i === selected ? "bg-muted-hover" : "hover:bg-muted-hover"
           }`}
         >
           {item.title}

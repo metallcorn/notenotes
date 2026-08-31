@@ -18,7 +18,7 @@ import Spinner from "./components/Spinner";
 function LoadingScreen() {
   return (
     <div
-      className="flex min-h-dvh items-center justify-center gap-2 bg-slate-800 text-slate-400"
+      className="flex min-h-dvh items-center justify-center gap-2 bg-slate-800 text-subtle"
       style={{
         boxSizing: "border-box",
         paddingTop: "var(--safe-top)",

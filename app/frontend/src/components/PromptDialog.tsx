@@ -25,9 +25,9 @@ export default function PromptDialog({
           e.preventDefault();
           if (value.trim()) onConfirm(value.trim());
         }}
-        className="w-full max-w-sm rounded-lg bg-white p-4 shadow-xl"
+        className="w-full max-w-sm rounded-lg bg-surface p-4 shadow-xl"
       >
-        <div className="mb-2 text-sm font-medium text-slate-900">{title}</div>
+        <div className="mb-2 text-sm font-medium text-primary">{title}</div>
         <input
           autoFocus
           value={value}
@@ -38,11 +38,11 @@ export default function PromptDialog({
           <button
             type="button"
             onClick={onCancel}
-            className="rounded px-3 py-1.5 text-sm text-slate-500 hover:bg-slate-100"
+            className="rounded px-3 py-1.5 text-sm text-subtle hover:bg-muted-hover"
           >
             Отмена
           </button>
-          <button type="submit" className="rounded bg-slate-900 px-3 py-1.5 text-sm text-white">
+          <button type="submit" className="rounded bg-accent px-3 py-1.5 text-sm text-white">
             {confirmLabel}
           </button>
         </div>

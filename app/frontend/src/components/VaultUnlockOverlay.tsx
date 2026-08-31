@@ -46,8 +46,8 @@ export default function VaultUnlockOverlay({
 
   return (
     <div className={`flex flex-col items-center gap-2 ${compact ? "p-3" : "h-full justify-center gap-3 p-6"}`}>
-      {!compact && <Lock size={24} className="text-slate-400" />}
-      <div className={`text-center font-medium text-slate-700 ${compact ? "text-xs" : "text-sm"}`}>
+      {!compact && <Lock size={24} className="text-subtle" />}
+      <div className={`text-center font-medium text-secondary ${compact ? "text-xs" : "text-sm"}`}>
         {compact ? "Заблокировано" : `Сейф «${spaceName}» заблокирован`}
       </div>
       {isLoading ? (
@@ -62,11 +62,11 @@ export default function VaultUnlockOverlay({
             placeholder="Пароль"
             className="w-full rounded border px-2 py-1.5 text-sm"
           />
-          {error && <div className="text-xs text-red-600">{error}</div>}
+          {error && <div className="text-xs text-danger">{error}</div>}
           <button
             type="submit"
             disabled={checking || !password}
-            className="flex items-center justify-center gap-1.5 rounded bg-slate-900 px-3 py-1.5 text-sm text-white disabled:opacity-50"
+            className="flex items-center justify-center gap-1.5 rounded bg-accent px-3 py-1.5 text-sm text-white disabled:opacity-50"
           >
             {checking && <Spinner size={12} />}
             Разблокировать

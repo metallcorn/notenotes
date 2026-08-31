@@ -110,8 +110,18 @@ export const uiStorage = {
   // клавиатуру на мобильном.
   getNoteEditorMode: (): NoteEditorMode => read<NoteEditorMode>("noteEditorMode", "wysiwyg"),
   setNoteEditorMode: (v: NoteEditorMode): void => write("noteEditorMode", v),
+
+  // Тёмная тема (KDE Breeze Dark) — "system" дефолтом: пользователь,
+  // просивший эту фичу, сидит в тёмном KDE, "системная" сразу даёт ему
+  // то, что нужно, без лишнего клика; кто угодно другой на светлой ОС
+  // как видел светлую тему, так и продолжит её видеть. Читается СИНХРОННО
+  // инлайн-скриптом в index.html до монтирования React (см. lib/theme.ts)
+  // — без этого при загрузке страница на долю секунды мигала бы светлым.
+  getTheme: (): Theme => read<Theme>("theme", "system"),
+  setTheme: (v: Theme): void => write("theme", v),
 };
 
 export type ContentWidth = "narrow" | "wide" | "full";
 export type ViewMode = "notes" | "assistant" | "trash" | "activity";
 export type NoteEditorMode = "view" | "wysiwyg" | "raw";
+export type Theme = "light" | "dark" | "system";

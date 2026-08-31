@@ -499,7 +499,7 @@ export default function AppShell() {
   return (
     <div
       ref={rootRef}
-      className="flex h-dvh bg-white text-slate-900"
+      className="flex h-dvh bg-app text-primary"
       style={{
         boxSizing: "border-box",
         paddingTop: "var(--safe-top)",
@@ -520,11 +520,11 @@ export default function AppShell() {
           дополнительно сам отказывается писать на сервер, пока баннер
           виден, даже если его никто не заметил.*/}
       {updateAvailable && (
-        <div className="fixed inset-x-0 top-0 z-[100] flex flex-wrap items-center justify-center gap-2 bg-amber-500 px-3 py-2 text-center text-sm font-medium text-white shadow">
+        <div className="fixed inset-x-0 top-0 z-[100] flex flex-wrap items-center justify-center gap-2 bg-warning px-3 py-2 text-center text-sm font-medium text-white shadow">
           Доступна новая версия — эта вкладка устарела и больше не сохраняет правки, чтобы не затереть чужие.
           <button
             onClick={() => window.location.reload()}
-            className="rounded bg-white px-3 py-1 text-xs font-semibold text-amber-700 hover:bg-amber-50"
+            className="rounded bg-surface px-3 py-1 text-xs font-semibold text-warning hover:bg-warning/10"
           >
             Обновить страницу
           </button>
@@ -540,7 +540,7 @@ export default function AppShell() {
           рисовалось, но было невидимым и съедало следующий клик своим
           fixed-бэкдропом. Косметика ширины не стоила этой цены — убрано. */}
       <aside
-        className={`${mobileView === "sidebar" ? "flex" : "hidden"} w-full shrink-0 flex-col border-r bg-slate-50 lg:flex`}
+        className={`${mobileView === "sidebar" ? "flex" : "hidden"} w-full shrink-0 flex-col border-r bg-muted lg:flex`}
         style={
           isDesktop
             ? { width: sidebarCollapsed ? 0 : sidebarWidth, transition: "width 180ms ease-out" }
@@ -573,7 +573,7 @@ export default function AppShell() {
             <button
               onClick={switchToAssistant}
               className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-sm ${
-                viewMode === "assistant" ? "bg-slate-200 font-medium text-slate-900" : "text-slate-600 hover:bg-slate-100"
+                viewMode === "assistant" ? "bg-muted-active font-medium text-primary" : "text-secondary hover:bg-muted-hover"
               }`}
             >
               <Sparkles size={15} /> Ассистент
@@ -581,7 +581,7 @@ export default function AppShell() {
             <button
               onClick={switchToActivity}
               className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-sm ${
-                viewMode === "activity" ? "bg-slate-200 font-medium text-slate-900" : "text-slate-600 hover:bg-slate-100"
+                viewMode === "activity" ? "bg-muted-active font-medium text-primary" : "text-secondary hover:bg-muted-hover"
               }`}
             >
               <Bell size={15} /> Активность
@@ -589,14 +589,14 @@ export default function AppShell() {
             <button
               onClick={switchToTrash}
               className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-sm ${
-                viewMode === "trash" ? "bg-slate-200 font-medium text-slate-900" : "text-slate-600 hover:bg-slate-100"
+                viewMode === "trash" ? "bg-muted-active font-medium text-primary" : "text-secondary hover:bg-muted-hover"
               }`}
             >
               <Trash2 size={15} /> Корзина
             </button>
           </div>
           <div className="mb-2 flex items-center justify-between">
-            <span className="text-xs font-medium uppercase tracking-wide text-slate-400">Спейсы</span>
+            <span className="text-xs font-medium uppercase tracking-wide text-subtle">Спейсы</span>
             <CreateSpaceButton onCreated={(id) => selectFolder(id, null)} />
           </div>
           {(spaces ?? []).map((space) => (
@@ -638,12 +638,12 @@ export default function AppShell() {
         <div
           {...sidebarHandle}
           title="Потяните, чтобы изменить ширину панели"
-          className="absolute inset-0 cursor-col-resize touch-none border-r bg-slate-50 hover:bg-slate-200"
+          className="absolute inset-0 cursor-col-resize touch-none border-r bg-muted hover:bg-muted-active"
         />
         <button
           onClick={toggleSidebar}
           title={sidebarCollapsed ? "Показать панель" : "Скрыть панель"}
-          className="absolute left-1/2 top-1/2 z-10 flex h-6 w-6 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border bg-white text-slate-400 shadow-sm hover:text-slate-700"
+          className="absolute left-1/2 top-1/2 z-10 flex h-6 w-6 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border bg-surface text-subtle shadow-sm hover:text-secondary"
         >
           {sidebarCollapsed ? <ChevronRight size={13} /> : <ChevronLeft size={13} />}
         </button>
@@ -676,7 +676,7 @@ export default function AppShell() {
                   <div className="flex items-center gap-1 border-b p-3">
                     <button
                       onClick={closeListView}
-                      className="-ml-1 flex h-8 w-8 shrink-0 items-center justify-center text-slate-500 lg:hidden"
+                      className="-ml-1 flex h-8 w-8 shrink-0 items-center justify-center text-subtle lg:hidden"
                     >
                       <ChevronLeft size={18} />
                     </button>
@@ -698,7 +698,7 @@ export default function AppShell() {
                         isVault={!!activeSpace?.is_vault}
                       />
                     ) : (
-                      <div className="p-3 text-sm text-slate-400">Нет доступных спейсов</div>
+                      <div className="p-3 text-sm text-subtle">Нет доступных спейсов</div>
                     )}
                   </div>
                 </>
@@ -707,11 +707,11 @@ export default function AppShell() {
                   <div className="flex items-center gap-1 border-b p-3 lg:hidden">
                     <button
                       onClick={closeListView}
-                      className="-ml-1 flex h-8 w-8 shrink-0 items-center justify-center text-slate-500"
+                      className="-ml-1 flex h-8 w-8 shrink-0 items-center justify-center text-subtle"
                     >
                       <ChevronLeft size={18} />
                     </button>
-                    <span className="text-sm font-medium text-slate-900">Ассистент</span>
+                    <span className="text-sm font-medium text-primary">Ассистент</span>
                   </div>
                   <DialogList selectedId={selectedDialogId} onSelect={selectDialog} />
                 </>
@@ -722,12 +722,12 @@ export default function AppShell() {
               <div
                 {...listHandle}
                 title="Потяните, чтобы изменить ширину списка"
-                className="absolute inset-0 cursor-col-resize touch-none border-r bg-white hover:bg-slate-100"
+                className="absolute inset-0 cursor-col-resize touch-none border-r bg-surface hover:bg-muted-hover"
               />
               <button
                 onClick={toggleList}
                 title={listCollapsed ? "Показать список" : "Скрыть список"}
-                className="absolute left-1/2 top-1/2 z-10 flex h-6 w-6 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border bg-white text-slate-400 shadow-sm hover:text-slate-700"
+                className="absolute left-1/2 top-1/2 z-10 flex h-6 w-6 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border bg-surface text-subtle shadow-sm hover:text-secondary"
               >
                 {listCollapsed ? <ChevronRight size={13} /> : <ChevronLeft size={13} />}
               </button>
@@ -750,7 +750,7 @@ export default function AppShell() {
                     }}
                   />
                 ) : (
-                  <div className="flex h-full items-center justify-center text-slate-400">
+                  <div className="flex h-full items-center justify-center text-subtle">
                     Выберите заметку слева или создайте новую
                   </div>
                 )
@@ -766,7 +766,7 @@ export default function AppShell() {
                   }}
                 />
               ) : (
-                <div className="flex h-full items-center justify-center text-slate-400">
+                <div className="flex h-full items-center justify-center text-subtle">
                   Выберите диалог слева или создайте новый
                 </div>
               )}

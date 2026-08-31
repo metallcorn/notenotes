@@ -117,13 +117,13 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
       <div
         onClick={(e) => e.stopPropagation()}
-        className="flex max-h-[85vh] w-full max-w-lg flex-col rounded-lg bg-white shadow-xl"
+        className="flex max-h-[85vh] w-full max-w-lg flex-col rounded-lg bg-surface shadow-xl"
       >
         <div className="flex items-center justify-between border-b px-4 py-3">
-          <div className="text-sm font-medium text-slate-900">Настройки ассистента</div>
+          <div className="text-sm font-medium text-primary">Настройки ассистента</div>
           <button
             onClick={onClose}
-            className="flex h-7 w-7 items-center justify-center text-slate-400 hover:text-slate-700"
+            className="flex h-7 w-7 items-center justify-center text-subtle hover:text-secondary"
           >
             <X size={16} />
           </button>
@@ -131,8 +131,8 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
 
         <div className="flex-1 overflow-y-auto p-4">
           <div className="mb-6">
-            <div className="mb-1 text-sm font-medium text-slate-900">Дополнительные инструкции</div>
-            <div className="mb-2 text-xs text-slate-400">
+            <div className="mb-1 text-sm font-medium text-primary">Дополнительные инструкции</div>
+            <div className="mb-2 text-xs text-subtle">
               Добавляются к базовым инструкциям ассистента, а не заменяют их — так безопасность и работа
               инструментов не ломаются, даже если тут написать что-то странное.
             </div>
@@ -146,7 +146,7 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
             <button
               onClick={handleSave}
               disabled={updateInstructions.isPending}
-              className="mt-2 flex items-center gap-2 rounded bg-slate-900 px-3 py-1.5 text-sm text-white disabled:opacity-50"
+              className="mt-2 flex items-center gap-2 rounded bg-accent px-3 py-1.5 text-sm text-white disabled:opacity-50"
             >
               {updateInstructions.isPending ? (
                 <Spinner size={14} className="text-white" />
@@ -159,15 +159,15 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
           </div>
 
           <div className="mb-6">
-            <div className="mb-1 text-sm font-medium text-slate-900">Умения ассистента</div>
-            <div className="mb-2 text-xs text-slate-400">Что ассистент умеет делать в этом диалоге.</div>
-            {skillsLoading && <div className="text-sm text-slate-400">Загрузка…</div>}
+            <div className="mb-1 text-sm font-medium text-primary">Умения ассистента</div>
+            <div className="mb-2 text-xs text-subtle">Что ассистент умеет делать в этом диалоге.</div>
+            {skillsLoading && <div className="text-sm text-subtle">Загрузка…</div>}
             <ul className="space-y-1">
               {toggleableSkills.map((skill) => (
                 <li key={skill.name} className="flex items-center justify-between gap-2 rounded border px-2 py-1.5">
                   <div className="min-w-0">
-                    <div className="text-sm text-slate-900">{skill.label}</div>
-                    <div className="truncate text-xs text-slate-400">{skill.description}</div>
+                    <div className="text-sm text-primary">{skill.label}</div>
+                    <div className="truncate text-xs text-subtle">{skill.description}</div>
                   </div>
                   <button
                     role="switch"
@@ -175,24 +175,24 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
                     onClick={() => toggleSkill(skill)}
                     disabled={updateDisabledTools.isPending}
                     className={`flex h-5 w-9 shrink-0 items-center rounded-full px-0.5 transition-colors disabled:opacity-50 ${
-                      skill.enabled ? "justify-end bg-slate-900" : "justify-start bg-slate-200"
+                      skill.enabled ? "justify-end bg-accent" : "justify-start bg-muted-active"
                     }`}
                   >
-                    <span className="h-4 w-4 rounded-full bg-white shadow" />
+                    <span className="h-4 w-4 rounded-full bg-surface shadow" />
                   </button>
                 </li>
               ))}
             </ul>
             {coreSkills.length > 0 && (
-              <div className="mt-2 text-xs text-slate-400">
+              <div className="mt-2 text-xs text-subtle">
                 Всегда включено: {coreSkills.map((s) => s.label).join(", ")}.
               </div>
             )}
           </div>
 
           <div className="mb-6">
-            <div className="mb-1 text-sm font-medium text-slate-900">Модель ассистента</div>
-            <div className="mb-2 text-xs text-slate-400">
+            <div className="mb-1 text-sm font-medium text-primary">Модель ассистента</div>
+            <div className="mb-2 text-xs text-subtle">
               Для сравнения провайдеров — переключение действует сразу, без перезагрузки, только для этого
               аккаунта.
             </div>
@@ -204,8 +204,8 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
                   disabled={updateLlmProvider.isPending}
                   className={`rounded border px-3 py-1.5 text-sm disabled:opacity-50 ${
                     (me?.llm_provider || "") === p.value
-                      ? "border-slate-900 bg-slate-900 text-white"
-                      : "border-slate-300 text-slate-700 hover:bg-slate-50"
+                      ? "border-strong bg-accent text-white"
+                      : "border-default text-secondary hover:bg-muted-hover"
                   }`}
                 >
                   {p.label}
@@ -215,8 +215,8 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
           </div>
 
           <div className="mb-6">
-            <div className="mb-1 text-sm font-medium text-slate-900">Голос озвучивания</div>
-            <div className="mb-2 text-xs text-slate-400">
+            <div className="mb-1 text-sm font-medium text-primary">Голос озвучивания</div>
+            <div className="mb-2 text-xs text-subtle">
               У Palabra нет «стилей» — только два готовых голоса и возможность указать свой voice_id с Palabra
               Platform.
             </div>
@@ -228,8 +228,8 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
                   disabled={updateTtsVoice.isPending}
                   className={`rounded border px-3 py-1.5 text-sm disabled:opacity-50 ${
                     currentVoice === preset.value
-                      ? "border-slate-900 bg-slate-900 text-white"
-                      : "border-slate-300 text-slate-700 hover:bg-slate-50"
+                      ? "border-strong bg-accent text-white"
+                      : "border-default text-secondary hover:bg-muted-hover"
                   }`}
                 >
                   {preset.label}
@@ -246,21 +246,21 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
               <button
                 onClick={() => customVoiceId.trim() && updateTtsVoice.mutate(customVoiceId.trim())}
                 disabled={updateTtsVoice.isPending || !customVoiceId.trim()}
-                className="shrink-0 rounded border border-slate-300 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                className="shrink-0 rounded border border-default px-3 py-1.5 text-sm text-secondary hover:bg-muted-hover disabled:opacity-50"
               >
                 Применить
               </button>
             </div>
             {!isPresetVoice && (
-              <div className="mt-1 text-xs text-slate-400">Сейчас используется свой голос: {currentVoice}</div>
+              <div className="mt-1 text-xs text-subtle">Сейчас используется свой голос: {currentVoice}</div>
             )}
           </div>
 
           <div className="mb-6">
             <div className="flex items-center justify-between gap-2 rounded border px-2 py-1.5">
               <div className="min-w-0">
-                <div className="text-sm text-slate-900">Обработка загруженных файлов</div>
-                <div className="text-xs text-slate-400">
+                <div className="text-sm text-primary">Обработка загруженных файлов</div>
+                <div className="text-xs text-subtle">
                   Автоматически распознавать текст в картинках, видео и PDF при загрузке — не только по кнопке
                   «Распознать».
                 </div>
@@ -271,10 +271,10 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
                 onClick={() => updateAutoProcessUploads.mutate(!(me?.auto_process_uploads ?? true))}
                 disabled={updateAutoProcessUploads.isPending}
                 className={`flex h-5 w-9 shrink-0 items-center rounded-full px-0.5 transition-colors disabled:opacity-50 ${
-                  me?.auto_process_uploads ?? true ? "justify-end bg-slate-900" : "justify-start bg-slate-200"
+                  me?.auto_process_uploads ?? true ? "justify-end bg-accent" : "justify-start bg-muted-active"
                 }`}
               >
-                <span className="h-4 w-4 rounded-full bg-white shadow" />
+                <span className="h-4 w-4 rounded-full bg-surface shadow" />
               </button>
             </div>
           </div>
@@ -283,8 +283,8 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
             <div className="mb-6">
               <div className="flex items-center justify-between gap-2 rounded border px-2 py-1.5">
                 <div className="min-w-0">
-                  <div className="text-sm text-slate-900">Уведомления в браузере</div>
-                  <div className="text-xs text-slate-400">
+                  <div className="text-sm text-primary">Уведомления в браузере</div>
+                  <div className="text-xs text-subtle">
                     Напоминания придут даже если приложение закрыто. На iPhone работает только если приложение
                     установлено на экран (не просто открыто в Safari).
                   </div>
@@ -295,28 +295,28 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
                   onClick={() => (pushSubscription.subscribed ? pushSubscription.unsubscribe() : pushSubscription.subscribe())}
                   disabled={pushSubscription.busy || pushSubscription.subscribed === null}
                   className={`flex h-5 w-9 shrink-0 items-center rounded-full px-0.5 transition-colors disabled:opacity-50 ${
-                    pushSubscription.subscribed ? "justify-end bg-slate-900" : "justify-start bg-slate-200"
+                    pushSubscription.subscribed ? "justify-end bg-accent" : "justify-start bg-muted-active"
                   }`}
                 >
-                  <span className="h-4 w-4 rounded-full bg-white shadow" />
+                  <span className="h-4 w-4 rounded-full bg-surface shadow" />
                 </button>
               </div>
             </div>
           )}
 
           <div className="mb-6">
-            <div className="mb-1 text-sm font-medium text-slate-900">Telegram</div>
-            <div className="mb-2 text-xs text-slate-400">
+            <div className="mb-1 text-sm font-medium text-primary">Telegram</div>
+            <div className="mb-2 text-xs text-subtle">
               Подключите бота — присылайте ему текст, фото, голосовые и видео, они автоматически станут заметками
               в отдельном личном спейсе «Telegram» (с авто-тегами и OCR, как и везде).
             </div>
             {telegramStatus?.linked ? (
               <div className="flex items-center justify-between gap-2 rounded border px-3 py-2 text-sm">
-                <span className="text-slate-700">Подключено ✅</span>
+                <span className="text-secondary">Подключено ✅</span>
                 <button
                   onClick={() => telegramUnlink.mutate()}
                   disabled={telegramUnlink.isPending}
-                  className="rounded border border-slate-300 px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                  className="rounded border border-default px-3 py-1.5 text-xs text-secondary hover:bg-muted-hover disabled:opacity-50"
                 >
                   {telegramUnlink.isPending ? <Spinner size={12} /> : "Отключить"}
                 </button>
@@ -326,7 +326,7 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
                 href={telegramDeepLink}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="flex items-center justify-center gap-2 rounded bg-sky-500 px-3 py-1.5 text-sm text-white hover:bg-sky-600"
+                className="flex items-center justify-center gap-2 rounded bg-link px-3 py-1.5 text-sm text-white hover:bg-link/90"
               >
                 <Send size={14} />
                 Открыть в Telegram
@@ -340,26 +340,26 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
                     .catch(() => {})
                 }
                 disabled={telegramLinkCode.isPending}
-                className="flex items-center gap-2 rounded bg-slate-900 px-3 py-1.5 text-sm text-white disabled:opacity-50"
+                className="flex items-center gap-2 rounded bg-accent px-3 py-1.5 text-sm text-white disabled:opacity-50"
               >
                 {telegramLinkCode.isPending && <Spinner size={14} className="text-white" />}
                 Подключить
               </button>
             )}
             {telegramLinkCode.isError && (
-              <div className="mt-1 text-xs text-red-600">Telegram-бот пока не настроен на сервере.</div>
+              <div className="mt-1 text-xs text-danger">Telegram-бот пока не настроен на сервере.</div>
             )}
           </div>
 
           <div className="mb-6">
-            <div className="mb-1 text-sm font-medium text-slate-900">Почта</div>
-            <div className="mb-2 text-xs text-slate-400">
+            <div className="mb-1 text-sm font-medium text-primary">Почта</div>
+            <div className="mb-2 text-xs text-subtle">
               Пересылайте важные письма на личный адрес — они появятся в отдельном спейсе «Почта» как заметки.
             </div>
             {mailStatus?.address ? (
               <div className="space-y-2">
                 <div className="flex items-center justify-between gap-2 rounded border px-3 py-1.5 text-sm">
-                  <span className="truncate font-mono text-slate-900">{mailStatus.address}</span>
+                  <span className="truncate font-mono text-primary">{mailStatus.address}</span>
                   <button
                     onClick={() => {
                       navigator.clipboard.writeText(mailStatus.address!).then(() => {
@@ -368,7 +368,7 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
                       });
                     }}
                     title="Скопировать"
-                    className="flex shrink-0 items-center gap-1 text-xs text-slate-500 hover:text-slate-900"
+                    className="flex shrink-0 items-center gap-1 text-xs text-subtle hover:text-primary"
                   >
                     {mailCopied ? (
                       <>
@@ -389,22 +389,22 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
                       }
                     }}
                     disabled={regenerateMailAddress.isPending}
-                    className="rounded border border-slate-300 px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                    className="rounded border border-default px-3 py-1.5 text-xs text-secondary hover:bg-muted-hover disabled:opacity-50"
                   >
                     {regenerateMailAddress.isPending ? <Spinner size={12} /> : "Пересоздать"}
                   </button>
                   <button
                     onClick={() => disableMailInbox.mutate()}
                     disabled={disableMailInbox.isPending}
-                    className="rounded border border-slate-300 px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                    className="rounded border border-default px-3 py-1.5 text-xs text-secondary hover:bg-muted-hover disabled:opacity-50"
                   >
                     {disableMailInbox.isPending ? <Spinner size={12} /> : "Отключить"}
                   </button>
                 </div>
 
                 <div className="border-t pt-2">
-                  <div className="mb-1 text-xs font-medium text-slate-700">Свои адреса</div>
-                  <div className="mb-2 text-xs text-slate-400">
+                  <div className="mb-1 text-xs font-medium text-secondary">Свои адреса</div>
+                  <div className="mb-2 text-xs text-subtle">
                     Письма, которые вы пересылаете себе или ставите этот адрес в копию, будут группироваться по
                     имени собеседника (отправителя пересланного письма или получателя), а не по вам самим.
                   </div>
@@ -412,12 +412,12 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
                     <div className="mb-2 space-y-1">
                       {mailStatus.own_addresses.map((addr) => (
                         <div key={addr} className="flex items-center justify-between gap-2 rounded border px-2 py-1 text-xs">
-                          <span className="truncate font-mono text-slate-700">{addr}</span>
+                          <span className="truncate font-mono text-secondary">{addr}</span>
                           <button
                             onClick={() => removeOwnMailAddress.mutate(addr)}
                             disabled={removeOwnMailAddress.isPending}
                             title="Убрать"
-                            className="shrink-0 text-slate-400 hover:text-red-600 disabled:opacity-50"
+                            className="shrink-0 text-subtle hover:text-danger disabled:opacity-50"
                           >
                             <Trash2 size={12} />
                           </button>
@@ -442,13 +442,13 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
                         addOwnMailAddress.mutate(newOwnAddress.trim(), { onSuccess: () => setNewOwnAddress("") });
                       }}
                       disabled={addOwnMailAddress.isPending || !newOwnAddress.trim()}
-                      className="shrink-0 rounded border border-slate-300 px-2 py-1 text-xs text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                      className="shrink-0 rounded border border-default px-2 py-1 text-xs text-secondary hover:bg-muted-hover disabled:opacity-50"
                     >
                       {addOwnMailAddress.isPending ? <Spinner size={12} /> : "Добавить"}
                     </button>
                   </div>
                   {addOwnMailAddress.isError && (
-                    <div className="mt-1 text-xs text-red-600">Некорректный email.</div>
+                    <div className="mt-1 text-xs text-danger">Некорректный email.</div>
                   )}
                 </div>
               </div>
@@ -456,7 +456,7 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
               <button
                 onClick={() => generateMailAddress.mutate()}
                 disabled={generateMailAddress.isPending}
-                className="flex items-center gap-2 rounded bg-slate-900 px-3 py-1.5 text-sm text-white disabled:opacity-50"
+                className="flex items-center gap-2 rounded bg-accent px-3 py-1.5 text-sm text-white disabled:opacity-50"
               >
                 {generateMailAddress.isPending && <Spinner size={14} className="text-white" />}
                 Создать адрес
@@ -465,15 +465,15 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
           </div>
 
           <div className="mb-6">
-            <div className="mb-1 text-sm font-medium text-slate-900">Инвайт-коды</div>
-            <div className="mb-2 text-xs text-slate-400">
+            <div className="mb-1 text-sm font-medium text-primary">Инвайт-коды</div>
+            <div className="mb-2 text-xs text-subtle">
               Регистрация закрыта — новый человек может создать аккаунт только по коду. Создайте код и сообщите его
               лично тому, кого добавляете. Код одноразовый, действует 7 дней.
             </div>
             <button
               onClick={() => createInviteCode.mutate()}
               disabled={createInviteCode.isPending}
-              className="flex items-center gap-2 rounded bg-slate-900 px-3 py-1.5 text-sm text-white disabled:opacity-50"
+              className="flex items-center gap-2 rounded bg-accent px-3 py-1.5 text-sm text-white disabled:opacity-50"
             >
               {createInviteCode.isPending && <Spinner size={14} className="text-white" />}
               Создать код
@@ -484,13 +484,13 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
                   const expired = !c.used_at && new Date(c.expires_at).getTime() < Date.now();
                   return (
                     <div key={c.id} className="flex items-center justify-between gap-2 rounded border px-3 py-1.5 text-sm">
-                      <span className={`font-mono ${c.used_at || expired ? "text-slate-400 line-through" : "text-slate-900"}`}>
+                      <span className={`font-mono ${c.used_at || expired ? "text-subtle line-through" : "text-primary"}`}>
                         {c.code}
                       </span>
                       {c.used_at ? (
-                        <span className="text-xs text-slate-400">использован</span>
+                        <span className="text-xs text-subtle">использован</span>
                       ) : expired ? (
-                        <span className="text-xs text-slate-400">истёк</span>
+                        <span className="text-xs text-subtle">истёк</span>
                       ) : (
                         <button
                           onClick={() => {
@@ -500,7 +500,7 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
                             });
                           }}
                           title="Скопировать"
-                          className="flex items-center gap-1 text-xs text-slate-500 hover:text-slate-900"
+                          className="flex items-center gap-1 text-xs text-subtle hover:text-primary"
                         >
                           {copiedCodeId === c.id ? (
                             <>
@@ -521,8 +521,8 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
           </div>
 
           <div className="mb-6">
-            <div className="mb-1 text-sm font-medium text-slate-900">Офлайн</div>
-            <div className="mb-2 text-xs text-slate-400">
+            <div className="mb-1 text-sm font-medium text-primary">Офлайн</div>
+            <div className="mb-2 text-xs text-subtle">
               Заметки, которые уже открывались, доступны без интернета всегда. Картинки и файлы — только если
               меньше этого размера (действует на новые загрузки, не пересчитывает уже закэшированное).
             </div>
@@ -535,10 +535,10 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
                 onChange={(e) => setMediaCacheLimitMbState(Number(e.target.value))}
                 className="w-24 rounded border px-3 py-1.5 text-sm"
               />
-              <span className="text-sm text-slate-500">МБ</span>
+              <span className="text-sm text-subtle">МБ</span>
               <button
                 onClick={handleSaveMediaCacheLimit}
-                className="rounded border border-slate-300 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50"
+                className="rounded border border-default px-3 py-1.5 text-sm text-secondary hover:bg-muted-hover"
               >
                 {mediaCacheSaved ? "Сохранено" : "Сохранить"}
               </button>
@@ -546,17 +546,17 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
           </div>
 
           <div>
-            <div className="mb-1 text-sm font-medium text-slate-900">Память ассистента</div>
-            <div className="mb-2 text-xs text-slate-400">
+            <div className="mb-1 text-sm font-medium text-primary">Память ассистента</div>
+            <div className="mb-2 text-xs text-subtle">
               Факты, которые ассистент помнит в каждом диалоге, не только когда сам что-то запомнил из
               разговора — например, что означают твои личные обозначения папок, город, состав семьи,
               устойчивые предпочтения. Чем больше здесь надёжных фактов, тем реже придётся объяснять
               одно и то же заново. Не стоит добавлять сюда точный домашний адрес и подобное — это
               заметки, а не факты для ассистента.
             </div>
-            {isLoading && <div className="text-sm text-slate-400">Загрузка…</div>}
+            {isLoading && <div className="text-sm text-subtle">Загрузка…</div>}
             {!isLoading && (memories ?? []).length === 0 && (
-              <div className="text-sm text-slate-400">Пока ничего не запомнено</div>
+              <div className="text-sm text-subtle">Пока ничего не запомнено</div>
             )}
             <ul className="space-y-1">
               {(memories ?? []).map((m) => (
@@ -565,7 +565,7 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
                   <button
                     onClick={() => deleteMemory.mutate(m.id)}
                     title="Удалить"
-                    className="flex h-6 w-6 shrink-0 items-center justify-center text-slate-300 hover:text-red-600"
+                    className="flex h-6 w-6 shrink-0 items-center justify-center text-subtle hover:text-danger"
                   >
                     <Trash2 size={13} />
                   </button>
@@ -585,7 +585,7 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
               <button
                 onClick={handleAddMemory}
                 disabled={addMemory.isPending || !newMemoryText.trim()}
-                className="flex shrink-0 items-center justify-center rounded bg-slate-900 px-3 py-1.5 text-sm text-white disabled:opacity-50"
+                className="flex shrink-0 items-center justify-center rounded bg-accent px-3 py-1.5 text-sm text-white disabled:opacity-50"
               >
                 {addMemory.isPending ? <Spinner size={14} className="text-white" /> : <Plus size={14} />}
               </button>

@@ -61,19 +61,19 @@ const NoteLinkSuggestionList = forwardRef<NoteLinkSuggestionListHandle, Props>((
   }));
 
   return (
-    <div className="max-h-64 w-64 overflow-y-auto rounded border bg-white py-1 shadow-lg">
-      {!query.trim() && <div className="px-3 py-2 text-xs text-slate-400">Начните вводить название заметки…</div>}
-      {query.trim() && loading && <div className="px-3 py-2 text-xs text-slate-400">Ищем…</div>}
+    <div className="max-h-64 w-64 overflow-y-auto rounded border bg-surface py-1 shadow-lg">
+      {!query.trim() && <div className="px-3 py-2 text-xs text-subtle">Начните вводить название заметки…</div>}
+      {query.trim() && loading && <div className="px-3 py-2 text-xs text-subtle">Ищем…</div>}
       {query.trim() && !loading && results.length === 0 && (
-        <div className="px-3 py-2 text-xs text-slate-400">Ничего не найдено</div>
+        <div className="px-3 py-2 text-xs text-subtle">Ничего не найдено</div>
       )}
       {results.map((item, i) => (
         <button
           key={item.id}
           onClick={() => command(item)}
-          className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm ${i === selected ? "bg-violet-50 text-violet-700" : "text-slate-700 hover:bg-slate-50"}`}
+          className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm ${i === selected ? "bg-brand/10 text-brand" : "text-secondary hover:bg-muted-hover"}`}
         >
-          <FileText size={14} className="shrink-0 text-slate-400" />
+          <FileText size={14} className="shrink-0 text-subtle" />
           <span className="truncate">{item.title || "Без названия"}</span>
         </button>
       ))}

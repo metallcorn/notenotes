@@ -7,9 +7,17 @@ import App from "./App";
 import { idbPersister } from "./lib/queryPersister";
 import { diagnosticLog } from "./lib/diagnostics";
 import { installForceRepaintOnVisible } from "./lib/forceRepaint";
+import { applyTheme } from "./lib/theme";
+import { uiStorage } from "./lib/storage";
 
 installForceRepaintOnVisible();
 import "./index.css";
+
+// Идемпотентно с инлайн-скриптом в index.html (тот уже поставил .dark до
+// первой отрисовки) — здесь довешивается <meta name="theme-color">,
+// который тот скрипт не трогает, плюс подстраховка на случай приватного
+// режима/недоступного localStorage там.
+applyTheme(uiStorage.getTheme());
 
 // Точечная диагностика бага "белый экран в standalone PWA" (см.
 // diagnostics.ts) — если причина в необработанном исключении где-то в

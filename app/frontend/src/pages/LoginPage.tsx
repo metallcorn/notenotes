@@ -33,12 +33,12 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="flex min-h-dvh items-center justify-center bg-slate-50 p-4">
-      <form onSubmit={onSubmit} className="w-full max-w-sm space-y-4 rounded-lg border bg-white p-6 shadow-sm">
-        <h1 className="text-xl font-semibold text-slate-900">Notenotes</h1>
-        {error && <p className="rounded bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
+    <div className="flex min-h-dvh items-center justify-center bg-muted p-4">
+      <form onSubmit={onSubmit} className="w-full max-w-sm space-y-4 rounded-lg border bg-surface p-6 shadow-sm">
+        <h1 className="text-xl font-semibold text-primary">Notenotes</h1>
+        {error && <p className="rounded bg-danger/10 px-3 py-2 text-sm text-danger">{error}</p>}
         <div className="space-y-1">
-          <label className="text-sm text-slate-600">Логин</label>
+          <label className="text-sm text-secondary">Логин</label>
           <input
             type="text"
             name="username"
@@ -53,7 +53,7 @@ export default function LoginPage() {
           />
         </div>
         <div className="space-y-1">
-          <label className="text-sm text-slate-600">Пароль</label>
+          <label className="text-sm text-secondary">Пароль</label>
           <div className="relative">
             <input
               type={showPassword ? "text" : "password"}
@@ -68,7 +68,7 @@ export default function LoginPage() {
               type="button"
               onClick={() => setShowPassword((v) => !v)}
               title={showPassword ? "Скрыть пароль" : "Показать пароль"}
-              className="absolute right-0 top-0 flex h-full w-10 items-center justify-center text-slate-400 hover:text-slate-700"
+              className="absolute right-0 top-0 flex h-full w-10 items-center justify-center text-subtle hover:text-secondary"
             >
               {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
             </button>
@@ -77,14 +77,14 @@ export default function LoginPage() {
         <button
           type="submit"
           disabled={login.isPending}
-          className="flex w-full items-center justify-center gap-2 rounded bg-slate-900 px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
+          className="flex w-full items-center justify-center gap-2 rounded bg-accent px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
         >
           {login.isPending && <Spinner />}
           {login.isPending ? "Входим…" : "Войти"}
         </button>
-        <p className="text-center text-sm text-slate-500">
+        <p className="text-center text-sm text-subtle">
           Нет аккаунта?{" "}
-          <Link to="/register" className="text-slate-900 underline">
+          <Link to="/register" className="text-primary underline">
             Зарегистрироваться
           </Link>
         </p>

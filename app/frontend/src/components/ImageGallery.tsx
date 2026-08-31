@@ -16,7 +16,7 @@ export default function ImageGallery({
         <button
           key={i}
           onClick={() => onOpen(i)}
-          className="aspect-square overflow-hidden rounded border border-slate-200"
+          className="aspect-square overflow-hidden rounded border border-default"
         >
           <img src={img.src} alt={img.alt ?? ""} loading="lazy" className="h-full w-full object-cover" />
         </button>

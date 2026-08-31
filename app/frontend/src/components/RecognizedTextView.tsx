@@ -21,12 +21,12 @@ export const recognizedTextMarkdownComponents: Components = {
       <table className="border-collapse text-xs" {...props} />
     </div>
   ),
-  th: (props) => <th className="border border-slate-300 bg-slate-100 px-1.5 py-1 text-left font-medium" {...props} />,
-  td: (props) => <td className="border border-slate-300 px-1.5 py-1" {...props} />,
-  code: (props) => <code className="rounded bg-slate-100 px-1 py-0.5 text-[11px]" {...props} />,
-  pre: (props) => <pre className="mb-1.5 overflow-x-auto rounded bg-slate-100 p-2 text-[11px] last:mb-0" {...props} />,
+  th: (props) => <th className="border border-default bg-muted-hover px-1.5 py-1 text-left font-medium" {...props} />,
+  td: (props) => <td className="border border-default px-1.5 py-1" {...props} />,
+  code: (props) => <code className="rounded bg-muted-hover px-1 py-0.5 text-[11px]" {...props} />,
+  pre: (props) => <pre className="mb-1.5 overflow-x-auto rounded bg-muted-hover p-2 text-[11px] last:mb-0" {...props} />,
   a: ({ node: _node, ...props }) => (
-    <a {...props} target="_blank" rel="noopener noreferrer" className="text-blue-600 underline" />
+    <a {...props} target="_blank" rel="noopener noreferrer" className="text-link underline" />
   ),
 };
 
@@ -67,17 +67,17 @@ export function RecognizedTextCopyButtons({ text }: { text: string }) {
         type="button"
         onClick={copyFormatted}
         title="Скопировать форматированным (для Docs/Word/Notion)"
-        className="flex h-9 w-9 shrink-0 items-center justify-center text-slate-400 hover:text-slate-700"
+        className="flex h-9 w-9 shrink-0 items-center justify-center text-subtle hover:text-secondary"
       >
-        {copiedKind === "formatted" ? <Check size={14} className="text-emerald-600" /> : <Copy size={14} />}
+        {copiedKind === "formatted" ? <Check size={14} className="text-success" /> : <Copy size={14} />}
       </button>
       <button
         type="button"
         onClick={copyMarkdown}
         title="Скопировать как Markdown"
-        className="flex h-9 shrink-0 items-center justify-center px-2 text-[10px] font-medium text-slate-400 hover:text-slate-700"
+        className="flex h-9 shrink-0 items-center justify-center px-2 text-[10px] font-medium text-subtle hover:text-secondary"
       >
-        {copiedKind === "md" ? <Check size={14} className="text-emerald-600" /> : "MD"}
+        {copiedKind === "md" ? <Check size={14} className="text-success" /> : "MD"}
       </button>
       <div ref={hiddenMdRef} className="hidden">
         <ReactMarkdown remarkPlugins={[remarkGfm]} components={recognizedTextMarkdownComponents}>
@@ -182,7 +182,7 @@ export function ExpandedTextPanel({ anchorRef, text }: { anchorRef: React.RefObj
   return createPortal(
     <div
       style={{ top: pos.top, bottom: pos.bottom, left: pos.left, width: pos.width, maxHeight: pos.maxHeight }}
-      className="fixed z-40 overflow-y-auto rounded border bg-white p-3 text-xs text-slate-700 shadow-lg"
+      className="fixed z-40 overflow-y-auto rounded border bg-surface p-3 text-xs text-secondary shadow-lg"
     >
       <ReactMarkdown remarkPlugins={[remarkGfm]} components={recognizedTextMarkdownComponents}>
         {text}
@@ -210,12 +210,12 @@ const readerMarkdownComponents: Components = {
       <table className="border-collapse text-sm" {...props} />
     </div>
   ),
-  th: (props) => <th className="border border-slate-300 bg-slate-100 px-2 py-1.5 text-left font-medium" {...props} />,
-  td: (props) => <td className="border border-slate-300 px-2 py-1.5" {...props} />,
-  code: (props) => <code className="rounded bg-slate-100 px-1.5 py-0.5 text-sm" {...props} />,
-  pre: (props) => <pre className="mb-4 overflow-x-auto rounded bg-slate-100 p-3 text-sm last:mb-0" {...props} />,
+  th: (props) => <th className="border border-default bg-muted-hover px-2 py-1.5 text-left font-medium" {...props} />,
+  td: (props) => <td className="border border-default px-2 py-1.5" {...props} />,
+  code: (props) => <code className="rounded bg-muted-hover px-1.5 py-0.5 text-sm" {...props} />,
+  pre: (props) => <pre className="mb-4 overflow-x-auto rounded bg-muted-hover p-3 text-sm last:mb-0" {...props} />,
   a: ({ node: _node, ...props }) => (
-    <a {...props} target="_blank" rel="noopener noreferrer" className="text-blue-600 underline" />
+    <a {...props} target="_blank" rel="noopener noreferrer" className="text-link underline" />
   ),
 };
 
@@ -229,22 +229,22 @@ function FullscreenTextReader({ text, onClose }: { text: string; onClose: () => 
   }, [onClose]);
 
   return createPortal(
-    <div className="fixed inset-0 z-50 flex flex-col bg-white">
+    <div className="fixed inset-0 z-50 flex flex-col bg-surface">
       <div className="flex items-center justify-between gap-2 border-b px-4 py-2.5 sm:px-6">
-        <div className="text-sm font-medium text-slate-500">Распознанный текст</div>
+        <div className="text-sm font-medium text-subtle">Распознанный текст</div>
         <div className="flex items-center gap-1">
           <RecognizedTextCopyButtons text={text} />
           <button
             onClick={onClose}
             title="Закрыть (Esc)"
-            className="flex h-9 w-9 shrink-0 items-center justify-center text-slate-400 hover:text-slate-700"
+            className="flex h-9 w-9 shrink-0 items-center justify-center text-subtle hover:text-secondary"
           >
             <X size={18} />
           </button>
         </div>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto max-w-2xl px-4 py-8 text-base text-slate-800 sm:px-6">
+        <div className="mx-auto max-w-2xl px-4 py-8 text-base text-primary sm:px-6">
           <ReactMarkdown remarkPlugins={[remarkGfm]} components={readerMarkdownComponents}>
             {text}
           </ReactMarkdown>
@@ -265,7 +265,7 @@ export function ReadFullscreenButton({ text }: { text: string }) {
       <button
         onClick={() => setOpen(true)}
         title="Читать целиком"
-        className="flex h-9 w-9 shrink-0 items-center justify-center text-slate-400 hover:text-slate-700"
+        className="flex h-9 w-9 shrink-0 items-center justify-center text-subtle hover:text-secondary"
       >
         <Maximize2 size={14} />
       </button>

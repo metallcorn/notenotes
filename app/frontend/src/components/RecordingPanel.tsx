@@ -286,7 +286,7 @@ export default function RecordingPanel({
       <div className="pointer-events-none fixed inset-0 z-50 flex items-center justify-center p-4 lg:items-stretch lg:justify-end lg:p-0">
         <div
           style={isDesktop ? { width } : undefined}
-          className="panel-slide-in pointer-events-auto relative flex h-auto w-full max-w-xl flex-col overflow-hidden rounded-lg bg-white shadow-xl lg:h-full lg:max-w-none lg:rounded-none lg:border-l lg:shadow-2xl"
+          className="panel-slide-in pointer-events-auto relative flex h-auto w-full max-w-xl flex-col overflow-hidden rounded-lg bg-surface shadow-xl lg:h-full lg:max-w-none lg:rounded-none lg:border-l lg:shadow-2xl"
         >
           <div
             onPointerDown={onHandlePointerDown}
@@ -295,8 +295,8 @@ export default function RecordingPanel({
             className="absolute -left-1 top-0 hidden h-full w-2 cursor-col-resize touch-none lg:block"
           />
           <div className="flex items-center justify-between border-b px-3 py-2">
-            <span className="text-sm font-medium text-slate-500">Запись</span>
-            <button onClick={handleClose} className="flex h-7 w-7 items-center justify-center rounded text-slate-400 hover:bg-slate-100">
+            <span className="text-sm font-medium text-subtle">Запись</span>
+            <button onClick={handleClose} className="flex h-7 w-7 items-center justify-center rounded text-subtle hover:bg-muted-hover">
               <X size={16} />
             </button>
           </div>
@@ -304,12 +304,12 @@ export default function RecordingPanel({
           <div className="flex flex-col items-center gap-4 px-6 py-8">
             {phase === "idle" && (
               <>
-                <p className="text-center text-sm text-slate-500">
+                <p className="text-center text-sm text-subtle">
                   Запись сохраняется по ходу — можно продолжать редактировать заметку, пока идёт запись.
                 </p>
                 <button
                   onClick={handleStart}
-                  className="flex items-center gap-2 rounded-full bg-slate-900 px-5 py-2.5 text-sm text-white hover:bg-slate-800"
+                  className="flex items-center gap-2 rounded-full bg-accent px-5 py-2.5 text-sm text-white hover:bg-accent/90"
                 >
                   <Mic size={16} />
                   Начать запись
@@ -317,18 +317,18 @@ export default function RecordingPanel({
               </>
             )}
 
-            {phase === "starting" && <p className="text-sm text-slate-500">Запрашиваю доступ к микрофону…</p>}
+            {phase === "starting" && <p className="text-sm text-subtle">Запрашиваю доступ к микрофону…</p>}
 
             {phase === "recording" && (
               <>
-                <div className="flex items-center gap-2 text-red-600">
-                  <span className="h-2 w-2 animate-pulse rounded-full bg-red-600" />
+                <div className="flex items-center gap-2 text-danger">
+                  <span className="h-2 w-2 animate-pulse rounded-full bg-danger" />
                   <span className="font-mono text-lg">{formatElapsed(elapsedSec)}</span>
                 </div>
                 <canvas ref={canvasRef} width={280} height={48} className="h-12 w-full max-w-xs" />
                 <button
                   onClick={handleStop}
-                  className="flex items-center gap-2 rounded-full border border-red-300 bg-red-50 px-5 py-2.5 text-sm text-red-600 hover:bg-red-100"
+                  className="flex items-center gap-2 rounded-full border border-danger/40 bg-danger/10 px-5 py-2.5 text-sm text-danger hover:bg-danger/15"
                 >
                   <Square size={14} />
                   Остановить
@@ -336,14 +336,14 @@ export default function RecordingPanel({
               </>
             )}
 
-            {phase === "finishing" && <p className="text-sm text-slate-500">Заканчиваю запись…</p>}
+            {phase === "finishing" && <p className="text-sm text-subtle">Заканчиваю запись…</p>}
 
             {phase === "done" && (
               <>
-                <p className="text-center text-sm text-slate-600">
+                <p className="text-center text-sm text-secondary">
                   Запись отправлена на распознавание — результат появится в заметке через какое-то время.
                 </p>
-                <button onClick={onClose} className="rounded bg-slate-900 px-4 py-2 text-sm text-white hover:bg-slate-800">
+                <button onClick={onClose} className="rounded bg-accent px-4 py-2 text-sm text-white hover:bg-accent/90">
                   Готово
                 </button>
               </>
@@ -351,8 +351,8 @@ export default function RecordingPanel({
 
             {phase === "error" && (
               <>
-                <p className="text-center text-sm text-red-600">{errorMessage}</p>
-                <button onClick={handleStart} className="rounded border px-4 py-2 text-sm text-slate-600 hover:bg-slate-50">
+                <p className="text-center text-sm text-danger">{errorMessage}</p>
+                <button onClick={handleStart} className="rounded border px-4 py-2 text-sm text-secondary hover:bg-muted-hover">
                   Попробовать снова
                 </button>
               </>

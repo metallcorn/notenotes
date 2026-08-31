@@ -38,7 +38,7 @@ export default function TableEditor({
 
   if (!table) {
     return (
-      <div className="flex h-full items-center justify-center text-slate-400">
+      <div className="flex h-full items-center justify-center text-subtle">
         <Spinner />
       </div>
     );
@@ -49,7 +49,7 @@ export default function TableEditor({
       <div className="flex items-center gap-1 border-b p-3">
         <button
           onClick={onBack}
-          className="-ml-1 flex h-8 w-8 shrink-0 items-center justify-center text-slate-500 lg:hidden"
+          className="-ml-1 flex h-8 w-8 shrink-0 items-center justify-center text-subtle lg:hidden"
         >
           <ChevronLeft size={18} />
         </button>
@@ -58,19 +58,19 @@ export default function TableEditor({
           onChange={(e) => setTitle(e.target.value)}
           onBlur={saveTitle}
           placeholder="Название таблицы"
-          className="min-w-0 flex-1 truncate border-none bg-transparent text-sm font-medium text-slate-900 outline-none"
+          className="min-w-0 flex-1 truncate border-none bg-transparent text-sm font-medium text-primary outline-none"
         />
         <a
           href={`/api/tables/${table.id}/export.csv`}
           title="Экспорт в CSV"
-          className="flex h-8 w-8 shrink-0 items-center justify-center text-slate-400 hover:text-slate-700"
+          className="flex h-8 w-8 shrink-0 items-center justify-center text-subtle hover:text-secondary"
         >
           <Download size={15} />
         </a>
         <button
           title="Удалить таблицу"
           onClick={() => setConfirmingDelete(true)}
-          className="flex h-8 w-8 shrink-0 items-center justify-center text-slate-400 hover:text-red-600"
+          className="flex h-8 w-8 shrink-0 items-center justify-center text-subtle hover:text-danger"
         >
           <Trash2 size={16} />
         </button>

@@ -44,20 +44,20 @@ export default function FolderMoveModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
-      <div onClick={(e) => e.stopPropagation()} className="w-full max-w-sm rounded-lg bg-white p-4 shadow-xl">
-        <div className="mb-1 text-sm font-medium text-slate-900">Перенести папку «{folder.name}»</div>
-        <div className="mb-3 text-xs text-slate-500">
+      <div onClick={(e) => e.stopPropagation()} className="w-full max-w-sm rounded-lg bg-surface p-4 shadow-xl">
+        <div className="mb-1 text-sm font-medium text-primary">Перенести папку «{folder.name}»</div>
+        <div className="mb-3 text-xs text-subtle">
           Все заметки, списки, таблицы и вложенные папки внутри переедут вместе с ней.
         </div>
         {candidates.length === 0 ? (
-          <div className="text-sm text-slate-400">Нет других доступных спейсов (сейфы не поддерживаются)</div>
+          <div className="text-sm text-subtle">Нет других доступных спейсов (сейфы не поддерживаются)</div>
         ) : (
           <ul className="max-h-64 space-y-0.5 overflow-y-auto">
             {candidates.map((space) => (
               <li key={space.id}>
                 <button
                   onClick={() => setTargetSpaceId(space.id)}
-                  className="block w-full rounded px-2 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-100"
+                  className="block w-full rounded px-2 py-1.5 text-left text-sm text-secondary hover:bg-muted-hover"
                 >
                   {space.name}
                 </button>
@@ -66,7 +66,7 @@ export default function FolderMoveModal({
           </ul>
         )}
         <div className="mt-3 flex justify-end">
-          <button onClick={onClose} className="rounded px-3 py-1.5 text-sm text-slate-500 hover:bg-slate-100">
+          <button onClick={onClose} className="rounded px-3 py-1.5 text-sm text-subtle hover:bg-muted-hover">
             Отмена
           </button>
         </div>

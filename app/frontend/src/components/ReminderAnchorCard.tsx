@@ -23,10 +23,10 @@ export default function ReminderAnchorCard({ node }: NodeViewProps) {
 
   const Icon = resolved ? Check : overdue ? AlertTriangle : AlarmClock;
   const colorClass = resolved
-    ? "border-green-300 bg-green-50 text-green-700"
+    ? "border-success/40 bg-success/10 text-success"
     : overdue
-      ? "border-amber-300 bg-amber-50 text-amber-700"
-      : "border-slate-300 bg-slate-50 text-slate-600";
+      ? "border-warning/40 bg-warning/10 text-warning"
+      : "border-default bg-muted text-secondary";
 
   const tooltip = notification
     ? resolved

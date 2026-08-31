@@ -64,12 +64,12 @@ export default function VaultChangePasswordModal({
       <form
         onClick={(e) => e.stopPropagation()}
         onSubmit={onSubmit}
-        className="w-full max-w-sm rounded-lg bg-white p-4 shadow-xl"
+        className="w-full max-w-sm rounded-lg bg-surface p-4 shadow-xl"
       >
-        <div className="mb-1 flex items-center gap-1.5 text-sm font-medium text-slate-900">
+        <div className="mb-1 flex items-center gap-1.5 text-sm font-medium text-primary">
           <KeyRound size={14} /> Сменить пароль сейфа «{spaceName}»
         </div>
-        <p className="mb-3 text-xs text-slate-500">
+        <p className="mb-3 text-xs text-subtle">
           Все заметки и файлы в сейфе будут перешифрованы новым паролем. Если файлов много, это займёт
           время — не закрывайте вкладку, пока идёт смена.
         </p>
@@ -98,20 +98,20 @@ export default function VaultChangePasswordModal({
           disabled={busy}
           className="w-full rounded border px-3 py-2 text-sm disabled:opacity-50"
         />
-        {error && <div className="mt-2 text-xs text-red-600">{error}</div>}
+        {error && <div className="mt-2 text-xs text-danger">{error}</div>}
         <div className="mt-3 flex justify-end gap-2">
           <button
             type="button"
             onClick={onClose}
             disabled={busy}
-            className="rounded px-3 py-1.5 text-sm text-slate-500 hover:bg-slate-100 disabled:opacity-50"
+            className="rounded px-3 py-1.5 text-sm text-subtle hover:bg-muted-hover disabled:opacity-50"
           >
             Отмена
           </button>
           <button
             type="submit"
             disabled={busy}
-            className="flex items-center gap-1.5 rounded bg-slate-900 px-3 py-1.5 text-sm text-white disabled:opacity-50"
+            className="flex items-center gap-1.5 rounded bg-accent px-3 py-1.5 text-sm text-white disabled:opacity-50"
           >
             {busy && <Spinner size={12} />}
             {busy ? "Меняем…" : "Сменить пароль"}

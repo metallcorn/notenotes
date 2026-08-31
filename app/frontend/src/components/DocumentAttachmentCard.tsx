@@ -34,7 +34,7 @@ function PdfPreviewOverlay({ url, onClose }: { url: string; onClose: () => void 
           (скролл/зум/его кнопки), поэтому закрытие только по ✕/Escape, не
           по клику на содержимое или фон — иначе случайный клик по PDF
           закрывал бы весь оверлей. */}
-      <iframe src={url} title={url} className="min-h-0 w-full flex-1 rounded bg-white" />
+      <iframe src={url} title={url} className="min-h-0 w-full flex-1 rounded bg-surface" />
     </div>
   );
 }
@@ -94,7 +94,7 @@ export default function DocumentAttachmentCard({ node, editor }: NodeViewProps) 
     // draggable теперь ТОЛЬКО на строке с именем файла (dragstart
     // всплывает, обработчик NodeViewWrapper всё равно сработает).
     <NodeViewWrapper as="div" className="my-1">
-      <div ref={cardRef} className="max-w-md overflow-hidden rounded border bg-slate-50">
+      <div ref={cardRef} className="max-w-md overflow-hidden rounded border bg-muted">
         {thumbnailUrl && (
           <img
             src={thumbnailUrl}
@@ -108,9 +108,9 @@ export default function DocumentAttachmentCard({ node, editor }: NodeViewProps) 
           {isPdf ? (
             <button
               onClick={() => setPreviewOpen(true)}
-              className="flex min-w-0 flex-1 items-center gap-2 px-3 py-2 text-left text-sm text-slate-800 hover:bg-slate-100"
+              className="flex min-w-0 flex-1 items-center gap-2 px-3 py-2 text-left text-sm text-primary hover:bg-muted-hover"
             >
-              <FileText size={16} className="shrink-0 text-red-500" />
+              <FileText size={16} className="shrink-0 text-danger" />
               <span className="max-w-xs truncate font-medium">{filename || url}</span>
             </button>
           ) : (
@@ -118,9 +118,9 @@ export default function DocumentAttachmentCard({ node, editor }: NodeViewProps) 
               href={url}
               target="_blank"
               rel="noopener noreferrer"
-              className="flex min-w-0 flex-1 items-center gap-2 px-3 py-2 text-sm text-slate-800 no-underline hover:bg-slate-100"
+              className="flex min-w-0 flex-1 items-center gap-2 px-3 py-2 text-sm text-primary no-underline hover:bg-muted-hover"
             >
-              <File size={16} className="shrink-0 text-slate-400" />
+              <File size={16} className="shrink-0 text-subtle" />
               <span className="max-w-xs truncate font-medium">{filename || url}</span>
             </a>
           )}
@@ -129,7 +129,7 @@ export default function DocumentAttachmentCard({ node, editor }: NodeViewProps) 
               href={url}
               download={filename || undefined}
               title="Скачать"
-              className="flex h-9 w-9 shrink-0 items-center justify-center text-slate-400 hover:text-slate-700"
+              className="flex h-9 w-9 shrink-0 items-center justify-center text-subtle hover:text-secondary"
             >
               <Download size={14} />
             </a>
@@ -139,7 +139,7 @@ export default function DocumentAttachmentCard({ node, editor }: NodeViewProps) 
               onClick={handleReprocessWithConfirm}
               disabled={reprocess.isPending}
               title="Распознать заново"
-              className="flex h-9 w-9 shrink-0 items-center justify-center text-slate-400 hover:text-slate-700 disabled:opacity-50"
+              className="flex h-9 w-9 shrink-0 items-center justify-center text-subtle hover:text-secondary disabled:opacity-50"
             >
               {reprocess.isPending ? <Spinner size={14} /> : <RotateCw size={14} />}
             </button>
@@ -149,7 +149,7 @@ export default function DocumentAttachmentCard({ node, editor }: NodeViewProps) 
         </div>
 
         {processing ? (
-          <div className="flex items-center gap-1.5 border-t px-3 py-1.5 text-xs text-violet-600">
+          <div className="flex items-center gap-1.5 border-t px-3 py-1.5 text-xs text-brand">
             <Spinner size={12} />
             Распознаём…
           </div>
@@ -157,7 +157,7 @@ export default function DocumentAttachmentCard({ node, editor }: NodeViewProps) 
           text && (
             <button
               onClick={() => setExpanded((v) => !v)}
-              className="flex w-full items-center gap-1 border-t px-3 py-1.5 text-xs text-slate-500 hover:bg-slate-100"
+              className="flex w-full items-center gap-1 border-t px-3 py-1.5 text-xs text-subtle hover:bg-muted-hover"
             >
               {expanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
               {expanded
@@ -173,7 +173,7 @@ export default function DocumentAttachmentCard({ node, editor }: NodeViewProps) 
             <button
               onClick={handleReprocess}
               disabled={reprocess.isPending}
-              className="flex items-center gap-1.5 text-xs text-violet-600 hover:opacity-80 disabled:opacity-50"
+              className="flex items-center gap-1.5 text-xs text-brand hover:opacity-80 disabled:opacity-50"
             >
               {reprocess.isPending ? <Spinner size={12} /> : null}
               Распознать текст
@@ -182,7 +182,7 @@ export default function DocumentAttachmentCard({ node, editor }: NodeViewProps) 
                 результата — молча ждать клика неочевидно. Точную причину
                 (>5 МБ vs выключенная автообработка) фронт не знает
                 достоверно, поэтому формулировка общая, не точечная. */}
-            <div className="mt-0.5 text-[11px] text-slate-400">
+            <div className="mt-0.5 text-[11px] text-subtle">
               Не распознано автоматически — файл больше 5 МБ или автообработка выключена в настройках
             </div>
           </div>

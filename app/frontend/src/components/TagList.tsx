@@ -35,8 +35,8 @@ export default function TagList({
   return (
     <div className="mb-4">
       <div className="mb-1 flex items-center justify-between">
-        <span className="text-xs font-medium uppercase tracking-wide text-slate-400">Теги</span>
-        <button onClick={() => setAdding((v) => !v)} className="text-xs text-slate-400 hover:text-slate-700">
+        <span className="text-xs font-medium uppercase tracking-wide text-subtle">Теги</span>
+        <button onClick={() => setAdding((v) => !v)} className="text-xs text-subtle hover:text-secondary">
           + новый
         </button>
       </div>
@@ -46,7 +46,7 @@ export default function TagList({
             <button
               onClick={() => onSelect(selectedTagId === tag.id ? null : tag.id)}
               className={`flex-1 truncate text-left ${
-                selectedTagId === tag.id ? "font-medium text-slate-900" : "text-slate-600 hover:text-slate-900"
+                selectedTagId === tag.id ? "font-medium text-primary" : "text-secondary hover:text-primary"
               }`}
             >
               #{tag.name}
@@ -55,21 +55,21 @@ export default function TagList({
               <button
                 title="Переименовать"
                 onClick={() => setRenaming(tag)}
-                className="flex h-6 w-6 items-center justify-center text-slate-400 hover:text-slate-700"
+                className="flex h-6 w-6 items-center justify-center text-subtle hover:text-secondary"
               >
                 <Pencil size={12} />
               </button>
               <button
                 title="Слить с другим тегом"
                 onClick={() => setMerging(tag)}
-                className="flex h-6 w-6 items-center justify-center text-slate-400 hover:text-slate-700"
+                className="flex h-6 w-6 items-center justify-center text-subtle hover:text-secondary"
               >
                 <Shuffle size={12} />
               </button>
               <button
                 title="Удалить"
                 onClick={() => setDeleting(tag)}
-                className="flex h-6 w-6 items-center justify-center text-slate-400 hover:text-red-600"
+                className="flex h-6 w-6 items-center justify-center text-subtle hover:text-danger"
               >
                 <X size={14} />
               </button>
@@ -89,7 +89,7 @@ export default function TagList({
           <button
             type="submit"
             disabled={createTag.isPending}
-            className="flex shrink-0 items-center justify-center gap-1 rounded bg-slate-900 px-2 py-1 text-xs text-white disabled:opacity-50"
+            className="flex shrink-0 items-center justify-center gap-1 rounded bg-accent px-2 py-1 text-xs text-white disabled:opacity-50"
           >
             {createTag.isPending ? <Spinner size={12} /> : "OK"}
           </button>
@@ -100,7 +100,7 @@ export default function TagList({
               setAdding(false);
             }}
             title="Отменить"
-            className="flex shrink-0 items-center justify-center rounded border px-2 py-1 text-xs text-slate-500 hover:bg-slate-100"
+            className="flex shrink-0 items-center justify-center rounded border px-2 py-1 text-xs text-subtle hover:bg-muted-hover"
           >
             <X size={14} />
           </button>
@@ -137,8 +137,8 @@ export default function TagList({
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
           onClick={() => setMerging(null)}
         >
-          <div onClick={(e) => e.stopPropagation()} className="w-full max-w-sm rounded-lg bg-white p-4 shadow-xl">
-            <div className="mb-2 text-sm font-medium text-slate-900">Слить «{merging.name}» с каким тегом?</div>
+          <div onClick={(e) => e.stopPropagation()} className="w-full max-w-sm rounded-lg bg-surface p-4 shadow-xl">
+            <div className="mb-2 text-sm font-medium text-primary">Слить «{merging.name}» с каким тегом?</div>
             <div className="max-h-64 overflow-y-auto">
               {(tags ?? [])
                 .filter((t) => t.id !== merging.id)
@@ -149,17 +149,17 @@ export default function TagList({
                       mergeTag.mutate({ id: merging.id, targetTagId: t.id });
                       setMerging(null);
                     }}
-                    className="block w-full rounded px-2 py-1.5 text-left text-sm hover:bg-slate-100"
+                    className="block w-full rounded px-2 py-1.5 text-left text-sm hover:bg-muted-hover"
                   >
                     #{t.name}
                   </button>
                 ))}
-              {(tags ?? []).length <= 1 && <div className="px-2 py-1.5 text-sm text-slate-400">Других тегов нет</div>}
+              {(tags ?? []).length <= 1 && <div className="px-2 py-1.5 text-sm text-subtle">Других тегов нет</div>}
             </div>
             <div className="mt-3 flex justify-end">
               <button
                 onClick={() => setMerging(null)}
-                className="rounded px-3 py-1.5 text-sm text-slate-500 hover:bg-slate-100"
+                className="rounded px-3 py-1.5 text-sm text-subtle hover:bg-muted-hover"
               >
                 Отмена
               </button>

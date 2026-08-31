@@ -43,7 +43,7 @@ export default function TableEmbedCard({ node, editor, getPos }: NodeViewProps) 
   if (isError) {
     return (
       <NodeViewWrapper as="div" className="my-1">
-        <div className="max-w-md rounded border border-dashed bg-slate-50 px-3 py-2 text-sm text-slate-400">
+        <div className="max-w-md rounded border border-dashed bg-muted px-3 py-2 text-sm text-subtle">
           Таблица удалена или недоступна
         </div>
       </NodeViewWrapper>
@@ -53,7 +53,7 @@ export default function TableEmbedCard({ node, editor, getPos }: NodeViewProps) 
   if (isLoading || !table) {
     return (
       <NodeViewWrapper as="div" className="my-1">
-        <div className="flex max-w-md items-center justify-center rounded border bg-slate-50 px-3 py-4">
+        <div className="flex max-w-md items-center justify-center rounded border bg-muted px-3 py-4">
           <Spinner size={16} />
         </div>
       </NodeViewWrapper>
@@ -62,28 +62,28 @@ export default function TableEmbedCard({ node, editor, getPos }: NodeViewProps) 
 
   return (
     <NodeViewWrapper as="div" className="my-1">
-      <div data-testid="table-embed-card" className="overflow-hidden rounded border bg-white">
-        <div data-drag-handle draggable className="flex items-center gap-2 border-b bg-slate-50 px-3 py-2">
-          <TableIcon size={15} className="shrink-0 text-slate-400" />
+      <div data-testid="table-embed-card" className="overflow-hidden rounded border bg-surface">
+        <div data-drag-handle draggable className="flex items-center gap-2 border-b bg-muted px-3 py-2">
+          <TableIcon size={15} className="shrink-0 text-subtle" />
           <input
             value={title}
             onChange={(e) => setTitle(e.target.value)}
             onBlur={saveTitle}
             onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
             placeholder="Название таблицы"
-            className="min-w-0 flex-1 truncate border-none bg-transparent text-sm font-medium text-slate-900 outline-none"
+            className="min-w-0 flex-1 truncate border-none bg-transparent text-sm font-medium text-primary outline-none"
           />
           <button
             onClick={() => setSearchParams({ item: table.id })}
             title="Открыть как отдельную страницу"
-            className="flex h-7 w-7 shrink-0 items-center justify-center text-slate-400 hover:text-slate-700"
+            className="flex h-7 w-7 shrink-0 items-center justify-center text-subtle hover:text-secondary"
           >
             <ExternalLink size={14} />
           </button>
           <button
             onClick={unlink}
             title="Отвязать от заметки (сама таблица не удалится)"
-            className="flex h-7 w-7 shrink-0 items-center justify-center text-slate-400 hover:text-red-600"
+            className="flex h-7 w-7 shrink-0 items-center justify-center text-subtle hover:text-danger"
           >
             <Unlink size={14} />
           </button>

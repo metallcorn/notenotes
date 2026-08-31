@@ -34,14 +34,14 @@ export default class ErrorBoundary extends Component<Props, State> {
     if (this.state.error) {
       return (
         <div className="flex min-h-dvh flex-col items-center justify-center gap-3 p-6 text-center">
-          <p className="text-lg font-medium text-slate-700">Что-то пошло не так</p>
-          <p className="max-w-sm text-sm text-slate-500">
+          <p className="text-lg font-medium text-secondary">Что-то пошло не так</p>
+          <p className="max-w-sm text-sm text-subtle">
             Экран сломался из-за неожиданной ошибки. Попробуйте обновить страницу — если повторится,
             оставьте отзыв кнопкой внизу справа, мы посмотрим.
           </p>
           <button
             onClick={() => window.location.reload()}
-            className="rounded bg-slate-900 px-4 py-2 text-sm text-white hover:bg-slate-800"
+            className="rounded bg-accent px-4 py-2 text-sm text-white hover:bg-accent/90"
           >
             Обновить страницу
           </button>

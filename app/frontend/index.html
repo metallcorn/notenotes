@@ -2,6 +2,24 @@
 <html lang="ru">
   <head>
     <meta charset="UTF-8" />
+    <!-- Тёмная тема (lib/theme.ts) — ставим класс СИНХРОННО, до того как
+         браузер что-либо нарисует. Без этого при загрузке в тёмной теме
+         страница на долю секунды мигала бы светлой, пока не догрузится и
+         не смонтируется React. localStorage читаем напрямую (тот же ключ,
+         что uiStorage.getTheme в lib/storage.ts) — этому скрипту неоткуда
+         импортировать TS-модуль. -->
+    <script>
+      (function () {
+        try {
+          var raw = localStorage.getItem("notenotes:theme");
+          var theme = raw ? JSON.parse(raw) : "system";
+          var isDark =
+            theme === "dark" ||
+            (theme === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+          if (isDark) document.documentElement.classList.add("dark");
+        } catch (e) {}
+      })();
+    </script>
     <!-- interactive-widget=resizes-content: без него Chrome на Android при
          открытии клавиатуры схлопывает только visualViewport, а layout
          viewport (и все dvh-размеры, см. index.css) остаётся прежним — низ

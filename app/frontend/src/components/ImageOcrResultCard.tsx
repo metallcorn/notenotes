@@ -62,11 +62,11 @@ export default function ImageOcrResultCard({ node }: NodeViewProps) {
     // draggable=true на NodeViewWrapper браузер распознаёт независимо от
     // data-drag-handle. draggable теперь ТОЛЬКО на строке с кнопкой ниже.
     <NodeViewWrapper as="div" className="my-1 inline-block max-w-full">
-      <div ref={cardRef} className="max-w-full rounded border bg-slate-50">
+      <div ref={cardRef} className="max-w-full rounded border bg-muted">
         <div data-drag-handle draggable className="flex items-center">
           <button
             onClick={() => setExpanded((v) => !v)}
-            className="flex min-w-0 flex-1 items-center gap-1 px-3 py-1.5 text-left text-xs text-slate-500 hover:bg-slate-100"
+            className="flex min-w-0 flex-1 items-center gap-1 px-3 py-1.5 text-left text-xs text-subtle hover:bg-muted-hover"
           >
             {expanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
             {expanded ? "Скрыть распознанный текст" : "Показать распознанный текст"}
@@ -75,7 +75,7 @@ export default function ImageOcrResultCard({ node }: NodeViewProps) {
             <button
               onClick={startEdit}
               title="Исправить текст вручную"
-              className="flex h-7 w-7 shrink-0 items-center justify-center text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+              className="flex h-7 w-7 shrink-0 items-center justify-center text-subtle hover:bg-muted-hover hover:text-secondary"
             >
               <Pencil size={13} />
             </button>
@@ -85,7 +85,7 @@ export default function ImageOcrResultCard({ node }: NodeViewProps) {
               onClick={handleReprocess}
               disabled={reprocess.isPending}
               title="Распознать заново"
-              className="flex h-7 w-7 shrink-0 items-center justify-center text-slate-400 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-50"
+              className="flex h-7 w-7 shrink-0 items-center justify-center text-subtle hover:bg-muted-hover hover:text-secondary disabled:opacity-50"
             >
               {reprocess.isPending ? <Spinner size={13} /> : <RotateCw size={13} />}
             </button>
@@ -100,22 +100,22 @@ export default function ImageOcrResultCard({ node }: NodeViewProps) {
               onChange={(e) => setDraft(e.target.value)}
               rows={10}
               autoFocus
-              className="w-full resize-y rounded border border-slate-300 p-2 font-mono text-xs text-slate-800 focus:border-violet-400 focus:outline-none"
+              className="w-full resize-y rounded border border-default p-2 font-mono text-xs text-primary focus:border-brand focus:outline-none"
             />
             <div className="mt-1.5 flex items-center justify-end gap-2">
               {updateTranscript.isError && (
-                <span className="mr-auto text-xs text-red-600">Не удалось сохранить</span>
+                <span className="mr-auto text-xs text-danger">Не удалось сохранить</span>
               )}
               <button
                 onClick={() => setEditing(false)}
-                className="rounded px-2 py-1 text-xs text-slate-500 hover:bg-slate-100"
+                className="rounded px-2 py-1 text-xs text-subtle hover:bg-muted-hover"
               >
                 Отмена
               </button>
               <button
                 onClick={() => void handleSave()}
                 disabled={updateTranscript.isPending || !draft.trim()}
-                className="flex items-center gap-1 rounded bg-violet-600 px-2.5 py-1 text-xs text-white hover:bg-violet-700 disabled:opacity-50"
+                className="flex items-center gap-1 rounded bg-brand px-2.5 py-1 text-xs text-white hover:bg-brand/90 disabled:opacity-50"
               >
                 {updateTranscript.isPending ? <Spinner size={12} /> : null}
                 Сохранить

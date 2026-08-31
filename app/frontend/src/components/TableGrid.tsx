@@ -42,7 +42,7 @@ function ColumnHeaderCell({
   }
 
   return (
-    <th className="whitespace-nowrap border-b bg-slate-50 px-2 py-1.5 text-left text-xs font-medium text-slate-600">
+    <th className="whitespace-nowrap border-b bg-muted px-2 py-1.5 text-left text-xs font-medium text-secondary">
       <div className="flex items-center gap-1">
         {editing ? (
           <input
@@ -54,14 +54,14 @@ function ColumnHeaderCell({
             className="min-w-0 flex-1 rounded border px-1 py-0.5 text-xs"
           />
         ) : (
-          <button onClick={() => setEditing(true)} className="min-w-0 flex-1 truncate text-left hover:text-slate-900">
+          <button onClick={() => setEditing(true)} className="min-w-0 flex-1 truncate text-left hover:text-primary">
             {column.name}
           </button>
         )}
         <select
           value={column.type}
           onChange={(e) => onTypeChange(e.target.value)}
-          className="shrink-0 rounded border-none bg-transparent text-xs text-slate-400 outline-none"
+          className="shrink-0 rounded border-none bg-transparent text-xs text-subtle outline-none"
         >
           {COLUMN_TYPES.map((t) => (
             <option key={t.value} value={t.value}>
@@ -69,7 +69,7 @@ function ColumnHeaderCell({
             </option>
           ))}
         </select>
-        <button onClick={onDelete} title="Удалить столбец" className="shrink-0 text-slate-300 hover:text-red-600">
+        <button onClick={onDelete} title="Удалить столбец" className="shrink-0 text-subtle hover:text-danger">
           <X size={13} />
         </button>
       </div>
@@ -96,7 +96,7 @@ function RowCell({
           type="checkbox"
           checked={value === "true"}
           onChange={(e) => onChange(e.target.checked ? "true" : "false")}
-          className="h-4 w-4 accent-slate-900"
+          className="h-4 w-4 accent-accent"
         />
       </td>
     );
@@ -154,7 +154,7 @@ export default function TableGrid({ tableId }: { tableId: string }) {
 
   if (!table) {
     return (
-      <div className="flex items-center justify-center p-6 text-slate-400">
+      <div className="flex items-center justify-center p-6 text-subtle">
         <Spinner />
       </div>
     );
@@ -163,7 +163,7 @@ export default function TableGrid({ tableId }: { tableId: string }) {
   return (
     <div>
       {table.columns.length === 0 ? (
-        <div className="p-3 text-sm text-slate-400">Пока нет ни одного столбца — добавьте первый ниже</div>
+        <div className="p-3 text-sm text-subtle">Пока нет ни одного столбца — добавьте первый ниже</div>
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full border-collapse text-sm">
@@ -178,12 +178,12 @@ export default function TableGrid({ tableId }: { tableId: string }) {
                     onDelete={() => deleteColumn.mutate(col.id)}
                   />
                 ))}
-                <th className="w-8 border-b bg-slate-50" />
+                <th className="w-8 border-b bg-muted" />
               </tr>
             </thead>
             <tbody>
               {table.rows.map((row) => (
-                <tr key={row.id} className="group hover:bg-slate-50">
+                <tr key={row.id} className="group hover:bg-muted-hover">
                   {table.columns.map((col) => (
                     <RowCell
                       key={col.id}
@@ -196,7 +196,7 @@ export default function TableGrid({ tableId }: { tableId: string }) {
                     <button
                       onClick={() => deleteRow.mutate(row.id)}
                       title="Удалить строку"
-                      className="text-slate-300 hover:text-red-600"
+                      className="text-subtle hover:text-danger"
                     >
                       <X size={14} />
                     </button>
@@ -220,7 +220,7 @@ export default function TableGrid({ tableId }: { tableId: string }) {
           <button
             type="submit"
             disabled={addColumn.isPending}
-            className="flex shrink-0 items-center justify-center gap-1 rounded bg-slate-900 px-2 py-1 text-xs text-white disabled:opacity-50"
+            className="flex shrink-0 items-center justify-center gap-1 rounded bg-accent px-2 py-1 text-xs text-white disabled:opacity-50"
           >
             {addColumn.isPending ? <Spinner size={12} /> : "OK"}
           </button>
@@ -231,7 +231,7 @@ export default function TableGrid({ tableId }: { tableId: string }) {
               setAddingColumn(false);
             }}
             title="Отменить"
-            className="flex shrink-0 items-center justify-center rounded border px-2 py-1 text-xs text-slate-500 hover:bg-slate-100"
+            className="flex shrink-0 items-center justify-center rounded border px-2 py-1 text-xs text-subtle hover:bg-muted-hover"
           >
             <X size={14} />
           </button>
@@ -239,7 +239,7 @@ export default function TableGrid({ tableId }: { tableId: string }) {
       ) : (
         <button
           onClick={() => setAddingColumn(true)}
-          className="mt-2 flex items-center gap-1 text-xs text-slate-400 hover:text-slate-700"
+          className="mt-2 flex items-center gap-1 text-xs text-subtle hover:text-secondary"
         >
           <Plus size={12} /> Столбец
         </button>
@@ -259,7 +259,7 @@ export default function TableGrid({ tableId }: { tableId: string }) {
           <button
             type="submit"
             disabled={addRow.isPending}
-            className="flex shrink-0 items-center justify-center rounded bg-slate-900 px-4 py-2 text-sm text-white disabled:opacity-50"
+            className="flex shrink-0 items-center justify-center rounded bg-accent px-4 py-2 text-sm text-white disabled:opacity-50"
           >
             {addRow.isPending ? <Spinner size={14} className="text-white" /> : <Plus size={14} />}
           </button>

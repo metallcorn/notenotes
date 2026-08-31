@@ -71,9 +71,9 @@ export default function FeedbackWidget() {
       <div
         ref={widgetRef}
         onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-sm rounded-lg border bg-white p-3 shadow-xl"
+        className="w-full max-w-sm rounded-lg border bg-surface p-3 shadow-xl"
       >
-        <div className="mb-2 text-sm font-medium text-slate-900">Отзыв</div>
+        <div className="mb-2 text-sm font-medium text-primary">Отзыв</div>
         <textarea
           autoFocus
           value={message}
@@ -82,16 +82,16 @@ export default function FeedbackWidget() {
           rows={4}
           className="w-full resize-none rounded border px-2 py-1.5 text-sm outline-none"
         />
-        {status === "error" && <p className="mt-1 text-xs text-red-600">Не отправилось, попробуйте ещё раз</p>}
-        {status === "sent" && <p className="mt-1 text-xs text-green-600">Отправлено, спасибо!</p>}
+        {status === "error" && <p className="mt-1 text-xs text-danger">Не отправилось, попробуйте ещё раз</p>}
+        {status === "sent" && <p className="mt-1 text-xs text-success">Отправлено, спасибо!</p>}
         <div className="mt-2 flex justify-end gap-2">
-          <button onClick={() => setOpen(false)} className="rounded px-2 py-1 text-xs text-slate-500 hover:bg-slate-100">
+          <button onClick={() => setOpen(false)} className="rounded px-2 py-1 text-xs text-subtle hover:bg-muted-hover">
             Отмена
           </button>
           <button
             onClick={submit}
             disabled={status === "sending" || !message.trim()}
-            className="rounded bg-slate-900 px-3 py-1 text-xs font-medium text-white disabled:opacity-50"
+            className="rounded bg-accent px-3 py-1 text-xs font-medium text-white disabled:opacity-50"
           >
             {status === "sending" ? "Отправка…" : "Отправить"}
           </button>

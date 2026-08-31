@@ -179,20 +179,20 @@ function MobileNoteActionsMenu({
 
   if (!pos) return null;
 
-  const itemClass = "flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50";
+  const itemClass = "flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-secondary hover:bg-muted-hover";
 
   return createPortal(
     <>
       <div className="fixed inset-0 z-40" onClick={onClose} />
-      <div style={{ top: pos.top, right: pos.right }} className="fixed z-50 w-56 rounded border bg-white py-1 shadow-lg">
-        <div className="px-3 py-1.5 text-xs font-medium text-slate-400">Режим</div>
+      <div style={{ top: pos.top, right: pos.right }} className="fixed z-50 w-56 rounded border bg-surface py-1 shadow-lg">
+        <div className="px-3 py-1.5 text-xs font-medium text-subtle">Режим</div>
         {(["view", "wysiwyg", "raw"] as const).map((m) => {
           const ModeIcon = MODE_ICON[m];
           return (
             <button
               key={m}
               onClick={() => switchMode(m)}
-              className={`${itemClass} ${mode === m ? "bg-slate-50 font-medium text-slate-900" : ""}`}
+              className={`${itemClass} ${mode === m ? "bg-muted font-medium text-primary" : ""}`}
             >
               <ModeIcon size={15} /> {MODE_LABEL[m]}
             </button>
@@ -210,7 +210,7 @@ function MobileNoteActionsMenu({
                 setShowColorPicker(false);
               }}
               title="Без цвета"
-              className="h-6 w-6 rounded-full border text-xs text-slate-400"
+              className="h-6 w-6 rounded-full border text-xs text-subtle"
             >
               ×
             </button>
@@ -292,7 +292,7 @@ function MobileNoteActionsMenu({
             onClose();
           }}
           disabled={deleteItem.isPending}
-          className={`${itemClass} text-red-600 hover:bg-red-50 disabled:opacity-50`}
+          className={`${itemClass} text-danger hover:bg-danger/10 disabled:opacity-50`}
         >
           <Trash2 size={15} /> Удалить заметку
         </button>
@@ -1342,7 +1342,7 @@ export default function NoteEditor({
   }
 
   if (!item) {
-    return <div className="flex h-full items-center justify-center text-slate-400">Загрузка…</div>;
+    return <div className="flex h-full items-center justify-center text-subtle">Загрузка…</div>;
   }
 
   const availableTags = (allTags ?? []).filter((t) => !item.tags.some((it) => it.id === t.id));
@@ -1395,7 +1395,7 @@ export default function NoteEditor({
         <div className="flex items-center gap-2 p-3 pb-2">
           <button
             onClick={onBack}
-            className="-ml-1 flex h-8 w-8 shrink-0 items-center justify-center text-slate-500 lg:hidden"
+            className="-ml-1 flex h-8 w-8 shrink-0 items-center justify-center text-subtle lg:hidden"
           >
             <ChevronLeft size={18} />
           </button>
@@ -1403,14 +1403,14 @@ export default function NoteEditor({
             <button
               onClick={() => setShowEmojiPicker((v) => !v)}
               title="Иконка заметки"
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded border text-lg hover:bg-slate-50"
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded border text-lg hover:bg-muted-hover"
             >
               {item.icon || "🙂"}
             </button>
             {showEmojiPicker && (
               <Suspense
                 fallback={
-                  <div className="absolute z-20 mt-1 flex h-24 w-24 items-center justify-center rounded border bg-white shadow-lg">
+                  <div className="absolute z-20 mt-1 flex h-24 w-24 items-center justify-center rounded border bg-surface shadow-lg">
                     <Spinner size={20} />
                   </div>
                 }
@@ -1430,24 +1430,24 @@ export default function NoteEditor({
             className="min-w-0 flex-1 text-lg font-semibold outline-none"
           />
           <div className="hidden shrink-0 items-center gap-1 md:flex">
-            <span className="mr-1 flex items-center gap-1 whitespace-nowrap text-xs text-slate-400">
+            <span className="mr-1 flex items-center gap-1 whitespace-nowrap text-xs text-subtle">
               {(collabStatus === "connecting" || collabStatus === "stale") && (
                 <>
                   <Spinner size={12} /> {collabStatus === "stale" ? "Обновляем…" : "Подключение…"}
                 </>
               )}
               {collabStatus === "disconnected" && (
-                <span className="flex items-center gap-1 text-amber-600" title="Нет связи — редактирование заблокировано">
+                <span className="flex items-center gap-1 text-warning" title="Нет связи — редактирование заблокировано">
                   <WifiOff size={12} /> Нет связи
                 </span>
               )}
               {collabStatus === "connected" && (
-                <span title="Совместное редактирование" className="flex items-center text-emerald-500">
+                <span title="Совместное редактирование" className="flex items-center text-success">
                   <Users size={12} />
                 </span>
               )}
               {updateAvailable ? (
-                <span className="text-amber-600" title="Правки не сохраняются — обновите страницу (баннер сверху)">
+                <span className="text-warning" title="Правки не сохраняются — обновите страницу (баннер сверху)">
                   Не сохраняется — обновите вкладку
                 </span>
               ) : (
@@ -1465,7 +1465,7 @@ export default function NoteEditor({
                     key={m}
                     onClick={() => switchMode(m)}
                     title={MODE_LABEL[m]}
-                    className={`flex h-8 w-8 items-center justify-center ${mode === m ? "bg-slate-900 text-white" : "text-slate-500 hover:bg-slate-50"}`}
+                    className={`flex h-8 w-8 items-center justify-center ${mode === m ? "bg-accent text-white" : "text-subtle hover:bg-muted-hover"}`}
                   >
                     <ModeIcon size={16} />
                   </button>
@@ -1476,19 +1476,19 @@ export default function NoteEditor({
               <button
                 onClick={() => setShowColorPicker((v) => !v)}
                 title="Цвет заголовка"
-                className="flex h-8 w-8 items-center justify-center rounded border text-slate-600 hover:bg-slate-50"
+                className="flex h-8 w-8 items-center justify-center rounded border text-secondary hover:bg-muted-hover"
               >
                 <Palette size={16} />
               </button>
               {showColorPicker && (
-                <div className="absolute right-0 z-20 mt-1 flex w-40 flex-wrap gap-1 rounded border bg-white p-2 shadow-lg">
+                <div className="absolute right-0 z-20 mt-1 flex w-40 flex-wrap gap-1 rounded border bg-surface p-2 shadow-lg">
                   <button
                     onClick={() => {
                       updateItem.mutate({ id: item.id, color: null });
                       setShowColorPicker(false);
                     }}
                     title="Без цвета"
-                    className="h-6 w-6 rounded-full border text-xs text-slate-400"
+                    className="h-6 w-6 rounded-full border text-xs text-subtle"
                   >
                     ×
                   </button>
@@ -1509,7 +1509,7 @@ export default function NoteEditor({
             <button
               onClick={() => updateItem.mutate({ id: item.id, pinned: !item.pinned })}
               title={item.pinned ? "Открепить" : "Закрепить как важное"}
-              className={`flex h-8 w-8 items-center justify-center rounded border ${item.pinned ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-slate-50"}`}
+              className={`flex h-8 w-8 items-center justify-center rounded border ${item.pinned ? "bg-accent text-white" : "text-secondary hover:bg-muted-hover"}`}
             >
               {item.pinned ? <PinOff size={16} /> : <Pin size={16} />}
             </button>
@@ -1517,7 +1517,7 @@ export default function NoteEditor({
               <button
                 onClick={() => setShowShareModal(true)}
                 title="Публичная ссылка"
-                className="flex h-8 w-8 items-center justify-center rounded border text-slate-600 hover:bg-slate-50"
+                className="flex h-8 w-8 items-center justify-center rounded border text-secondary hover:bg-muted-hover"
               >
                 <Globe size={16} />
               </button>
@@ -1525,7 +1525,7 @@ export default function NoteEditor({
             <button
               onClick={() => setShowHistory((v) => !v)}
               title="История версий"
-              className="flex h-8 w-8 items-center justify-center rounded border text-slate-600 hover:bg-slate-50"
+              className="flex h-8 w-8 items-center justify-center rounded border text-secondary hover:bg-muted-hover"
             >
               <History size={16} />
             </button>
@@ -1534,7 +1534,7 @@ export default function NoteEditor({
               onClick={() => archiveItem.mutate(item.id)}
               disabled={archiveItem.isPending}
               title="В архив — убрать с глаз, не удаляя"
-              className="flex h-8 w-8 items-center justify-center rounded border text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+              className="flex h-8 w-8 items-center justify-center rounded border text-secondary hover:bg-muted-hover disabled:opacity-50"
             >
               {archiveItem.isPending ? <Spinner size={16} /> : <Archive size={16} />}
             </button>
@@ -1542,7 +1542,7 @@ export default function NoteEditor({
               onClick={() => setConfirmingDelete(true)}
               disabled={deleteItem.isPending}
               title="Удалить заметку"
-              className="flex h-8 w-8 items-center justify-center rounded border text-red-600 hover:bg-red-50 disabled:opacity-50"
+              className="flex h-8 w-8 items-center justify-center rounded border text-danger hover:bg-danger/10 disabled:opacity-50"
             >
               {deleteItem.isPending ? <Spinner size={16} /> : <Trash2 size={16} />}
             </button>
@@ -1551,7 +1551,7 @@ export default function NoteEditor({
             ref={mobileActionsButtonRef}
             onClick={() => setShowMobileActions((v) => !v)}
             title="Действия с заметкой"
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded border text-slate-600 hover:bg-slate-50 md:hidden"
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded border text-secondary hover:bg-muted-hover md:hidden"
           >
             <MoreVertical size={16} />
           </button>
@@ -1585,7 +1585,7 @@ export default function NoteEditor({
           <select
             value={item.folder_id ?? ""}
             onChange={(e) => updateItem.mutate({ id: item.id, folder_id: e.target.value || null })}
-            className="rounded border px-1.5 py-1 text-xs text-slate-600"
+            className="rounded border px-1.5 py-1 text-xs text-secondary"
           >
             <option value="">Без папки</option>
             {(folders ?? []).map((folder) => (
@@ -1606,7 +1606,7 @@ export default function NoteEditor({
             <button
               onClick={() => setShowMoveModal(true)}
               title="Переместить в другой спейс или папку"
-              className="rounded border px-1.5 py-1 text-xs text-slate-600 hover:bg-slate-50"
+              className="rounded border px-1.5 py-1 text-xs text-secondary hover:bg-muted-hover"
             >
               Переместить…
             </button>
@@ -1618,13 +1618,13 @@ export default function NoteEditor({
                 setShowTagPicker((v) => !v);
                 setTagQuery("");
               }}
-              className="flex items-center gap-1 rounded-full border border-dashed px-2 py-0.5 text-xs text-slate-500 hover:text-slate-700"
+              className="flex items-center gap-1 rounded-full border border-dashed px-2 py-0.5 text-xs text-subtle hover:text-secondary"
             >
               <TagIcon size={12} />
               {item.tags.length > 0 ? `Теги (${item.tags.length})` : "+ тег"}
             </button>
             {showTagPicker && (
-              <div className="absolute z-10 mt-1 w-56 rounded border bg-white p-1 shadow-lg">
+              <div className="absolute z-10 mt-1 w-56 rounded border bg-surface p-1 shadow-lg">
                 {item.tags.length > 0 && (
                   <div className="mb-1 flex flex-wrap gap-1 border-b p-1 pb-2">
                     {item.tags.map((tag) => (
@@ -1633,13 +1633,13 @@ export default function NoteEditor({
                         title={tag.auto ? "Автоматически предложенный тег" : undefined}
                         className={`flex items-center gap-1 rounded-full px-2 py-0.5 text-xs ${
                           tag.auto
-                            ? "border border-dashed border-violet-300 bg-violet-50 text-violet-700"
-                            : "bg-slate-100 text-slate-600"
+                            ? "border border-dashed border-brand/40 bg-brand/10 text-brand"
+                            : "bg-muted-hover text-secondary"
                         }`}
                       >
                         {tag.auto && <Sparkles size={10} />}
                         #{tag.name}
-                        <button onClick={() => removeTag.mutate(tag.id)} className="text-slate-400 hover:text-red-600">
+                        <button onClick={() => removeTag.mutate(tag.id)} className="text-subtle hover:text-danger">
                           ×
                         </button>
                       </span>
@@ -1664,7 +1664,7 @@ export default function NoteEditor({
                         addTag.mutate(tag.id);
                         setShowTagPicker(false);
                       }}
-                      className="block w-full rounded px-2 py-1 text-left text-xs hover:bg-slate-100"
+                      className="block w-full rounded px-2 py-1 text-left text-xs hover:bg-muted-hover"
                     >
                       #{tag.name}
                     </button>
@@ -1673,14 +1673,14 @@ export default function NoteEditor({
                     <button
                       onClick={createAndAttachTag}
                       disabled={createTag.isPending}
-                      className="flex w-full items-center gap-1.5 rounded px-2 py-1 text-left text-xs text-slate-600 hover:bg-slate-100 disabled:opacity-50"
+                      className="flex w-full items-center gap-1.5 rounded px-2 py-1 text-left text-xs text-secondary hover:bg-muted-hover disabled:opacity-50"
                     >
                       {createTag.isPending && <Spinner size={12} />}
                       Создать «{tagQuery.trim()}»
                     </button>
                   )}
                   {filteredAvailableTags.length === 0 && !tagQuery.trim() && (
-                    <div className="px-2 py-1 text-xs text-slate-400">Нет доступных тегов</div>
+                    <div className="px-2 py-1 text-xs text-subtle">Нет доступных тегов</div>
                   )}
                 </div>
               </div>
@@ -1691,7 +1691,7 @@ export default function NoteEditor({
             onClick={() => suggestTags.mutate()}
             disabled={suggestTags.isPending}
             title="Предложить теги по содержимому заметки"
-            className="flex items-center gap-1 rounded-full border border-dashed px-2 py-0.5 text-xs text-violet-500 hover:text-violet-700 disabled:opacity-50"
+            className="flex items-center gap-1 rounded-full border border-dashed px-2 py-0.5 text-xs text-brand hover:text-brand disabled:opacity-50"
           >
             {suggestTags.isPending ? <Spinner size={12} /> : <Sparkles size={12} />}
             Предложить теги
@@ -1702,15 +1702,15 @@ export default function NoteEditor({
             Показываем только когда есть что показывать — пустая строка
             "упоминается в 0 заметках" никому не нужна. */}
         {(backlinks ?? []).length > 0 && (
-          <div className="flex flex-wrap items-center gap-1.5 border-t px-3 py-2 text-xs text-slate-500">
+          <div className="flex flex-wrap items-center gap-1.5 border-t px-3 py-2 text-xs text-subtle">
             <span className="shrink-0">Упоминается в {backlinks!.length} {backlinks!.length === 1 ? "заметке" : "заметках"}:</span>
             {backlinks!.map((b) => (
               <button
                 key={b.id}
                 onClick={() => onOpenItemRef.current?.(b.id)}
-                className="flex items-center gap-1 rounded bg-slate-100 px-1.5 py-0.5 text-slate-700 hover:bg-slate-200"
+                className="flex items-center gap-1 rounded bg-muted-hover px-1.5 py-0.5 text-secondary hover:bg-muted-active"
               >
-                <FileText size={11} className="shrink-0 text-slate-400" />
+                <FileText size={11} className="shrink-0 text-subtle" />
                 {b.title || "Без названия"}
               </button>
             ))}
@@ -1750,7 +1750,7 @@ export default function NoteEditor({
           />
         )}
         {aiError && (
-          <div className="border-b bg-red-50 px-3 py-1.5 text-xs text-red-700">{aiError}</div>
+          <div className="border-b bg-danger/10 px-3 py-1.5 text-xs text-danger">{aiError}</div>
         )}
         {showImageToolbar && editor && <ImageToolbar editor={editor} />}
         {showVideoToolbar && editor && <VideoToolbar editor={editor} />}
@@ -1806,7 +1806,7 @@ export default function NoteEditor({
                 unmount. */}
             {editor && (
               <BubbleMenu editor={editor} shouldShow={({ state }) => mode === "wysiwyg" && !state.selection.empty}>
-                <div className="rounded border bg-white shadow-lg">
+                <div className="rounded border bg-surface shadow-lg">
                   <AiMenu onAction={applyAiAction} onOpenAssistant={openAssistant} loading={aiLoading} />
                 </div>
               </BubbleMenu>
@@ -1821,11 +1821,11 @@ export default function NoteEditor({
               // углу статуса, как раньше) однозначно говорит "подожди",
               // пока идёт reconnect+refetch (см. эффект выше на collabStatus
               // === "stale"/"disconnected").
-              <div className="absolute inset-0 z-10 space-y-3 bg-white p-4">
-                <div className="h-4 w-4/5 animate-pulse rounded bg-slate-200" />
-                <div className="h-4 w-full animate-pulse rounded bg-slate-200" />
-                <div className="h-4 w-11/12 animate-pulse rounded bg-slate-200" />
-                <div className="h-4 w-3/5 animate-pulse rounded bg-slate-200" />
+              <div className="absolute inset-0 z-10 space-y-3 bg-surface p-4">
+                <div className="h-4 w-4/5 animate-pulse rounded bg-muted-active" />
+                <div className="h-4 w-full animate-pulse rounded bg-muted-active" />
+                <div className="h-4 w-11/12 animate-pulse rounded bg-muted-active" />
+                <div className="h-4 w-3/5 animate-pulse rounded bg-muted-active" />
               </div>
             )}
             <EditorContent

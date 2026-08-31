@@ -61,12 +61,12 @@ export default function ImageToolbar({ editor }: { editor: Editor }) {
 
   return (
     <>
-      <div className="flex flex-wrap items-center gap-3 border-b bg-amber-50 px-3 py-1.5 text-xs">
-        <span className="text-slate-500">Картинка:</span>
+      <div className="flex flex-wrap items-center gap-3 border-b bg-warning/10 px-3 py-1.5 text-xs">
+        <span className="text-subtle">Картинка:</span>
         <button
           onClick={() => setLightbox(true)}
           title="Открыть в полный размер"
-          className="flex items-center gap-1 rounded bg-white px-1.5 py-0.5 text-slate-600 hover:bg-slate-100"
+          className="flex items-center gap-1 rounded bg-surface px-1.5 py-0.5 text-secondary hover:bg-muted-hover"
         >
           <Expand size={14} />
           Открыть
@@ -74,7 +74,7 @@ export default function ImageToolbar({ editor }: { editor: Editor }) {
         <button
           onClick={rotate}
           title="Повернуть на 90°"
-          className="flex items-center gap-1 rounded bg-white px-1.5 py-0.5 text-slate-600 hover:bg-slate-100"
+          className="flex items-center gap-1 rounded bg-surface px-1.5 py-0.5 text-secondary hover:bg-muted-hover"
         >
           <RotateCw size={14} />
           Повернуть
@@ -84,7 +84,7 @@ export default function ImageToolbar({ editor }: { editor: Editor }) {
             onClick={handleReprocess}
             disabled={reprocess.isPending}
             title="Заново распознать текст/описание на картинке через ИИ"
-            className="flex items-center gap-1 rounded bg-white px-1.5 py-0.5 text-violet-600 hover:bg-violet-50 disabled:opacity-50"
+            className="flex items-center gap-1 rounded bg-surface px-1.5 py-0.5 text-brand hover:bg-brand/10 disabled:opacity-50"
           >
             {reprocess.isPending ? <Spinner size={12} /> : <Sparkles size={14} />}
             Обработать заново
@@ -96,7 +96,7 @@ export default function ImageToolbar({ editor }: { editor: Editor }) {
               key={w.value}
               onClick={() => setAttrs({ width: attrs.width === w.value ? null : w.value })}
               className={`rounded px-1.5 py-0.5 ${
-                attrs.width === w.value ? "bg-slate-900 text-white" : "bg-white text-slate-600 hover:bg-slate-100"
+                attrs.width === w.value ? "bg-accent text-white" : "bg-surface text-secondary hover:bg-muted-hover"
               }`}
             >
               {w.label}
@@ -105,7 +105,7 @@ export default function ImageToolbar({ editor }: { editor: Editor }) {
           <button
             onClick={() => setAttrs({ width: null })}
             className={`rounded px-1.5 py-0.5 ${
-              !attrs.width ? "bg-slate-900 text-white" : "bg-white text-slate-600 hover:bg-slate-100"
+              !attrs.width ? "bg-accent text-white" : "bg-surface text-secondary hover:bg-muted-hover"
             }`}
           >
             Оригинал
@@ -117,7 +117,7 @@ export default function ImageToolbar({ editor }: { editor: Editor }) {
               key={a.value}
               onClick={() => setAttrs({ align: attrs.align === a.value ? null : a.value })}
               className={`rounded px-1.5 py-0.5 ${
-                attrs.align === a.value ? "bg-slate-900 text-white" : "bg-white text-slate-600 hover:bg-slate-100"
+                attrs.align === a.value ? "bg-accent text-white" : "bg-surface text-secondary hover:bg-muted-hover"
               }`}
             >
               {a.label}

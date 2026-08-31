@@ -22,6 +22,67 @@
   --safe-left: env(safe-area-inset-left, 0px);
 }
 
+/* Тёмная тема (KDE Breeze Dark) — семантические токены, не сама Tailwind-
+   палитра slate/red/... (см. коммент в tailwind.config.js: bg-slate-900
+   text-white системно используется как ФИКСИРОВАННЫЙ контраст для
+   primary-кнопок — инверсия самой палитры сделала бы их нечитаемыми).
+   Значения ниже под :root — сегодняшняя светлая палитра как есть (zero
+   visual regression), под .dark — реальные RGB из официальной KDE Breeze
+   Dark (invent.kde.org/plasma/breeze/-/raw/master/colors/BreezeDark.colors),
+   не приближение по памяти. .dark ставится в lib/theme.ts (+ инлайн-
+   скрипт в index.html, чтобы не мигало светлым до монтирования React). */
+:root {
+  color-scheme: light;
+
+  --color-bg-app: 255 255 255; /* #ffffff */
+  --color-bg-surface: 255 255 255; /* #ffffff */
+  --color-bg-muted: 248 250 252; /* #f8fafc, было bg-slate-50 */
+  --color-bg-muted-hover: 241 245 249; /* #f1f5f9, было bg-slate-100 */
+  --color-bg-muted-active: 226 232 240; /* #e2e8f0, было bg-slate-200 */
+  --color-bg-inset: 241 245 249; /* #f1f5f9 */
+  --color-bg-accent: 15 23 42; /* #0f172a, было bg-slate-900 */
+  --color-text-on-accent: 255 255 255;
+
+  --color-text-primary: 15 23 42; /* #0f172a, было text-slate-900 */
+  --color-text-secondary: 51 65 85; /* #334155, было text-slate-600/700 */
+  --color-text-muted: 100 116 139; /* #64748b, было text-slate-400/500 */
+
+  --color-border-default: 226 232 240; /* #e2e8f0, было border-slate-200/300 */
+  --color-border-strong: 148 163 184; /* #94a3b8, было border-slate-400 */
+
+  --color-danger: 220 38 38; /* #dc2626, было red-600 */
+  --color-warning: 217 119 6; /* #d97706, было amber-600 */
+  --color-success: 5 150 105; /* #059669, было emerald-600 */
+  --color-brand: 124 58 237; /* #7c3aed, было violet-600 */
+  --color-link: 37 99 235; /* #2563eb, было blue-600 */
+}
+
+.dark {
+  color-scheme: dark;
+
+  --color-bg-app: 32 35 38; /* #202326 — Breeze Window */
+  --color-bg-surface: 41 44 48; /* #292c30 — Breeze Button */
+  --color-bg-muted: 38 41 44; /* #26292c */
+  --color-bg-muted-hover: 46 50 54; /* #2e3236 */
+  --color-bg-muted-active: 56 60 65; /* #383c41 */
+  --color-bg-inset: 23 25 27; /* #17191b — ближе к Breeze View */
+  --color-bg-accent: 61 174 233; /* #3daee9 — Breeze Selection */
+  --color-text-on-accent: 252 252 252;
+
+  --color-text-primary: 252 252 252; /* #fcfcfc — Breeze Foreground */
+  --color-text-secondary: 199 204 209; /* #c7ccd1 */
+  --color-text-muted: 161 169 177; /* #a1a9b1 — Breeze ForegroundInactive */
+
+  --color-border-default: 58 62 66; /* #3a3e42 */
+  --color-border-strong: 86 91 97; /* #565b61 */
+
+  --color-danger: 218 68 83; /* #da4453 — Breeze ForegroundNegative */
+  --color-warning: 246 116 0; /* #f67400 — Breeze ForegroundNeutral */
+  --color-success: 39 174 96; /* #27ae60 — Breeze ForegroundPositive */
+  --color-brand: 155 89 182; /* #9b59b6 — Breeze ForegroundVisited */
+  --color-link: 29 153 243; /* #1d99f3 — Breeze ForegroundLink */
+}
+
 /* Переходы между панелями (мобильный стек сайдбар/список/редактор,
    схлопывание на десктопе) — см. src/lib/viewTransition.ts. Короче
    дефолтных ~250ms браузера, чтобы не ощущалось медленным на телефоне.
@@ -380,4 +441,46 @@
   50% {
     opacity: 0.55;
   }
+}
+
+/* Тёмная тема — хардкод-hex выше не читает CSS-переменные (не Tailwind-
+   классы), поэтому дублируем нужные правила под .dark отдельно.
+   .tiptap pre/.hljs-* НЕ трогаем — фон блока кода уже всегда тёмный
+   (#0f172a) независимо от темы приложения, токены уже под него подобраны. */
+.dark .tiptap blockquote {
+  border-left-color: #565b61;
+  color: #c7ccd1;
+}
+.dark .tiptap code {
+  background: #17191b;
+}
+.dark .tiptap hr {
+  border-top-color: #3a3e42;
+}
+.dark .tiptap .note-spacer:hover::after,
+.dark .tiptap .note-spacer.ProseMirror-selectednode::after {
+  border-top-color: #565b61;
+}
+.dark .tiptap table th {
+  background: #26292c;
+}
+.dark .tiptap th,
+.dark .tiptap td {
+  border-color: #3a3e42;
+}
+.dark .tiptap .selectedCell {
+  background: rgba(61, 174, 233, 0.25);
+}
+.dark .tiptap a {
+  color: #1d99f3;
+}
+.dark .recognized-card {
+  background-color: #26292c;
+}
+.dark .reminder-anchor-highlight {
+  background-color: rgba(246, 116, 0, 0.3);
+}
+.dark .processing-placeholder {
+  background-color: rgba(155, 89, 182, 0.25);
+  color: #d2a6e0;
 }
