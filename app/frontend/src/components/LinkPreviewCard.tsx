@@ -2,6 +2,8 @@ import { NodeViewWrapper } from "@tiptap/react";
 import type { NodeViewProps } from "@tiptap/react";
 import { Globe } from "lucide-react";
 import { useLinkPreview } from "../api/hooks";
+import { detectEmbed } from "../lib/embedPlatforms";
+import VideoEmbedCard from "./VideoEmbedCard";
 
 // Богатая карточка — linkPreview всегда блочный atom-узел
 // (extensions/LinkPreview.ts, group: "block"), у него физически не бывает
@@ -44,7 +46,15 @@ function RichCard({ url, favicon, title, imageUrl, description }: {
 
 export default function LinkPreviewCard({ node }: NodeViewProps) {
   const url = node.attrs.url as string;
-  const { data, isLoading } = useLinkPreview(url);
+  const embed = detectEmbed(url);
+  const { data, isLoading } = useLinkPreview(url, !!embed);
+
+  // Известная видеоплатформа — сразу плеер, без похода за og:*
+  // метаданными (реальная просьба пользователя после вставки ссылки на
+  // YouTube).
+  if (embed) {
+    return <VideoEmbedCard url={url} embed={embed} />;
+  }
 
   // Пока грузится — обычная синяя ссылка, не заглушка/скелетон (момент
   // короткий, мигать скелетоном ради него не стоит).

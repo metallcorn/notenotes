@@ -58,4 +58,20 @@ describe("LinkPreviewCard", () => {
     expect(screen.getByText("Пример страницы")).toBeInTheDocument();
     expect(screen.getByText("Описание")).toBeInTheDocument();
   });
+
+  it(
+    "реальная просьба: ссылка на YouTube — сразу плеер (iframe), " +
+      "без похода на бэкенд за og:* метаданными",
+    () => {
+      // Хук вызывается всегда (правила хуков), даже когда embed-ветка
+      // возвращает раньше, чем результат используется — mockReturnValue
+      // нужен, чтобы деструктуризация { data, isLoading } не упала.
+      hooks.useLinkPreview.mockReturnValue({ data: undefined, isLoading: false });
+      render(<LinkPreviewCard {...makeProps("https://youtu.be/dQw4w9WgXcQ")} />);
+
+      const iframe = document.querySelector("iframe");
+      expect(iframe).toHaveAttribute("src", "https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ");
+      expect(hooks.useLinkPreview).toHaveBeenCalledWith("https://youtu.be/dQw4w9WgXcQ", true);
+    },
+  );
 });

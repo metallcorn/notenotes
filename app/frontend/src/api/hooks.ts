@@ -1444,11 +1444,14 @@ export function useCreateReminder() {
 
 // Кэш на бэкенде бессрочный (см. routers/link_preview.py), поэтому и здесь
 // не нужно перезапрашивать при каждом фокусе — карточка сайта не меняется.
-export function useLinkPreview(url: string | undefined) {
+// skip — известные видео-платформы (YouTube/Vimeo, см. lib/embedPlatforms)
+// рендерятся плеером напрямую в браузере, без похода на бэкенд за og:*
+// метаданными — запрос на /link-preview для них не нужен вообще.
+export function useLinkPreview(url: string | undefined, skip = false) {
   return useQuery<LinkPreviewData>({
     queryKey: ["link-preview", url],
     queryFn: () => api.get<LinkPreviewData>(`/link-preview?url=${encodeURIComponent(url!)}`),
-    enabled: !!url,
+    enabled: !!url && !skip,
     staleTime: Infinity,
     retry: false,
   });
