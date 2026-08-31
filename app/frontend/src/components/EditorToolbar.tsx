@@ -13,6 +13,7 @@ import {
   Italic,
   List,
   ListOrdered,
+  ListTree,
   Maximize2,
   MessageSquare,
   Mic,
@@ -72,6 +73,9 @@ export default function EditorToolbar({
   onAiAction,
   onOpenAssistant,
   aiLoading,
+  readOnly,
+  showToc,
+  onToggleToc,
 }: {
   editor: Editor | null;
   onInsertImage: () => void;
@@ -85,12 +89,19 @@ export default function EditorToolbar({
   onAiAction: (action: AiAction, instruction?: string) => void;
   onOpenAssistant?: () => void;
   aiLoading: boolean;
+  // Режим "Просмотр" — панель не прячется целиком (в ней живут удобные
+  // кнопки ширины и содержания), а блокируется: кнопки правки визуально
+  // гаснут и не реагируют на клики, ширина/содержание остаются активными.
+  readOnly: boolean;
+  showToc: boolean;
+  onToggleToc: () => void;
 }) {
   if (!editor) return null;
   const uploading = uploadProgress !== null;
 
   return (
     <div className="flex flex-nowrap items-center gap-0.5 overflow-x-auto border-b bg-slate-50 px-2 py-1">
+      <div className={`flex flex-nowrap items-center gap-0.5 ${readOnly ? "pointer-events-none opacity-40" : ""}`}>
       <AiMenu onAction={onAiAction} onOpenAssistant={onOpenAssistant} loading={aiLoading} />
       <span className="mx-1 h-4 w-px shrink-0 bg-slate-300" />
       <ToolbarButton
@@ -236,6 +247,7 @@ export default function EditorToolbar({
       <ToolbarButton title="Повторить" disabled={!editor.can().redo()} onClick={() => editor.chain().focus().redo().run()}>
         <Redo2 size={16} />
       </ToolbarButton>
+      </div>
       <span className="mx-1 h-4 w-px shrink-0 bg-slate-300" />
       <ToolbarButton title="Узкий текст" active={contentWidth === "narrow"} onClick={() => onContentWidthChange("narrow")}>
         <AlignCenter size={16} />
@@ -245,6 +257,10 @@ export default function EditorToolbar({
       </ToolbarButton>
       <ToolbarButton title="Во весь экран" active={contentWidth === "full"} onClick={() => onContentWidthChange("full")}>
         <Maximize2 size={16} />
+      </ToolbarButton>
+      <span className="mx-1 h-4 w-px shrink-0 bg-slate-300" />
+      <ToolbarButton title="Содержание заметки" active={showToc} onClick={onToggleToc}>
+        <ListTree size={16} />
       </ToolbarButton>
     </div>
   );

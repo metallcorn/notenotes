@@ -101,7 +101,17 @@ export const uiStorage = {
   // прячем по умолчанию за переключателем в шапке чата.
   getShowToolDebug: (): boolean => read<boolean>("showToolDebug", false),
   setShowToolDebug: (v: boolean): void => write("showToolDebug", v),
+
+  // Три режима заметки — Просмотр (только читать)/WYSIWYG/Markdown.
+  // Реальная просьба: последний выбранный режим должен переживать переход
+  // между заметками и перезагрузку — иначе каждая заметка открывается в
+  // WYSIWYG заново, даже если человек специально держит "Просмотр", чтобы
+  // листать заметки без риска что-то случайно поменять или вызвать
+  // клавиатуру на мобильном.
+  getNoteEditorMode: (): NoteEditorMode => read<NoteEditorMode>("noteEditorMode", "wysiwyg"),
+  setNoteEditorMode: (v: NoteEditorMode): void => write("noteEditorMode", v),
 };
 
 export type ContentWidth = "narrow" | "wide" | "full";
 export type ViewMode = "notes" | "assistant" | "trash" | "activity";
+export type NoteEditorMode = "view" | "wysiwyg" | "raw";

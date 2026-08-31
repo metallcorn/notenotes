@@ -12,9 +12,10 @@ import { Markdown } from "tiptap-markdown";
 import { Suspense, lazy, useEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent, RefObject } from "react";
 import { createPortal } from "react-dom";
-import { Archive, ChevronLeft, Code2, Eye, FileText, Globe, History, MoreVertical, Palette, Pin, PinOff, Sparkles, Tag as TagIcon, Trash2, Users, WifiOff } from "lucide-react";
+import { Archive, ChevronLeft, Code2, Eye, FileText, Globe, History, MoreVertical, Palette, Pencil, Pin, PinOff, Sparkles, Tag as TagIcon, Trash2, Users, WifiOff } from "lucide-react";
 import type { Item } from "../api/types";
 import { uiStorage, type ContentWidth } from "../lib/storage";
+import TableOfContentsPanel from "./TableOfContentsPanel";
 import { useVersionCheck } from "../lib/useVersionCheck";
 import { getVaultKey } from "../lib/vaultSession";
 import { downloadFile, inlineImages, sanitizeFilename, wrapHtmlDocument } from "../lib/export";
@@ -116,7 +117,15 @@ export function parseInternalNoteLink(rawUrl: string): string | null {
 const EmojiPickerPopover = lazy(() => import("./EmojiPickerPopover"));
 const lowlight = createLowlight(common);
 
-type Mode = "wysiwyg" | "raw";
+// "view" — Просмотр (только читать, не редактируется, клавиатура не
+// вызывается на мобильном), "wysiwyg" — обычное визуальное редактирование,
+// "raw" — редактор Markdown-текста напрямую. Реальная просьба: три режима,
+// не два — иногда нужно просто пролистать открытую заметку без риска
+// случайно что-то изменить.
+type Mode = "view" | "wysiwyg" | "raw";
+
+const MODE_LABEL: Record<Mode, string> = { view: "Просмотр", wysiwyg: "WYSIWYG", raw: "Markdown" };
+const MODE_ICON: Record<Mode, typeof Eye> = { view: Eye, wysiwyg: Pencil, raw: Code2 };
 
 const COLORS = ["#ef4444", "#f97316", "#eab308", "#22c55e", "#14b8a6", "#3b82f6", "#a855f7", "#ec4899"];
 
@@ -175,13 +184,20 @@ function MobileNoteActionsMenu({
     <>
       <div className="fixed inset-0 z-40" onClick={onClose} />
       <div style={{ top: pos.top, right: pos.right }} className="fixed z-50 w-56 rounded border bg-white py-1 shadow-lg">
-        <button
-          onClick={() => switchMode(mode === "wysiwyg" ? "raw" : "wysiwyg")}
-          className={itemClass}
-        >
-          {mode === "wysiwyg" ? <Code2 size={15} /> : <Eye size={15} />}
-          {mode === "wysiwyg" ? "Режим: Markdown" : "Режим: WYSIWYG"}
-        </button>
+        <div className="px-3 py-1.5 text-xs font-medium text-slate-400">Режим</div>
+        {(["view", "wysiwyg", "raw"] as const).map((m) => {
+          const ModeIcon = MODE_ICON[m];
+          return (
+            <button
+              key={m}
+              onClick={() => switchMode(m)}
+              className={`${itemClass} ${mode === m ? "bg-slate-50 font-medium text-slate-900" : ""}`}
+            >
+              <ModeIcon size={15} /> {MODE_LABEL[m]}
+            </button>
+          );
+        })}
+        <div className="my-1 border-t" />
         <button onClick={() => setShowColorPicker((v) => !v)} className={itemClass}>
           <Palette size={15} /> Цвет заголовка
         </button>
@@ -328,7 +344,8 @@ export default function NoteEditor({
   const aiTransform = useAiTransform();
   const createReminder = useCreateReminder();
 
-  const [mode, setMode] = useState<Mode>("wysiwyg");
+  const [mode, setMode] = useState<Mode>(() => uiStorage.getNoteEditorMode());
+  const [showToc, setShowToc] = useState(false);
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
   const [status, setStatus] = useState<"idle" | "saving" | "saved">("idle");
@@ -946,11 +963,24 @@ export default function NoteEditor({
     if (next === mode || !editor) return;
     if (next === "raw") {
       setContent(editor.storage.markdown.getMarkdown());
-    } else {
+    } else if (mode === "raw") {
+      // Из raw в любой из двух режимов рендера — синхронизируем редактор с
+      // тем, что напечатано в Markdown. Между "view" и "wysiwyg" редактор
+      // трогать не нужно — это один и тот же смонтированный документ,
+      // разница только в editable (см. эффект ниже).
       editor.commands.setContent(content || "");
     }
     setMode(next);
+    uiStorage.setNoteEditorMode(next);
   }
+
+  // editable, а не отдельный проп в useEditor(...) — та же причина, что и
+  // у комментария про editorExtensions/editorProps выше: надёжнее явно
+  // дёрнуть editor.setEditable, чем полагаться на то, что @tiptap/react
+  // подхватит новое значение внутри options-объекта на очередной рендер.
+  useEffect(() => {
+    editor?.setEditable(mode !== "view");
+  }, [editor, mode]);
 
   // Без выделения — вся заметка целиком (заменяем весь документ). С
   // выделением — только выбранный фрагмент.
@@ -1422,20 +1452,19 @@ export default function NoteEditor({
               )}
             </span>
             <div className="flex overflow-hidden rounded border">
-              <button
-                onClick={() => switchMode("wysiwyg")}
-                title="WYSIWYG"
-                className={`flex h-8 w-8 items-center justify-center ${mode === "wysiwyg" ? "bg-slate-900 text-white" : "text-slate-500 hover:bg-slate-50"}`}
-              >
-                <Eye size={16} />
-              </button>
-              <button
-                onClick={() => switchMode("raw")}
-                title="Markdown"
-                className={`flex h-8 w-8 items-center justify-center ${mode === "raw" ? "bg-slate-900 text-white" : "text-slate-500 hover:bg-slate-50"}`}
-              >
-                <Code2 size={16} />
-              </button>
+              {(["view", "wysiwyg", "raw"] as const).map((m) => {
+                const ModeIcon = MODE_ICON[m];
+                return (
+                  <button
+                    key={m}
+                    onClick={() => switchMode(m)}
+                    title={MODE_LABEL[m]}
+                    className={`flex h-8 w-8 items-center justify-center ${mode === m ? "bg-slate-900 text-white" : "text-slate-500 hover:bg-slate-50"}`}
+                  >
+                    <ModeIcon size={16} />
+                  </button>
+                );
+              })}
             </div>
             <div className="relative">
               <button
@@ -1687,7 +1716,7 @@ export default function NoteEditor({
       <input ref={fileInputRef} type="file" multiple hidden onChange={onPickFile} />
 
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-        {mode === "wysiwyg" && (
+        {mode !== "raw" && (
           <EditorToolbar
             editor={editor}
             onInsertImage={() => imageInputRef.current?.click()}
@@ -1709,6 +1738,9 @@ export default function NoteEditor({
             onAiAction={applyAiAction}
             onOpenAssistant={openAssistant}
             aiLoading={aiLoading}
+            readOnly={mode === "view"}
+            showToc={showToc}
+            onToggleToc={() => setShowToc((v) => !v)}
           />
         )}
         {aiError && (
@@ -1717,9 +1749,13 @@ export default function NoteEditor({
         {showImageToolbar && editor && <ImageToolbar editor={editor} />}
         {showCodeBlockToolbar && editor && <CodeBlockToolbar editor={editor} />}
         {showTableToolbar && editor && <TableToolbar editor={editor} />}
-        <div className="flex min-h-0 flex-1 overflow-hidden">
+        <div className="relative flex min-h-0 flex-1 overflow-hidden">
           <div
-            className="relative min-h-0 flex-1 overflow-y-auto p-4"
+            // pb-[50vh] (не только в raw — там своя textarea с обычным
+            // поведением) — реальная просьба: хочется докрутить скролл ниже
+            // конца документа, чтобы при желании держать последнюю строку
+            // по центру экрана, а не прилипшей к низу окна.
+            className={`relative min-h-0 flex-1 overflow-y-auto p-4 ${mode !== "raw" ? "pb-[50vh]" : ""}`}
             onMouseDown={(e) => {
               // Реальный найденный баг: EditorContent рендерит собственную
               // обёртку с классом .tiptap, а ВНУТРИ неё — настоящий
@@ -1787,7 +1823,7 @@ export default function NoteEditor({
             )}
             <EditorContent
               editor={editor}
-              className={`tiptap ${widthClass} ${mode === "wysiwyg" ? "" : "hidden"}`}
+              className={`tiptap ${widthClass} ${mode === "raw" ? "hidden" : ""}`}
             />
             {mode === "raw" && (
               <textarea
@@ -1798,6 +1834,7 @@ export default function NoteEditor({
               />
             )}
           </div>
+          {showToc && mode !== "raw" && <TableOfContentsPanel editor={editor} onClose={() => setShowToc(false)} />}
           {showHistory && <VersionHistoryPanel itemId={item.id} onClose={() => setShowHistory(false)} />}
           {showShareModal && <ShareNoteModal itemId={item.id} onClose={() => setShowShareModal(false)} />}
         </div>
