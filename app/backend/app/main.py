@@ -37,6 +37,7 @@ from app.routers import (
     public,
     push,
     search,
+    share_preview,
     skills,
     spaces,
     tables,
@@ -118,6 +119,11 @@ app.include_router(items.router)
 app.include_router(collab_ws.router)
 app.include_router(uploads.router)
 app.include_router(public.router)
+# Без /api-префикса, ровно на /s/{token} — тот же путь, что реальная
+# ссылка шаринга (ShareNoteModal.tsx). Должен быть подключён ДО catch-all
+# SPA-роута ниже (app.get("/{full_path:path}")) — иначе тот перехватит
+# запрос первым и отдаст голый index.html без og:*/title заметки.
+app.include_router(share_preview.router)
 app.include_router(search.router)
 app.include_router(feedback.router)
 app.include_router(debug_log.router)
