@@ -4,6 +4,7 @@ from typing import Any
 
 from app.llm.base import ToolDefinition
 from app.routers.search import search_items
+from app.tools.notes import item_url
 from app.tools.registry import ToolContext
 
 DEFINITION = ToolDefinition(
@@ -45,6 +46,7 @@ async def handle(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
             "material_type": item.material_type,
             "folder_id": str(item.folder_id) if item.folder_id else None,
             "space_id": str(item.space_id),
+            "url": item_url(item.id),
         }
         if item.material_type == "ticket":
             # excerpt (первые 300 символов content) для билета — почти

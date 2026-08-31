@@ -8,12 +8,25 @@ from fastapi import HTTPException
 from sqlalchemy import func, select
 
 from app import collab, realtime
+from app.core.config import get_settings
 from app.deps import ensure_space_access, is_vault_space
 from app.llm.base import ToolDefinition
 from app.models import Folder, Item, ItemTag, ItemVersion, Space, SpaceMember, Tag
 from app.note_formatting import linkify_notes_content
 from app.routers.items import create_item_row
 from app.tools.registry import ToolContext, ToolError
+
+# Реальный найденный случай: пользователь просит ссылку на заметку —
+# модель, не имея готового URL ни в одном тул-результате, придумывала его
+# сама (несуществующая схема "notenotes://<id>", либо голый id вместо
+# ссылки) — обе формы не кликабельны. item_url — единственный источник
+# правды для ссылки на заметку/список, отдаётся прямо в результатах
+# тулов ниже, чтобы модели не приходилось ничего собирать самой (тот же
+# принцип, что "Не составляй и не достраивай URL сам" в SYSTEM_PROMPT_BASE,
+# routers/dialogs.py). Тот же паттерн /?item=, что уже использует
+# notification_dispatch.py для кнопки "Открыть" в Telegram-уведомлениях.
+def item_url(item_id: uuid.UUID | str) -> str:
+    return f"{get_settings().public_base_url.rstrip('/')}/?item={item_id}"
 
 # ТЗ §10a: "область контекста — все спейсы пользователя, та же логика, что
 # у обычного поиска" — ассистент не должен быть слеп к спейсам, отличным от
@@ -106,7 +119,13 @@ async def create_note(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
         folder_id=folder_id,
     )
     space = await ctx.db.get(Space, item.space_id)
-    return {"id": str(item.id), "title": item.title, "space_id": str(item.space_id), "space_name": space.name if space else ""}
+    return {
+        "id": str(item.id),
+        "title": item.title,
+        "space_id": str(item.space_id),
+        "space_name": space.name if space else "",
+        "url": item_url(item.id),
+    }
 
 
 GET_NOTE = ToolDefinition(
@@ -130,7 +149,7 @@ async def get_note(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
     item = await _get_item_cross_space(ctx, args.get("item_id"))
     if item.material_type not in ("note", "ticket"):
         raise ToolError("Это не заметка (возможно, список — используй get_list)")
-    result: dict[str, Any] = {"id": str(item.id), "title": item.title, "content": item.content}
+    result: dict[str, Any] = {"id": str(item.id), "title": item.title, "content": item.content, "url": item_url(item.id)}
     if item.material_type == "ticket":
         # content для билета — почти только служебный <div
         # data-ticket-attachment ...> (сам текст полностью заменяется
@@ -397,7 +416,11 @@ async def list_items_in_folder(ctx: ToolContext, args: dict[str, Any]) -> dict[s
     )
     query = query.where(Item.folder_id == folder_id) if folder_id else query.where(Item.folder_id.is_(None))
     items = (await ctx.db.execute(query)).scalars().all()
-    return {"items": [{"id": str(i.id), "title": i.title, "material_type": i.material_type} for i in items]}
+    return {
+        "items": [
+            {"id": str(i.id), "title": i.title, "material_type": i.material_type, "url": item_url(i.id)} for i in items
+        ]
+    }
 
 
 LIST_TAGS = ToolDefinition(
@@ -459,7 +482,13 @@ async def list_items_by_tag(ctx: ToolContext, args: dict[str, Any]) -> dict[str,
     )
     return {
         "items": [
-            {"id": str(i.id), "title": i.title, "material_type": i.material_type, "space_name": space_name}
+            {
+                "id": str(i.id),
+                "title": i.title,
+                "material_type": i.material_type,
+                "space_name": space_name,
+                "url": item_url(i.id),
+            }
             for i, space_name in result.all()
         ]
     }
@@ -504,6 +533,7 @@ async def list_all_items(ctx: ToolContext, args: dict[str, Any]) -> dict[str, An
                 "material_type": item.material_type,
                 "space_id": str(item.space_id),
                 "space_name": space_name,
+                "url": item_url(item.id),
             }
             for item, space_name in result.all()
         ]
