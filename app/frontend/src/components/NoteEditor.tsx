@@ -818,9 +818,24 @@ export default function NoteEditor({
         collabProviderRef.current = null;
         collabItemIdRef.current = null;
       }
-      const fresh = await refetchItem();
-      const freshContent = fresh.data?.content ?? "";
-      if (isStaleAttempt()) return;
+      let fresh = await refetchItem();
+      // Реальный найденный случай потери данных: заметка открылась пустой,
+      // хотя в истории версий есть настоящее содержимое. Раньше здесь стояло
+      // `fresh.data?.content ?? ""` — неудачный рефетч (сеть ещё не
+      // восстановилась, ровно тот момент, из-за которого this-эффект вообще
+      // существует) тихо подставлял "" и код ЕХАЛ ДАЛЬШЕ с этим пустым
+      // значением как настоящим содержимым заметки — attachCollab сеет им
+      // Yjs-комнату, если та тоже нуждалась в сидировании, а следующий же
+      // автосейв закрепляет пустоту уже и на сервере. Вместо угадывания —
+      // честно повторяем рефетч, пока не получим настоящие данные (или пока
+      // попытка не устареет — сменили заметку/ушли со страницы).
+      while (!isStaleAttempt() && fresh.data === undefined) {
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+        if (isStaleAttempt()) return;
+        fresh = await refetchItem();
+      }
+      if (isStaleAttempt() || !fresh.data) return;
+      const freshContent = fresh.data.content;
 
       setCollabStatus("connecting");
       const provider = new CollabProvider(item.id, (s) => {
