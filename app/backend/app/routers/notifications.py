@@ -12,6 +12,7 @@ from app.deps import ensure_space_access, get_current_user, space_member_ids
 from app.models import Item, Notification, User
 from app.schemas.notification import NotificationCreateIn, NotificationOut
 from app.security import decode_session_token
+from app.user_timezone import assume_default_timezone
 
 router = APIRouter(prefix="/api/notifications", tags=["notifications"])
 
@@ -47,8 +48,14 @@ async def create_notification(
     (TicketAttachmentCard.tsx), где спрашивать пользователя уже не нужно —
     сама кнопка это подтверждение выбранного времени."""
     trigger_at = payload.trigger_at
-    if trigger_at.tzinfo is None:
-        trigger_at = trigger_at.replace(tzinfo=timezone.utc)
+    # Фронт (TicketAttachmentCard.tsx/NoteEditor.tsx) шлёт trigger_at через
+    # Date.toISOString() — тот всегда с явным "Z" (UTC), так что на практике
+    # tzinfo здесь уже есть. Защитный фолбэк на случай наивной даты из
+    # другого места — та же трактовка, что и у tools/reminders.py.create_
+    # reminder (местное время пользователя, не молчаливый UTC), для
+    # согласованности между двумя путями создания одного и того же
+    # напоминания.
+    trigger_at = assume_default_timezone(trigger_at)
 
     notification_payload: dict = {}
     recipient_ids = [user.id]

@@ -4,7 +4,7 @@ import asyncio
 import json
 import logging
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime
 
 from sqlalchemy import select
 
@@ -14,6 +14,7 @@ from app.db import async_session
 from app.llm.base import Message
 from app.llm.factory import get_llm_client
 from app.models import Item, ItemTag, Tag
+from app.user_timezone import DEFAULT_TZ, assume_default_timezone
 
 logger = logging.getLogger(__name__)
 
@@ -106,11 +107,12 @@ def _parse_events(raw: object) -> list[dict]:
         except ValueError:
             continue
         # Как и tickets.py._add_event_notification — модель почти всегда
-        # отдаёт наивную дату без пояса, трактуем как UTC (в проекте нигде
-        # больше нет пользовательского часового пояса, ориентироваться
-        # больше не на что).
-        if at.tzinfo is None:
-            at = at.replace(tzinfo=timezone.utc)
+        # отдаёт наивную дату без пояса. Реальный найденный баг: раньше это
+        # трактовалось как UTC — время "17:30" из письма про встречу в
+        # Познани превращалось в заметке в 19:30 на экране (Польша летом на
+        # 2 часа впереди UTC). assume_default_timezone трактует наивную
+        # дату как местное время пользователя (app/user_timezone.py).
+        at = assume_default_timezone(at)
         events.append({"title": title, "at": at.isoformat()})
     return events
 
@@ -147,7 +149,10 @@ async def _classify(
 
     client = get_llm_client()
     text = f"{title}\n\n{content}"[:_MAX_CONTENT_CHARS]
-    today = datetime.now(timezone.utc).strftime("%Y-%m-%d, %A")
+    # DEFAULT_TZ, не UTC — та же причина, что у assume_default_timezone
+    # ниже: у границы полуночи (Польша летом на 2 часа впереди UTC)
+    # "сегодня"/"завтра" по UTC резолвились бы не в тот локальный день.
+    today = datetime.now(DEFAULT_TZ).strftime("%Y-%m-%d, %A")
     response = await client.chat(
         [
             Message(role="system", content=_build_prompt(existing_tag_names, today)),

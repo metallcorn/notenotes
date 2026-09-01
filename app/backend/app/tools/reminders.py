@@ -11,6 +11,7 @@ from app.llm.base import ToolDefinition
 from app.models import Notification
 from app.tools.notes import _get_item_cross_space
 from app.tools.registry import ToolContext, ToolError
+from app.user_timezone import assume_default_timezone
 
 # Напоминания переиспользуют центр уведомлений (ТЗ §13), не отдельную
 # таблицу — trigger_at в будущем просто не отдаётся списком, пока время не
@@ -62,8 +63,12 @@ async def create_reminder(ctx: ToolContext, args: dict[str, Any]) -> dict[str, A
         trigger_at = datetime.fromisoformat(str(trigger_raw))
     except ValueError:
         raise ToolError(f"Некорректные дата/время: {trigger_raw}") from None
-    if trigger_at.tzinfo is None:
-        trigger_at = trigger_at.replace(tzinfo=timezone.utc)
+    # Реальный найденный баг: наивное время (модель обычно так и отдаёт
+    # trigger_at по просьбе "напомни в 9 утра") трактовалось как UTC — для
+    # пользователя в Польше (CEST, UTC+2 летом) напоминание срабатывало на
+    # 2 часа позже, чем он просил. assume_default_timezone трактует его как
+    # местное время пользователя (app/user_timezone.py).
+    trigger_at = assume_default_timezone(trigger_at)
 
     payload: dict[str, Any] = {}
     recipient_ids = [ctx.user_id]

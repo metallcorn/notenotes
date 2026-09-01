@@ -22,6 +22,7 @@ from app.models import AssistantMemory, Folder, Item, Space, SpaceMember, User
 from app.routers.items import create_item_row
 from app.schemas.dialog import DialogCompactCreate, DialogCreate, DialogOut, DialogSummaryOut, MessageCreate
 from app.tools.registry import ToolContext, dispatch, get_tool_definitions
+from app.user_timezone import today_in_default_timezone
 
 router = APIRouter(prefix="/api/dialogs", tags=["dialogs"])
 logger = logging.getLogger(__name__)
@@ -604,8 +605,17 @@ def _build_system_prompt(
     # ISO, не локализованное имя дня недели — strftime("%A") в контейнере
     # без ru_RU-локали всё равно выдал бы английское имя, а модели ISO-даты
     # достаточно, чтобы правильно резолвить "на этой неделе"/"вчера" и т.п.
-    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    prompt = f"Сегодняшняя дата: {today} (ISO, UTC).\n\n" + SYSTEM_PROMPT_BASE
+    #
+    # Местное время пользователя (DEFAULT_TZ), не UTC — реальный найденный
+    # баг: у границы полуночи (Польша летом на 2 часа впереди UTC) "сегодня"
+    # по UTC ещё вчерашний день локально, "напомни завтра в 9 утра" в 00:30
+    # по Варшаве резолвилось бы не в тот календарный день. Модель также
+    # отдаёт trigger_at для create_reminder без явного пояса — тот
+    # интерпретируется как это же местное время (app/user_timezone.py,
+    # tools/reminders.py), поэтому "сегодня" тут обязано быть согласовано с
+    # той же трактовкой, а не с UTC.
+    today = today_in_default_timezone()
+    prompt = f"Сегодняшняя дата: {today} (ISO, Europe/Warsaw).\n\n" + SYSTEM_PROMPT_BASE
     if SHOW_NOTE_IMAGES_SKILL not in disabled_tools:
         prompt += "\n\n" + SHOW_NOTE_IMAGES_PROMPT_FRAGMENT
     if is_fresh_start:

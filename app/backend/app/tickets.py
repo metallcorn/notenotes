@@ -4,7 +4,7 @@ import asyncio
 import json
 import logging
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 
 import zxingcpp
@@ -18,6 +18,7 @@ from app.db import async_session
 from app.llm.base import Message
 from app.llm.factory import get_llm_client
 from app.models import Item, Notification, Upload
+from app.user_timezone import assume_default_timezone
 from app.vision import _replace_in_referencing_items
 from app.vision import placeholder_text as image_placeholder_text
 from app.vision import serialize_image_ocr_result
@@ -226,8 +227,11 @@ async def _add_event_notification(db: AsyncSession, item: Item, properties: dict
         trigger_at = datetime.fromisoformat(str(raw_start))
     except ValueError:
         return
-    if trigger_at.tzinfo is None:
-        trigger_at = trigger_at.replace(tzinfo=timezone.utc)
+    # Реальный найденный баг: наивное время билета (без пояса) трактовалось
+    # как UTC — время события в Польше летом (CEST, UTC+2) на экране
+    # сдвигалось на 2 часа вперёд. assume_default_timezone трактует его как
+    # местное время пользователя (app/user_timezone.py).
+    trigger_at = assume_default_timezone(trigger_at)
 
     # Защита от дубля при повторном распознавании (кнопка "Распознать
     # снова" на карточке билета) — без неё пользователь получил бы второе
