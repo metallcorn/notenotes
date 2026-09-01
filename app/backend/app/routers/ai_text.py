@@ -69,7 +69,12 @@ def _strip_wrapping_fence(text: str) -> str:
 
 class TransformIn(BaseModel):
     action: Literal["summarize", "reformat", "rewrite"]
-    text: str = Field(min_length=1, max_length=20000)
+    # Реальная жалоба: заметка длиннее ~20000 символов (старый лимит)
+    # отдавала 422 без единого слова объяснения — фронтенд на любую ошибку
+    # показывал один и тот же "попробуй ещё раз". 80000 — с запасом под
+    # системный промпт и ответ в контексте mistral-small (~32K токенов,
+    # ~4 символа/токен).
+    text: str = Field(min_length=1, max_length=80000)
     instruction: str = Field(default="", max_length=500)
 
 

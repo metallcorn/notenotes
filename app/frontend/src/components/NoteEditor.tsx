@@ -13,6 +13,7 @@ import { Suspense, lazy, useEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent, RefObject } from "react";
 import { createPortal } from "react-dom";
 import { Archive, ChevronLeft, Code2, Eye, FileText, Globe, History, MoreVertical, Palette, Pencil, Pin, PinOff, Sparkles, Tag as TagIcon, Trash2, Users, WifiOff } from "lucide-react";
+import { ApiError } from "../api/client";
 import type { Item } from "../api/types";
 import { uiStorage, type ContentWidth } from "../lib/storage";
 import TableOfContentsPanel from "./TableOfContentsPanel";
@@ -1065,8 +1066,16 @@ export default function NoteEditor({
       } else {
         editor.chain().focus().insertContentAt({ from, to }, result).run();
       }
-    } catch {
-      setAiError("Не получилось выполнить действие ИИ — попробуй ещё раз");
+    } catch (err) {
+      // Реальная жалоба: на слишком длинный текст (>лимита в ai_text.py)
+      // сервер отдаёт 422 без объяснения, а тут был один и тот же
+      // неинформативный текст на ЛЮБУЮ ошибку — пользователь не понимал,
+      // почему "попробовать ещё раз" не помогает.
+      const message =
+        err instanceof ApiError && err.status === 422
+          ? "Текст слишком длинный для этого действия — попробуй сократить выделение"
+          : "Не получилось выполнить действие ИИ — попробуй ещё раз";
+      setAiError(message);
       setTimeout(() => setAiError(null), 4000);
     } finally {
       editor.setEditable(true);
