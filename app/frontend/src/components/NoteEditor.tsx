@@ -714,7 +714,24 @@ export default function NoteEditor({
       loadedItemIdRef.current = item.id;
 
       if (!collabEligible) {
-        if (!hasUnseenLocalEdit) editor.commands.setContent(item.content || "");
+        if (!hasUnseenLocalEdit) {
+          editor.commands.setContent(item.content || "");
+          // Реальный найденный баг: просто ОТКРЫЛ заметку, ничего не менял —
+          // она подскакивала в топ списка, создавалась лишняя версия.
+          // TrailingParagraph (extensions/TrailingParagraph.ts) молча
+          // дописывает пустой абзац, если заметка заканчивается атом-узлом
+          // (карточка ссылки/вложения/билет) — полезно, чтобы можно было
+          // кликнуть и печатать после него, но onUpdate после этого видит
+          // "новый" markdown, который не совпадает с savedRef.current.content
+          // (тем сырым, что пришло с сервера ДО нормализации) — автосейв
+          // считает это настоящей правкой пользователя. Синхронизируем
+          // базовую точку с тем, что РЕАЛЬНО оказалось в редакторе после
+          // setContent (уже с учётом любой такой нормализации), а не с
+          // сырым серверным значением — тогда нечего "досохранять".
+          const normalized = editor.storage.markdown.getMarkdown();
+          setContent(normalized);
+          savedRef.current = { ...savedRef.current, content: normalized };
+        }
         setStatus(hasUnseenLocalEdit ? "saving" : "idle");
         setCollabStatus(null);
         return;
@@ -747,6 +764,19 @@ export default function NoteEditor({
       }
       collabProviderRef.current = provider;
       collabItemIdRef.current = item.id;
+      // Та же причина, что в некомлаб-ветке выше: attachCollab (см.
+      // lib/collabState.ts) намеренно дёргает пустой dispatch сразу после
+      // подключения, чтобы TrailingParagraph успел дописать абзац после
+      // хвостового атом-узла — это меняет editor.storage.markdown.
+      // getMarkdown() относительно сырого item.content, на которое уже
+      // указывает savedRef.current (строка выше, до attachCollab).
+      // Досогласовываем базовую точку — иначе автосейв через пару секунд
+      // молча "досохранит" эту нормализацию как правку пользователя (баг:
+      // просто открыл заметку, ничего не трогал — она подскочила в топ
+      // списка и обзавелась лишней версией).
+      const normalized = editor.storage.markdown.getMarkdown();
+      setContent(normalized);
+      savedRef.current = { ...savedRef.current, content: normalized };
       setStatus("idle");
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -812,8 +842,13 @@ export default function NoteEditor({
       }
       collabProviderRef.current = provider;
       collabItemIdRef.current = item.id;
-      setContent(freshContent);
-      savedRef.current = { ...savedRef.current, content: freshContent };
+      // Та же причина, что в основном эффекте загрузки выше: attachCollab
+      // может дописать TrailingParagraph-абзац — берём то, что РЕАЛЬНО
+      // оказалось в редакторе, не голый freshContent с сервера, иначе
+      // переподключение само по себе создаёт лишнюю версию/автосейв.
+      const normalized = editor.storage.markdown.getMarkdown();
+      setContent(normalized);
+      savedRef.current = { ...savedRef.current, content: normalized };
       })();
     }, reconnectDelayMs);
     return () => clearTimeout(timer);

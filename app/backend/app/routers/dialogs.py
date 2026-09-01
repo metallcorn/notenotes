@@ -705,20 +705,45 @@ def _to_llm_messages(records: list[dict], system_prompt: str) -> list[Message]:
 # URL с "(MTP)" в параметре location).
 _MARKDOWN_LINK_RE = re.compile(r"\[([^\]]+)\]\((https?://(?:[^\s()]|\([^\s()]*\))+)\)")
 
+# Голая ссылка вне markdown-синтаксиса — реальный найденный случай (два раза
+# подряд на одном и том же разговоре): web_search не нашёл нужную страницу,
+# модель на прямой повторный вопрос всё равно ответила https://www.facebook.
+# com/<похожее на название> ГОЛЫМ ТЕКСТОМ, без [текст](url) — _MARKDOWN_LINK_RE
+# этот случай в принципе не видит (нет скобок для совпадения), правдоподобная
+# выдумка проходила насквозь непроверенной. ']'/')' в границе — та же
+# причина, что у _MARKDOWN_LINK_RE: не проглатывать закрывающую скобку
+# настоящей markdown-ссылки, если голый URL оказался внутри нее (уже
+# верифицированной — замена в этом случае вернёт то же самое без изменений).
+_BARE_URL_RE = re.compile(r"https?://[^\s\])]+")
+
+# Отдельный регэксп для сканирования JSON-текста результата тула (не текста
+# ответа модели) — там URL всегда внутри `"..."`, граница по кавычке
+# обязательна: без неё [^\s)]+ пожирает весь хвост JSON-строки до первого
+# пробела ВНУТРИ следующего поля (например title с пробелами), а не
+# останавливается на закрывающей кавычке самого URL.
+_BARE_URL_IN_JSON_RE = re.compile(r'https?://[^\s\])"]+')
+
 
 def _strip_unverified_links(text: str, allowed_urls: set[str]) -> str:
     """Промпт один не удерживает модель от выдумывания правдоподобных
-    ссылок (особенно Google Maps с координатами) — проверено на практике,
-    инструкция "не выдумывай ссылки" не сработала. Поэтому режем на уровне
-    кода: ссылка остаётся кликабельной, только если её URL буквально
-    встречался в результатах web_search этого хода; иначе остаётся просто
-    текст без ссылки."""
+    ссылок (особенно Google Maps с координатами, позже — соцсети) —
+    проверено на практике, инструкция "не выдумывай ссылки" не сработала.
+    Поэтому режем на уровне кода: ссылка остаётся кликабельной, только
+    если её URL буквально встречался в результатах тулов этого хода;
+    иначе остаётся просто текст без ссылки (markdown-форма) либо честная
+    пометка (голый URL — заменить не на что, кроме как на предупреждение)."""
 
-    def replace(match: re.Match[str]) -> str:
+    def replace_markdown(match: re.Match[str]) -> str:
         link_text, url = match.group(1), match.group(2)
         return match.group(0) if url in allowed_urls else link_text
 
-    return _MARKDOWN_LINK_RE.sub(replace, text)
+    text = _MARKDOWN_LINK_RE.sub(replace_markdown, text)
+
+    def replace_bare(match: re.Match[str]) -> str:
+        url = match.group(0)
+        return url if url in allowed_urls else "(ссылка не подтверждена — не найдена в результатах поиска)"
+
+    return _BARE_URL_RE.sub(replace_bare, text)
 
 
 # Пункт списка — либо уже нормальный markdown ("[Название](url)"), либо
@@ -1831,8 +1856,19 @@ async def _run_dialog_turn_locked(db: AsyncSession, user: User, item: Item, cont
             # голый текст. Любая ссылка, реально пришедшая В РЕЗУЛЬТАТЕ
             # тула (не в аргументах вызова — те могла написать сама модель),
             # достаточно "верифицирована" для показа кликабельной.
-            for _, found_url in _MARKDOWN_LINK_RE.findall(json.dumps(result, ensure_ascii=False)):
+            #
+            # _BARE_URL_RE тоже — реальный найденный пробел: поле "url" в
+            # результатах create_note/get_note/search_base/list_all_items/
+            # list_items_in_folder/list_items_by_tag (item_url,
+            # tools/notes.py) — это голая JSON-строка, не markdown-ссылка
+            # [текст](url), поэтому _MARKDOWN_LINK_RE её не видел вообще —
+            # даже настоящую ссылку тула _strip_unverified_links резал бы
+            # как непроверенную.
+            result_json = json.dumps(result, ensure_ascii=False)
+            for _, found_url in _MARKDOWN_LINK_RE.findall(result_json):
                 verified_urls.add(found_url)
+            for match in _BARE_URL_IN_JSON_RE.finditer(result_json):
+                verified_urls.add(match.group(0))
             if tc.name == "get_list":
                 for entry in result.get("entries", []) or []:
                     link = _extract_entry_link(str(entry.get("text", "")))

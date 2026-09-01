@@ -432,3 +432,70 @@ def test_run_python_is_core_regardless_of_keywords():
     relevant = _relevant_tool_names(all_names, "какой день недели будет через 48 дней от сегодня?", set())
     assert "run_python" in relevant
     assert "web_search" not in relevant  # не задело web-категорию — не должен попасть
+
+
+# --- _strip_unverified_links: реальная жалоба "не кликабельные ссылки" ----
+# Промпт один не удерживает модель от выдумывания правдоподобных URL —
+# проверено дважды на реальном разговоре (calendar.google.com с придуманными
+# координатами, facebook.com/<похожее на название>). Код должен резать
+# и markdown-, и голые ссылки, если их не было ни в одном результате тула.
+
+def test_strip_unverified_links_keeps_verified_markdown_link():
+    from app.routers.dialogs import _strip_unverified_links
+
+    text = "Вот страница: [SaleMuzyczne](https://www.facebook.com/salaprobexample)"
+    result = _strip_unverified_links(text, {"https://www.facebook.com/salaprobexample"})
+    assert "[SaleMuzyczne](https://www.facebook.com/salaprobexample)" in result
+
+
+def test_strip_unverified_links_strips_fabricated_markdown_link():
+    from app.routers.dialogs import _strip_unverified_links
+
+    text = "Вот страница: [SaleMuzyczne](https://www.facebook.com/salemuzyczne.pl)"
+    result = _strip_unverified_links(text, {"https://www.facebook.com/salaprobexample"})
+    assert "https://www.facebook.com/salemuzyczne.pl" not in result
+    assert "SaleMuzyczne" in result  # текст ссылки остаётся, просто без URL
+
+
+def test_strip_unverified_links_keeps_verified_bare_url():
+    from app.routers.dialogs import _strip_unverified_links
+
+    text = "facebook.com тут: https://www.facebook.com/salaprobexample"
+    result = _strip_unverified_links(text, {"https://www.facebook.com/salaprobexample"})
+    assert "https://www.facebook.com/salaprobexample" in result
+
+
+def test_strip_unverified_links_neutralizes_fabricated_bare_url():
+    # Реальный найденный случай: web_search не нашёл нужную страницу, модель
+    # на прямой повторный вопрос всё равно ответила ГОЛЫМ URL (не markdown-
+    # ссылкой) — _MARKDOWN_LINK_RE такое не видит вообще, тут отдельная
+    # проверка на голые URL.
+    from app.routers.dialogs import _strip_unverified_links
+
+    text = "https://www.facebook.com/salemuzyczne.pl"
+    result = _strip_unverified_links(text, {"https://www.facebook.com/salaprobexample"})
+    assert "https://www.facebook.com/salemuzyczne.pl" not in result
+    assert "не подтверждена" in result
+
+
+def test_strip_unverified_links_bare_url_inside_verified_markdown_link_untouched():
+    # Регрессия: голая проверка после markdown-прохода не должна портить
+    # уже сохранённую верифицированную markdown-ссылку — URL внутри неё
+    # тоже "голый" с точки зрения _BARE_URL_RE, должен остаться как есть.
+    from app.routers.dialogs import _strip_unverified_links
+
+    text = "[Страница](https://www.facebook.com/salaprobexample)"
+    result = _strip_unverified_links(text, {"https://www.facebook.com/salaprobexample"})
+    assert result == text
+
+
+# --- _BARE_URL_IN_JSON_RE: правильная граница по кавычке, не по пробелу ---
+
+def test_bare_url_in_json_re_stops_at_closing_quote_not_next_field():
+    import json
+
+    from app.routers.dialogs import _BARE_URL_IN_JSON_RE
+
+    result = {"url": "https://notenotes.example/?item=abc", "title": "Заметка с пробелами в названии"}
+    found = [m.group(0) for m in _BARE_URL_IN_JSON_RE.finditer(json.dumps(result, ensure_ascii=False))]
+    assert found == ["https://notenotes.example/?item=abc"]
