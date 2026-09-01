@@ -201,6 +201,13 @@ async def update_me(
         if value not in allowed:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Неизвестный провайдер: {value}")
         user.llm_provider = value
+    if payload.timezone is not None:
+        from app.user_timezone import VALID_TIMEZONE_NAMES
+
+        value = payload.timezone.strip()
+        if value not in VALID_TIMEZONE_NAMES:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Неизвестный часовой пояс: {value}")
+        user.timezone = value
     await db.commit()
     await db.refresh(user)
     return user

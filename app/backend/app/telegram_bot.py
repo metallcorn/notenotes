@@ -906,7 +906,9 @@ async def _handle_assistant_message(db: AsyncSession, link: TelegramLink, text: 
 
     user = await db.get(User, link.user_id)
     history_len = len(dialog.properties.get("messages", []))
-    records = await run_dialog_turn(db, user, dialog, text)
+    # Живого браузера у Telegram нет — лучшая доступная замена живому
+    # поясу это домашний пояс того же пользователя (app/user_timezone.py).
+    records = await run_dialog_turn(db, user, dialog, text, user.timezone)
     new_records = records[history_len:]
 
     last = records[-1] if records and records[-1]["role"] == "assistant" else None

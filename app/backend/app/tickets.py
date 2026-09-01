@@ -17,7 +17,7 @@ from app.core.config import get_settings
 from app.db import async_session
 from app.llm.base import Message
 from app.llm.factory import get_llm_client
-from app.models import Item, Notification, Upload
+from app.models import Item, Notification, Upload, User
 from app.user_timezone import assume_default_timezone
 from app.vision import _replace_in_referencing_items
 from app.vision import placeholder_text as image_placeholder_text
@@ -227,11 +227,14 @@ async def _add_event_notification(db: AsyncSession, item: Item, properties: dict
         trigger_at = datetime.fromisoformat(str(raw_start))
     except ValueError:
         return
+    author = await db.get(User, item.author_id)
     # Реальный найденный баг: наивное время билета (без пояса) трактовалось
     # как UTC — время события в Польше летом (CEST, UTC+2) на экране
     # сдвигалось на 2 часа вперёд. assume_default_timezone трактует его как
-    # местное время пользователя (app/user_timezone.py).
-    trigger_at = assume_default_timezone(trigger_at)
+    # ДОМАШНИЙ пояс автора заметки (билет описывает факт о конкретном рейсе/
+    # мероприятии, не зависящий от того, где автор сейчас физически
+    # находится), не UTC (app/user_timezone.py).
+    trigger_at = assume_default_timezone(trigger_at, author.timezone if author else None)
 
     # Защита от дубля при повторном распознавании (кнопка "Распознать
     # снова" на карточке билета) — без неё пользователь получил бы второе
@@ -253,7 +256,7 @@ async def _add_event_notification(db: AsyncSession, item: Item, properties: dict
 
     db.add(
         Notification(
-            user_id=item.user_id,
+            user_id=item.author_id,
             type="ticket_event",
             title=f"{label}: {title or item.title or label}",
             body=body,

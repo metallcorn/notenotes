@@ -9,12 +9,29 @@ export class ApiError extends Error {
   }
 }
 
+// Живой пояс браузера — отличается от "домашнего" User.timezone (Настройки):
+// нужен для действий, где важно, где пользователь физически находится
+// ПРЯМО СЕЙЧАС ("напомни в 9 утра"), а не где он обычно живёт. См.
+// app/user_timezone.py — бэкенд читает этот заголовок там, где это уместно
+// (create_reminder/create_notification/"сегодня" в промпте ассистента), и
+// игнорирует его во всех остальных эндпоинтах, поэтому шлём его всегда —
+// не нужно помнить о нём по месту каждого отдельного вызова.
+function clientTimezoneHeader(): Record<string, string> {
+  try {
+    return { "X-Client-Timezone": Intl.DateTimeFormat().resolvedOptions().timeZone };
+  } catch {
+    return {};
+  }
+}
+
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const isFormData = options.body instanceof FormData;
   const res = await fetch(`${BASE}${path}`, {
     credentials: "include",
     ...options,
-    headers: isFormData ? options.headers : { "Content-Type": "application/json", ...options.headers },
+    headers: isFormData
+      ? { ...clientTimezoneHeader(), ...options.headers }
+      : { "Content-Type": "application/json", ...clientTimezoneHeader(), ...options.headers },
   });
 
   if (!res.ok) {

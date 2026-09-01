@@ -13,8 +13,8 @@ from app.core.config import get_settings
 from app.db import async_session
 from app.llm.base import Message
 from app.llm.factory import get_llm_client
-from app.models import Item, ItemTag, Tag
-from app.user_timezone import DEFAULT_TZ, assume_default_timezone
+from app.models import Item, ItemTag, Tag, User
+from app.user_timezone import assume_default_timezone, resolve_timezone
 
 logger = logging.getLogger(__name__)
 
@@ -91,7 +91,7 @@ def _build_prompt(existing_tag_names: list[str], today: str) -> str:
     )
 
 
-def _parse_events(raw: object) -> list[dict]:
+def _parse_events(raw: object, tz_name: str | None = None) -> list[dict]:
     if not isinstance(raw, list):
         return []
     events: list[dict] = []
@@ -111,8 +111,11 @@ def _parse_events(raw: object) -> list[dict]:
         # трактовалось как UTC — время "17:30" из письма про встречу в
         # Познани превращалось в заметке в 19:30 на экране (Польша летом на
         # 2 часа впереди UTC). assume_default_timezone трактует наивную
-        # дату как местное время пользователя (app/user_timezone.py).
-        at = assume_default_timezone(at)
+        # дату как ДОМАШНИЙ пояс автора заметки (tz_name), не UTC и не
+        # текущий пояс того, кто сейчас читает заметку — письмо описывает
+        # факт о конкретном месте в мире, не зависящий от того, где
+        # получатель физически находится (app/user_timezone.py).
+        at = assume_default_timezone(at, tz_name)
         events.append({"title": title, "at": at.isoformat()})
     return events
 
@@ -141,7 +144,7 @@ def _parse_addresses(raw: object, content: str) -> list[dict]:
 
 
 async def _classify(
-    title: str, content: str, existing_tag_names: list[str]
+    title: str, content: str, existing_tag_names: list[str], tz_name: str | None = None
 ) -> tuple[list[str], list[dict], list[dict]]:
     settings = get_settings()
     if not settings.llm_api_key:
@@ -149,10 +152,11 @@ async def _classify(
 
     client = get_llm_client()
     text = f"{title}\n\n{content}"[:_MAX_CONTENT_CHARS]
-    # DEFAULT_TZ, не UTC — та же причина, что у assume_default_timezone
-    # ниже: у границы полуночи (Польша летом на 2 часа впереди UTC)
-    # "сегодня"/"завтра" по UTC резолвились бы не в тот локальный день.
-    today = datetime.now(DEFAULT_TZ).strftime("%Y-%m-%d, %A")
+    # Домашний пояс автора (tz_name), не UTC — та же причина, что у
+    # assume_default_timezone ниже: у границы полуночи (Польша летом на 2
+    # часа впереди UTC) "сегодня"/"завтра" по UTC резолвились бы не в тот
+    # локальный день.
+    today = datetime.now(resolve_timezone(tz_name)).strftime("%Y-%m-%d, %A")
     response = await client.chat(
         [
             Message(role="system", content=_build_prompt(existing_tag_names, today)),
@@ -177,7 +181,7 @@ async def _classify(
     if not isinstance(parsed, dict):
         return [], [], []
     names = [str(n).strip() for n in parsed.get("tags") or [] if str(n).strip()][:_MAX_SUGGESTIONS]
-    events = _parse_events(parsed.get("events"))
+    events = _parse_events(parsed.get("events"), tz_name)
     addresses = _parse_addresses(parsed.get("addresses"), content)
     return names, events, addresses
 
@@ -195,9 +199,11 @@ async def _process(item_id: uuid.UUID) -> None:
             return
 
         existing = (await db.execute(select(Tag.name).where(Tag.user_id == item.author_id))).scalars().all()
+        author = await db.get(User, item.author_id)
+        tz_name = author.timezone if author else None
 
         try:
-            names, events, addresses = await _classify(item.title, item.content, list(existing))
+            names, events, addresses = await _classify(item.title, item.content, list(existing), tz_name)
         except Exception:
             logger.exception("Ошибка автотегирования для заметки %s", item_id)
             return

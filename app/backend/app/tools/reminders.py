@@ -67,8 +67,10 @@ async def create_reminder(ctx: ToolContext, args: dict[str, Any]) -> dict[str, A
     # trigger_at по просьбе "напомни в 9 утра") трактовалось как UTC — для
     # пользователя в Польше (CEST, UTC+2 летом) напоминание срабатывало на
     # 2 часа позже, чем он просил. assume_default_timezone трактует его как
-    # местное время пользователя (app/user_timezone.py).
-    trigger_at = assume_default_timezone(trigger_at)
+    # ЖИВОЙ пояс из браузера (ctx.client_timezone) — "9 утра" в прямом
+    # обращении к ассистенту означает 9 утра там, где пользователь сейчас
+    # физически находится, не где он обычно живёт (app/user_timezone.py).
+    trigger_at = assume_default_timezone(trigger_at, ctx.client_timezone)
 
     payload: dict[str, Any] = {}
     recipient_ids = [ctx.user_id]

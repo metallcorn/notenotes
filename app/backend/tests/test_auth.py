@@ -73,6 +73,20 @@ async def test_update_me_rejects_unknown_llm_provider(auth_client):
     assert r.status_code == 400
 
 
+async def test_update_me_timezone(auth_client):
+    r = await auth_client.patch("/api/auth/me", json={"timezone": "Asia/Dubai"})
+    assert r.status_code == 200
+    assert r.json()["timezone"] == "Asia/Dubai"
+
+    r = await auth_client.get("/api/auth/me")
+    assert r.json()["timezone"] == "Asia/Dubai"
+
+
+async def test_update_me_rejects_unknown_timezone(auth_client):
+    r = await auth_client.patch("/api/auth/me", json={"timezone": "Mars/Olympus_Mons"})
+    assert r.status_code == 400
+
+
 async def test_invite_code_create_and_list_scoped_to_creator(auth_client, _client_factory, db_session):
     from app.models import User
     from app.security import create_session_token, hash_password

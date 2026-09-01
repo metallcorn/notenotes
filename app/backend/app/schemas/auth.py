@@ -52,6 +52,7 @@ class UserOut(BaseModel):
     tts_voice: str = "default_low"
     auto_process_uploads: bool = True
     llm_provider: str = ""
+    timezone: str = "Europe/Warsaw"
 
 
 class InviteCodeOut(BaseModel):
@@ -72,3 +73,4 @@ class UserUpdate(BaseModel):
     tts_voice: str | None = Field(default=None, min_length=1, max_length=128)
     auto_process_uploads: bool | None = None
     llm_provider: str | None = None
+    timezone: str | None = Field(default=None, min_length=1, max_length=64)

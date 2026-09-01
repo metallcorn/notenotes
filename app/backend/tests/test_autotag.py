@@ -12,6 +12,14 @@ def test_parse_events_naive_time_treated_as_warsaw_not_utc():
     assert events[0]["at"] == "2026-09-09T15:30:00+00:00"
 
 
+def test_parse_events_naive_time_uses_passed_home_timezone():
+    # Домашний пояс автора заметки (tz_name), не хардкод Варшавы — Дубай
+    # (UTC+4 круглый год) проще проверять, чем Варшаву с летним/зимним
+    # переходом.
+    events = _parse_events([{"title": "Встреча", "at": "2026-09-09T17:30:00"}], "Asia/Dubai")
+    assert events[0]["at"] == "2026-09-09T13:30:00+00:00"
+
+
 def test_parse_events_already_aware_time_untouched():
     events = _parse_events([{"title": "Встреча", "at": "2026-09-09T15:30:00+00:00"}])
     assert events[0]["at"] == "2026-09-09T15:30:00+00:00"

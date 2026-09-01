@@ -38,6 +38,13 @@ class User(Base):
     # дефолт из LLM_PROVIDER). Живой переключатель в настройках для A/B
     # сравнения провайдеров без передеплоя — см. llm/factory.py.
     llm_provider: Mapped[str] = mapped_column(String(32), default="", server_default="")
+    # "Домашний" часовой пояс (IANA-имя) — где пользователь обычно
+    # базируется, не где физически сидит прямо сейчас. Используется для
+    # разбора наивного времени из ВНЕШНЕГО контента (письма, тикеты) в
+    # фоновых воркерах (autotag.py/tickets.py), у которых нет живого
+    # запроса, из которого можно взять текущий пояс браузера — см.
+    # app/user_timezone.py.
+    timezone: Mapped[str] = mapped_column(String(64), default="Europe/Warsaw", server_default="Europe/Warsaw")
 
 
 class InviteCode(Base):

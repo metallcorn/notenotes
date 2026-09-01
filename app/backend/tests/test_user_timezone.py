@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from app.user_timezone import DEFAULT_TZ, assume_default_timezone, today_in_default_timezone
+from app.user_timezone import DEFAULT_TZ, assume_default_timezone, resolve_timezone, today_in_default_timezone
 
 
 # --- Реальная жалоба: письмо про встречу "17:30" в Познани показывалось в
@@ -35,3 +35,23 @@ def test_today_in_default_timezone_format():
 
 def test_default_tz_is_warsaw():
     assert str(DEFAULT_TZ) == "Europe/Warsaw"
+
+
+def test_resolve_timezone_valid_name():
+    assert str(resolve_timezone("Asia/Dubai")) == "Asia/Dubai"
+
+
+def test_resolve_timezone_invalid_name_falls_back_to_default():
+    assert resolve_timezone("Mars/Olympus_Mons") is DEFAULT_TZ
+
+
+def test_resolve_timezone_none_falls_back_to_default():
+    assert resolve_timezone(None) is DEFAULT_TZ
+
+
+def test_assume_default_timezone_uses_explicit_tz_name():
+    # Дубай — UTC+4 круглый год, проще проверять, чем Варшаву с её
+    # летним/зимним переходом.
+    naive = datetime(2026, 9, 9, 17, 30)
+    result = assume_default_timezone(naive, "Asia/Dubai")
+    assert result == datetime(2026, 9, 9, 13, 30, tzinfo=timezone.utc)

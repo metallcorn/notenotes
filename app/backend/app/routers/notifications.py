@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect, status
+from fastapi import APIRouter, Depends, Header, HTTPException, WebSocket, WebSocketDisconnect, status
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -40,7 +40,10 @@ async def list_notifications(
 
 @router.post("", response_model=NotificationOut, status_code=status.HTTP_201_CREATED)
 async def create_notification(
-    payload: NotificationCreateIn, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+    payload: NotificationCreateIn,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+    client_timezone: str | None = Header(default=None, alias="X-Client-Timezone"),
 ) -> Notification:
     """Прямое REST-создание напоминания — то же самое, что делает
     tools/reminders.py's create_reminder для ассистента, но без прохождения
@@ -51,11 +54,11 @@ async def create_notification(
     # Фронт (TicketAttachmentCard.tsx/NoteEditor.tsx) шлёт trigger_at через
     # Date.toISOString() — тот всегда с явным "Z" (UTC), так что на практике
     # tzinfo здесь уже есть. Защитный фолбэк на случай наивной даты из
-    # другого места — та же трактовка, что и у tools/reminders.py.create_
-    # reminder (местное время пользователя, не молчаливый UTC), для
+    # другого места — тот же живой пояс браузера, что и у
+    # tools/reminders.py.create_reminder (не молчаливый UTC), для
     # согласованности между двумя путями создания одного и того же
     # напоминания.
-    trigger_at = assume_default_timezone(trigger_at)
+    trigger_at = assume_default_timezone(trigger_at, client_timezone)
 
     notification_payload: dict = {}
     recipient_ids = [user.id]

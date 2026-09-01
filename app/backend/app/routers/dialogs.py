@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -601,21 +601,22 @@ def _build_system_prompt(
     enabled_tools: set[str],
     disabled_tools: set[str],
     is_fresh_start: bool = False,
+    client_timezone: str | None = None,
 ) -> str:
     # ISO, не локализованное имя дня недели — strftime("%A") в контейнере
     # без ru_RU-локали всё равно выдал бы английское имя, а модели ISO-даты
     # достаточно, чтобы правильно резолвить "на этой неделе"/"вчера" и т.п.
     #
-    # Местное время пользователя (DEFAULT_TZ), не UTC — реальный найденный
-    # баг: у границы полуночи (Польша летом на 2 часа впереди UTC) "сегодня"
-    # по UTC ещё вчерашний день локально, "напомни завтра в 9 утра" в 00:30
-    # по Варшаве резолвилось бы не в тот календарный день. Модель также
-    # отдаёт trigger_at для create_reminder без явного пояса — тот
-    # интерпретируется как это же местное время (app/user_timezone.py,
-    # tools/reminders.py), поэтому "сегодня" тут обязано быть согласовано с
-    # той же трактовкой, а не с UTC.
-    today = today_in_default_timezone()
-    prompt = f"Сегодняшняя дата: {today} (ISO, Europe/Warsaw).\n\n" + SYSTEM_PROMPT_BASE
+    # Живой пояс пользователя (client_timezone — из браузера или, для
+    # Telegram, домашний как замена), не UTC — реальный найденный баг: у
+    # границы полуночи (Польша летом на 2 часа впереди UTC) "сегодня" по
+    # UTC ещё вчерашний день локально, "напомни завтра в 9 утра" в 00:30 по
+    # Варшаве резолвилось бы не в тот календарный день. Модель также отдаёт
+    # trigger_at для create_reminder без явного пояса — тот интерпретируется
+    # как этот же живой пояс (app/user_timezone.py, tools/reminders.py),
+    # поэтому "сегодня" тут обязано быть согласовано с той же трактовкой.
+    today = today_in_default_timezone(client_timezone)
+    prompt = f"Сегодняшняя дата: {today} (ISO, местное время пользователя).\n\n" + SYSTEM_PROMPT_BASE
     if SHOW_NOTE_IMAGES_SKILL not in disabled_tools:
         prompt += "\n\n" + SHOW_NOTE_IMAGES_PROMPT_FRAGMENT
     if is_fresh_start:
@@ -1338,15 +1339,24 @@ def _get_dialog_turn_lock(dialog_id: uuid.UUID) -> asyncio.Lock:
     return lock
 
 
-async def run_dialog_turn(db: AsyncSession, user: User, item: Item, content: str) -> list[dict]:
+async def run_dialog_turn(
+    db: AsyncSession, user: User, item: Item, content: str, client_timezone: str | None = None
+) -> list[dict]:
     """Один ход агентного цикла над диалогом `item` — тонкая обёртка вокруг
     _run_dialog_turn_locked, сериализующая параллельные ходы ОДНОГО и того
-    же диалога (см. комментарий у _dialog_turn_locks выше)."""
+    же диалога (см. комментарий у _dialog_turn_locks выше).
+
+    client_timezone — живой пояс из браузера (send_message, заголовок
+    X-Client-Timezone) или домашний пояс пользователя как замена для
+    Telegram (telegram_bot.py, живого браузера там нет — см.
+    app/user_timezone.py)."""
     async with _get_dialog_turn_lock(item.id):
-        return await _run_dialog_turn_locked(db, user, item, content)
+        return await _run_dialog_turn_locked(db, user, item, content, client_timezone)
 
 
-async def _run_dialog_turn_locked(db: AsyncSession, user: User, item: Item, content: str) -> list[dict]:
+async def _run_dialog_turn_locked(
+    db: AsyncSession, user: User, item: Item, content: str, client_timezone: str | None = None
+) -> list[dict]:
     """Один ход агентного цикла над диалогом `item`: добавляет реплику
     пользователя, гоняет LLM+тулы до финального ответа или потолка
     итераций, коммитит и уведомляет по WS. Общее ядро для HTTP-эндпоинта
@@ -1525,7 +1535,7 @@ async def _run_dialog_turn_locked(db: AsyncSession, user: User, item: Item, cont
             {d.name for d in all_tool_definitions}, recent_user_text, already_used_tools
         )
         tool_definitions = [d for d in all_tool_definitions if d.name in relevant_names]
-    ctx = ToolContext(db=db, user_id=user.id, space_id=item.space_id)
+    ctx = ToolContext(db=db, user_id=user.id, space_id=item.space_id, client_timezone=client_timezone)
     web_search_calls = 0
     max_web_search_calls = settings.web_search_max_calls_per_turn
     # Не квота платного API (в отличие от web_search/Tavily) — просто
@@ -1583,6 +1593,7 @@ async def _run_dialog_turn_locked(db: AsyncSession, user: User, item: Item, cont
         enabled_tool_names,
         disabled_tool_names,
         is_fresh_start and not memory_facts and scoped_note_context is None,
+        client_timezone,
     )
     if scoped_note_context:
         system_prompt += "\n\n" + scoped_note_context
@@ -1993,10 +2004,11 @@ async def send_message(
     payload: MessageCreate,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
+    client_timezone: str | None = Header(default=None, alias="X-Client-Timezone"),
 ) -> DialogOut:
     item = await _get_dialog(db, user, dialog_id)
     content = payload.content.strip()
     if not content:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Пустое сообщение")
-    await run_dialog_turn(db, user, item, content)
+    await run_dialog_turn(db, user, item, content, client_timezone)
     return _serialize(item)

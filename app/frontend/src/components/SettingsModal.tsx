@@ -21,6 +21,7 @@ import {
   useUpdateCustomInstructions,
   useUpdateDisabledTools,
   useUpdateLlmProvider,
+  useUpdateTimezone,
   useUpdateTtsVoice,
 } from "../api/hooks";
 import { DEFAULT_MEDIA_CACHE_LIMIT_MB, getMediaCacheLimitBytes, setMediaCacheLimitMb } from "../lib/offlineSettings";
@@ -39,6 +40,20 @@ const LLM_PROVIDERS = [
   { value: "groq", label: "Groq (Llama 3.3 70B)" },
 ];
 
+// Просто удобные подсказки в datalist, не полный список ~600 IANA-имён —
+// сервер валидирует по zoneinfo.available_timezones() в любом случае,
+// можно ввести и любое другое корректное имя вручную.
+const COMMON_TIMEZONES = [
+  "Europe/Warsaw",
+  "Europe/Moscow",
+  "Europe/London",
+  "Europe/Berlin",
+  "Europe/Kyiv",
+  "Asia/Istanbul",
+  "Asia/Dubai",
+  "UTC",
+];
+
 export default function SettingsModal({ onClose }: { onClose: () => void }) {
   const { data: me } = useMe();
   const { data: memories, isLoading } = useMemories();
@@ -49,6 +64,7 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
   const updateDisabledTools = useUpdateDisabledTools();
   const updateTtsVoice = useUpdateTtsVoice();
   const updateLlmProvider = useUpdateLlmProvider();
+  const updateTimezone = useUpdateTimezone();
   const updateAutoProcessUploads = useUpdateAutoProcessUploads();
   const pushSubscription = usePushSubscription();
   const { data: telegramStatus } = useTelegramStatus();
@@ -64,6 +80,7 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
   const removeOwnMailAddress = useRemoveOwnMailAddress();
 
   const [instructions, setInstructions] = useState(me?.custom_instructions ?? "");
+  const [timezoneInput, setTimezoneInput] = useState(me?.timezone ?? "Europe/Warsaw");
   const [saved, setSaved] = useState(false);
   const [customVoiceId, setCustomVoiceId] = useState("");
   const [telegramDeepLink, setTelegramDeepLink] = useState<string | null>(null);
@@ -212,6 +229,39 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
                 </button>
               ))}
             </div>
+          </div>
+
+          <div className="mb-6">
+            <div className="mb-1 text-sm font-medium text-primary">Домашний часовой пояс</div>
+            <div className="mb-2 text-xs text-subtle">
+              Где вы обычно живёте — используется, чтобы верно понять время из писем и билетов (например
+              "встреча в 17:30"), даже если вы сейчас в поездке. Для "напомни в 9 утра" в чате ассистент
+              всегда ориентируется на часовой пояс браузера, эту настройку трогать не нужно.
+            </div>
+            <div className="flex items-center gap-2">
+              <input
+                value={timezoneInput}
+                onChange={(e) => setTimezoneInput(e.target.value)}
+                list="timezone-options"
+                placeholder="Europe/Warsaw"
+                className="w-full rounded border px-3 py-1.5 text-sm"
+              />
+              <datalist id="timezone-options">
+                {COMMON_TIMEZONES.map((tz) => (
+                  <option key={tz} value={tz} />
+                ))}
+              </datalist>
+              <button
+                onClick={() => timezoneInput.trim() && updateTimezone.mutate(timezoneInput.trim())}
+                disabled={updateTimezone.isPending || !timezoneInput.trim() || timezoneInput.trim() === me?.timezone}
+                className="shrink-0 rounded border border-default px-3 py-1.5 text-sm text-secondary hover:bg-muted-hover disabled:opacity-50"
+              >
+                Применить
+              </button>
+            </div>
+            {updateTimezone.isError && (
+              <div className="mt-1 text-xs text-danger">Не удалось сохранить — проверьте название пояса.</div>
+            )}
           </div>
 
           <div className="mb-6">

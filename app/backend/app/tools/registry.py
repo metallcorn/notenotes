@@ -27,6 +27,13 @@ class ToolContext:
     db: AsyncSession
     user_id: uuid.UUID
     space_id: uuid.UUID
+    # Живой пояс из браузера (заголовок X-Client-Timezone), не домашний
+    # User.timezone — для прямых, здесь-и-сейчас действий вроде "напомни в
+    # 9 утра" важно, где пользователь физически сидит прямо сейчас, а не
+    # где он обычно живёт (app/user_timezone.py). None — если запрос не
+    # веб (Telegram: см. telegram_bot.py, где передаётся домашний пояс за
+    # неимением живого сигнала) или заголовок не пришёл.
+    client_timezone: str | None = None
 
 
 ToolHandler = Callable[[ToolContext, dict[str, Any]], Awaitable[dict[str, Any]]]

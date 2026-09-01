@@ -8,6 +8,7 @@ export interface User {
   tts_voice: string;
   auto_process_uploads: boolean;
   llm_provider: string;
+  timezone: string;
 }
 
 export interface InviteCode {
