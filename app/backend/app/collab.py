@@ -36,6 +36,23 @@ MSG_UPDATE = 1
 MSG_AWARENESS = 2
 MSG_SEED_REQUEST = 3
 MSG_SEED_COMPLETE = 4
+MSG_PING = 5
+MSG_PONG = 6
+
+# Реальный найденный баг: у канала не было проверки "жив ли клиент" —
+# receive_bytes() в collab_ws.py ждал вечно. Если сеть у клиента отмирала
+# молча (ноутбук уснул, недружелюбный NAT/файрвол закрыл простаивающее
+# соединение без FIN), ни сервер, ни браузер не замечали разрыва: клиент
+# годами показывал "подключено", хотя реальные апдейты от других
+# участников до него не доходили (send_bytes на мёртвый TCP-сокет обычно
+# не бросает исключение сразу — молча копится в буфере ОС). Уже готовый
+# код переподключения на фронте (collabStatus === "disconnected" в
+# NoteEditor.tsx) от этого никогда не срабатывал — onclose у мёртвого,
+# но не закрытого явно сокета браузер тоже не звал. Heartbeat здесь и
+# ответ на MSG_PING в collabProvider.ts дают серверу способ самому
+# обнаружить и закрыть молчащего клиента.
+HEARTBEAT_INTERVAL_SECONDS = 20.0
+MAX_MISSED_HEARTBEATS = 2
 
 # Сеятель мог закрыть вкладку до того, как прислал что-то (или решил, что
 # наполнять нечем, но так и не отправил MSG_SEED_COMPLETE) — не держим
@@ -167,6 +184,11 @@ async def handle_message(room: CollabRoom, sender: WebSocket, data: bytes) -> No
 
     elif msg_type == MSG_SEED_COMPLETE:
         room.seed_done.set()
+
+    elif msg_type == MSG_PONG:
+        # Не требует действий — само получение ЛЮБОГО сообщения (в т.ч.
+        # этого) уже сбрасывает таймаут ожидания в collab_ws.py.
+        return
 
 
 async def _broadcast(room: CollabRoom, sender: WebSocket, raw: bytes) -> None:

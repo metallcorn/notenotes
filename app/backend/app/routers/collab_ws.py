@@ -1,3 +1,4 @@
+import asyncio
 import uuid
 
 import y_py as Y
@@ -53,8 +54,30 @@ async def item_collab_ws(websocket: WebSocket, item_id: uuid.UUID, db: AsyncSess
             if update:
                 await websocket.send_bytes(bytes([collab.MSG_UPDATE]) + update)
 
+        missed_heartbeats = 0
         while True:
-            data = await websocket.receive_bytes()
+            try:
+                data = await asyncio.wait_for(websocket.receive_bytes(), timeout=collab.HEARTBEAT_INTERVAL_SECONDS)
+            except asyncio.TimeoutError:
+                # Тишина от клиента дольше интервала — не обязательно
+                # разрыв (может просто ничего не печатает), но повод
+                # проверить: шлём пинг и ждём следующего окна. Только
+                # если пинги подряд остаются без ЛЮБОГО ответа (не
+                # обязательно понга — что угодно от клиента сбрасывает
+                # missed_heartbeats ниже) — считаем соединение мёртвым.
+                missed_heartbeats += 1
+                if missed_heartbeats > collab.MAX_MISSED_HEARTBEATS:
+                    # Явно закрываем сами — без этого клиент, чей канал
+                    # ещё технически жив (просто долго молчал), никогда
+                    # не узнал бы, что сервер уже списал его как мёртвого,
+                    # и завис бы в "подключено" без единого шанса на
+                    # переподключение (см. collabStatus === "disconnected"
+                    # в NoteEditor.tsx).
+                    await websocket.close(code=1001)
+                    break
+                await websocket.send_bytes(bytes([collab.MSG_PING]))
+                continue
+            missed_heartbeats = 0
             await collab.handle_message(room, websocket, data)
     except WebSocketDisconnect:
         pass

@@ -10,6 +10,8 @@ const MSG_UPDATE = 1;
 const MSG_AWARENESS = 2;
 const MSG_SEED_REQUEST = 3;
 const MSG_SEED_COMPLETE = 4;
+const MSG_PING = 5;
+const MSG_PONG = 6;
 
 // Сервер сам рвёт соединение этим кодом (app/collab.py::INVALIDATED_CLOSE_CODE),
 // когда фоновый воркер (распознавание PDF/картинки/билета) поменял content
@@ -117,6 +119,12 @@ export class CollabProvider {
           }
         } else if (type === MSG_AWARENESS) {
           applyAwarenessUpdate(this.awareness, payload, this);
+        } else if (type === MSG_PING) {
+          // Heartbeat сервера (app/collab.py) — единственная цель ответить
+          // хоть чем-то: молчание дольше нескольких интервалов сервер
+          // трактует как мёртвое соединение и рвёт его сам (см. докстринг
+          // MSG_PING там же).
+          this.send(MSG_PONG, new Uint8Array(0));
         }
       };
 
