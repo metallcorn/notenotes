@@ -249,7 +249,14 @@ APPEND_TO_NOTE = ToolDefinition(
 
 async def append_to_note(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
     item = await _get_item_cross_space(ctx, args.get("item_id"))
-    text = str(args.get("text", "")).strip()
+    # Реальный найденный баг: модель вызвала этот тул с параметром "content"
+    # вместо "text" — перепутав со схемой соседнего update_note (у него
+    # именно content). args.get("text", "") тихо давал "", тул отдавал
+    # "Пустой текст для добавления", а модель, ПОЛУЧИВ эту ошибку от тула,
+    # всё равно доложила пользователю "Готово" — ничего не добавив. Раз
+    # модель может недописать строгую форму (её слова), принимаем оба
+    # имени параметра кодом, вместо того чтобы полагаться на промпт.
+    text = str(args.get("text") or args.get("content") or "").strip()
     if not text:
         raise ToolError("Пустой текст для добавления")
 
