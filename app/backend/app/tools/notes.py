@@ -79,6 +79,27 @@ async def _get_item_cross_space(ctx: ToolContext, item_id_raw: Any) -> Item:
     return item
 
 
+_MATERIAL_TYPE_HINTS = {
+    "list": "это список — используй get_list/add_list_entry/toggle_list_entry",
+    "table": "это таблица — используй get_table/add_table_row/update_table_row",
+}
+
+
+def _require_note_like(item: Item) -> None:
+    """Реальный найденный баг: append_to_note вызвали на id ТАБЛИЦЫ
+    (material_type="table") — тул тихо дописал markdown-текст в
+    неиспользуемое поле content этого item'а (таблица рендерится из
+    properties.columns/rows, не из content), тул отрапортовал успех, а
+    визуально для пользователя ничего не изменилось — тот же класс лжи,
+    что уже чинили для пустого text. get_note уже проверял material_type
+    (сообщение "не заметка, используй get_list") — update_note/
+    append_to_note той же проверки не имели вообще."""
+    if item.material_type in ("note", "ticket"):
+        return
+    hint = _MATERIAL_TYPE_HINTS.get(item.material_type, f"material_type={item.material_type}")
+    raise ToolError(f"Это не заметка — {hint}")
+
+
 CREATE_NOTE = ToolDefinition(
     name="create_note",
     description=(
@@ -147,8 +168,7 @@ GET_NOTE = ToolDefinition(
 
 async def get_note(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
     item = await _get_item_cross_space(ctx, args.get("item_id"))
-    if item.material_type not in ("note", "ticket"):
-        raise ToolError("Это не заметка (возможно, список — используй get_list)")
+    _require_note_like(item)
     result: dict[str, Any] = {"id": str(item.id), "title": item.title, "content": item.content, "url": item_url(item.id)}
     if item.material_type == "ticket":
         # content для билета — почти только служебный <div
@@ -188,6 +208,7 @@ UPDATE_NOTE = ToolDefinition(
 
 async def update_note(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
     item = await _get_item_cross_space(ctx, args.get("item_id"))
+    _require_note_like(item)
     new_title = args.get("title")
     new_content = args.get("content")
     if new_content is not None:
@@ -249,6 +270,7 @@ APPEND_TO_NOTE = ToolDefinition(
 
 async def append_to_note(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
     item = await _get_item_cross_space(ctx, args.get("item_id"))
+    _require_note_like(item)
     # Реальный найденный баг: модель вызвала этот тул с параметром "content"
     # вместо "text" — перепутав со схемой соседнего update_note (у него
     # именно content). args.get("text", "") тихо давал "", тул отдавал

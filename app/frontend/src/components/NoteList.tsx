@@ -1,16 +1,18 @@
 import { useEffect, useRef, useState } from "react";
 import type { RefObject } from "react";
 import { createPortal } from "react-dom";
-import { ChevronDown, ListChecks, MessageSquareText, Plus, Table as TableIcon } from "lucide-react";
+import { ChevronDown, ListChecks, MessageSquareText, Plus, Table as TableIcon, Trash2 } from "lucide-react";
 import {
   useCreateDialog,
   useCreateItem,
   useCreateList,
   useCreateTable,
+  useDeleteItem,
   useItems,
   useScopedFolderDialogs,
 } from "../api/hooks";
 import type { DialogSummary, Item } from "../api/types";
+import ConfirmDialog from "./ConfirmDialog";
 import Spinner from "./Spinner";
 
 // Тот же портал-в-body паттерн, что только что сделан для FolderMenu в
@@ -22,14 +24,21 @@ function FolderDialogPicker({
   onPick,
   onNew,
   onClose,
+  onDeleted,
 }: {
   anchorRef: RefObject<HTMLButtonElement>;
   dialogs: DialogSummary[];
   onPick: (id: string) => void;
   onNew: () => void;
   onClose: () => void;
+  onDeleted: (id: string) => void;
 }) {
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+  const deleteItem = useDeleteItem(undefined);
+  // Реальная жалоба: "эти чаты нельзя удалять почему-то" — тот же паттерн,
+  // что уже есть у NoteAssistantModal.tsx/DialogList.tsx для чатов по
+  // заметке/общих, просто не добавили сюда же для чатов по папке.
+  const [deletingDialog, setDeletingDialog] = useState<DialogSummary | null>(null);
 
   useEffect(() => {
     if (!anchorRef.current) return;
@@ -43,7 +52,7 @@ function FolderDialogPicker({
     <>
       <div className="fixed inset-0 z-40" onClick={onClose} />
       <div
-        style={{ top: pos.top, left: pos.left }}
+        style={{ top: pos.top, left: pos.left, maxWidth: "calc(100vw - 24px)" }}
         className="fixed z-50 max-h-72 w-64 overflow-y-auto rounded border bg-surface py-1 shadow-lg"
       >
         <button
@@ -54,16 +63,34 @@ function FolderDialogPicker({
         </button>
         <div className="my-1 border-t" />
         {dialogs.map((d) => (
-          <button
-            key={d.id}
-            onClick={() => onPick(d.id)}
-            className="block w-full px-3 py-1.5 text-left text-sm text-secondary hover:bg-muted-hover"
-          >
-            <div className="truncate">{d.preview || d.title}</div>
-            <div className="text-xs text-subtle">{new Date(d.updated_at).toLocaleString("ru-RU")}</div>
-          </button>
+          <div key={d.id} className="flex items-center gap-1 hover:bg-muted-hover">
+            <button onClick={() => onPick(d.id)} className="min-w-0 flex-1 px-3 py-1.5 text-left text-sm text-secondary">
+              <div className="truncate">{d.preview || d.title}</div>
+              <div className="text-xs text-subtle">{new Date(d.updated_at).toLocaleString("ru-RU")}</div>
+            </button>
+            <button
+              onClick={() => setDeletingDialog(d)}
+              title="Удалить диалог"
+              className="mr-1 flex h-7 w-7 shrink-0 items-center justify-center text-subtle hover:text-danger"
+            >
+              <Trash2 size={13} />
+            </button>
+          </div>
         ))}
       </div>
+      {deletingDialog && (
+        <ConfirmDialog
+          title={`Удалить диалог «${deletingDialog.preview || deletingDialog.title || "Новый диалог"}»? Он переместится в корзину.`}
+          danger
+          onConfirm={async () => {
+            const id = deletingDialog.id;
+            await deleteItem.mutateAsync(id);
+            setDeletingDialog(null);
+            onDeleted(id);
+          }}
+          onCancel={() => setDeletingDialog(null)}
+        />
+      )}
     </>,
     document.body,
   );
@@ -445,6 +472,16 @@ export default function NoteList({
           }}
           onNew={startNewFolderDialog}
           onClose={() => setFolderDialogPicker(null)}
+          onDeleted={(id) => {
+            setFolderDialogPicker((prev) => {
+              const next = (prev ?? []).filter((d) => d.id !== id);
+              // Последний чат этой папки удалён — не оставляем пустое
+              // меню, сразу создаём новый (тот же случай, что и в
+              // openFolderAssistant, когда прошлых чатов не было вообще).
+              if (next.length === 0) startNewFolderDialog();
+              return next.length === 0 ? null : next;
+            });
+          }}
         />
       )}
     </div>

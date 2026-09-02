@@ -152,6 +152,21 @@ export default function AppShell() {
     // равно нужно выставить, чтобы открылся правильный экран.
     if (searchParams.get("dialog")) {
       setViewModeState("assistant");
+      // screen=assistant — тот же маркер, который эффект-синхронизация
+      // ниже теперь требует для вкладки "Ассистент" (см. selectDialog) —
+      // прямая ссылка/PWA-ярлык на диалог без него не отличалась бы от
+      // чата, открытого ИЗ просмотра заметок, и следующий же "назад"
+      // уводил бы не туда.
+      if (!searchParams.get("screen")) {
+        setSearchParams(
+          (prev) => {
+            const next = new URLSearchParams(prev);
+            next.set("screen", "assistant");
+            return next;
+          },
+          { replace: true },
+        );
+      }
       return;
     }
     if (searchParams.get("item")) {
@@ -173,7 +188,9 @@ export default function AppShell() {
     if (savedViewMode === "assistant") {
       setViewModeState("assistant");
       const lastDialogId = uiStorage.getLastDialogId();
-      setSearchParams(lastDialogId ? { dialog: lastDialogId, list: "1" } : { list: "1" });
+      setSearchParams(
+        lastDialogId ? { dialog: lastDialogId, list: "1", screen: "assistant" } : { list: "1", screen: "assistant" },
+      );
       return;
     }
     if (savedViewMode === "trash") {
@@ -229,9 +246,23 @@ export default function AppShell() {
         // определяют нужный экран — остальные (Корзина/Активность)
         // своего item/dialog не имеют, поэтому их трогать не нужно.
         if (itemParam) setViewModeState("notes");
-        else if (dialogParam) setViewModeState("assistant");
         else if (screenParam === "activity") setViewModeState("activity");
         else if (screenParam === "trash") setViewModeState("trash");
+        // screen=assistant — тот же маркер для настоящего перехода на
+        // вкладку "Ассистент" (см. selectDialog/switchToAssistant). Чат,
+        // открытый ИЗ просмотра заметок (папка/заметка), его не ставит —
+        // тогда dialogParam здесь есть, а screenParam нет, и viewMode
+        // остаётся/восстанавливается как "notes" веткой listParam ниже —
+        // ровно то, что нужно и при открытии, и при "назад" на этот же
+        // ?list=1 (реальная жалоба: раньше "назад" из такого чата уводил
+        // в список ВСЕХ чатов ассистента вместо папки, откуда вышли).
+        else if (screenParam === "assistant") setViewModeState("assistant");
+        // Без этой ветки viewMode, once switched to "assistant"/"activity"/
+        // "trash", никогда не восстанавливался обратно в "notes" при
+        // возврате жестом "назад" на голый список (?list=1, без item/
+        // screen) — список рисовался как DialogList/ActivityView/
+        // TrashView вместо NoteList той папки, откуда реально вышли.
+        else if (listParam) setViewModeState("notes");
         setSelectedItemIdState(itemParam);
         setSelectedDialogId(dialogParam);
         setMobileView(nextMobileView);
@@ -318,7 +349,7 @@ export default function AppShell() {
   // сессии с несколькими переключениями папок должен был пройти через
   // ВСЕ них по одной, прежде чем реально попасть на sidebar, и выглядело
   // это как "назад вообще ничего не делает" (реальная жалоба).
-  function openListView(screen?: "activity" | "trash") {
+  function openListView(screen?: "activity" | "trash" | "assistant") {
     const alreadyOnList = mobileView === "list";
     setSearchParams(
       (prev) => {
@@ -388,7 +419,7 @@ export default function AppShell() {
 
   function switchToAssistant() {
     setViewMode("assistant");
-    openListView();
+    openListView("assistant");
   }
 
   function switchToTrash() {
@@ -414,7 +445,7 @@ export default function AppShell() {
     selectDialog(id, { forcePush: true });
   }
 
-  function selectDialog(id: string | null, options?: { forcePush?: boolean }) {
+  function selectDialog(id: string | null, options?: { forcePush?: boolean; keepViewMode?: boolean }) {
     // Тот же принцип, что в setSelectedItemId/openListView.
     const alreadyOnEditor = mobileView === "editor" && !options?.forcePush;
     setSearchParams(
@@ -424,6 +455,22 @@ export default function AppShell() {
           next.set("dialog", id);
           next.set("list", "1");
           next.delete("item");
+          // Реальный найденный баг: чат ассистента по папке/заметке
+          // открывается ИЗНУТРИ обычного просмотра заметок (viewMode
+          // "notes"), а не с вкладки "Ассистент" — но эффект синхронизации
+          // ниже раньше слепо переключал viewMode на "assistant" для
+          // ЛЮБОГО dialog в URL. Дальше жест "назад" уводил на предыдущую
+          // запись истории (?list=1, без screen) — viewMode ничем не
+          // восстанавливался и оставался "assistant": список рисовался
+          // как DialogList (все чаты) вместо NoteList той папки, откуда
+          // реально вышли. screen=assistant — тот же маркер, которым уже
+          // помечены Активность/Корзина (openListView) — переиспользуем
+          // его и для настоящего перехода на вкладку "Ассистент", а
+          // чатам, открытым ИЗ просмотра заметок (keepViewMode), его не
+          // ставим — тогда попадание на голый ?list=1 при "назад"
+          // однозначно восстанавливает viewMode "notes" (см. эффект ниже).
+          if (options?.keepViewMode) next.delete("screen");
+          else next.set("screen", "assistant");
         } else {
           next.delete("dialog");
         }
@@ -694,7 +741,7 @@ export default function AppShell() {
                         tagId={tagId}
                         selectedId={selectedItemId}
                         onSelect={setSelectedItemId}
-                        onSelectDialog={(id) => selectDialog(id, { forcePush: true })}
+                        onSelectDialog={(id) => selectDialog(id, { forcePush: true, keepViewMode: true })}
                         isVault={!!activeSpace?.is_vault}
                       />
                     ) : (
@@ -734,26 +781,29 @@ export default function AppShell() {
             </div>
 
             <div className={`${mobileView === "editor" ? "flex" : "hidden"} lg:flex min-h-0 flex-1 flex-col overflow-hidden`}>
-              {viewMode === "notes" ? (
-                selectedItemId ? (
-                  <ItemView
-                    itemId={selectedItemId}
-                    onDeleted={closeItemView}
-                    onBack={closeItemView}
-                    highlightEntryId={highlightEntryId}
-                    highlightAnchorId={highlightAnchorId}
-                    onOpenItem={(id) => {
-                      setViewMode("notes");
-                      setActiveFolderId(null);
-                      setTagId(null);
-                      setSelectedItemId(id, { forcePush: true });
-                    }}
-                  />
-                ) : (
-                  <div className="flex h-full items-center justify-center text-subtle">
-                    Выберите заметку слева или создайте новую
-                  </div>
-                )
+              {/* Реальный найденный баг: раньше здесь ветвили по viewMode
+                  ("notes" → ItemView, иначе → AssistantChat) — но чат по
+                  папке/заметке (см. selectDialog/keepViewMode) намеренно
+                  оставляет viewMode "notes", хотя открыт именно диалог, не
+                  заметка. Ветвим напрямую по тому, что реально выбрано —
+                  item/dialog взаимоисключающи по построению (selectDialog
+                  всегда снимает item, setSelectedItemId всегда снимает
+                  dialog), так что порядок проверки однозначен независимо
+                  от viewMode. */}
+              {selectedItemId ? (
+                <ItemView
+                  itemId={selectedItemId}
+                  onDeleted={closeItemView}
+                  onBack={closeItemView}
+                  highlightEntryId={highlightEntryId}
+                  highlightAnchorId={highlightAnchorId}
+                  onOpenItem={(id) => {
+                    setViewMode("notes");
+                    setActiveFolderId(null);
+                    setTagId(null);
+                    setSelectedItemId(id, { forcePush: true });
+                  }}
+                />
               ) : selectedDialogId ? (
                 <AssistantChat
                   dialogId={selectedDialogId}
@@ -765,6 +815,10 @@ export default function AppShell() {
                     setSelectedItemId(id, { forcePush: true });
                   }}
                 />
+              ) : viewMode === "notes" ? (
+                <div className="flex h-full items-center justify-center text-subtle">
+                  Выберите заметку слева или создайте новую
+                </div>
               ) : (
                 <div className="flex h-full items-center justify-center text-subtle">
                   Выберите диалог слева или создайте новый

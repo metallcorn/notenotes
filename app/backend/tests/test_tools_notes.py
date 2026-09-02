@@ -109,3 +109,41 @@ async def test_append_to_note_rejects_empty_both_params(auth_client, db_session,
     created = await create_note(ctx, {"title": "T", "content": "Было"})
     with pytest.raises(ToolError):
         await append_to_note(ctx, {"item_id": created["id"]})
+
+
+# --- Реальная жалоба: append_to_note вызвали на id ТАБЛИЦЫ — тул тихо
+# дописал markdown-текст в неиспользуемое поле content этого item'а
+# (таблица рендерится из properties.columns/rows, не из content), тул
+# отрапортовал успех, а визуально ничего не изменилось. get_note уже
+# проверял material_type — update_note/append_to_note той же проверки не
+# имели вообще.
+
+async def test_append_to_note_rejects_table_item(auth_client, db_session, test_user):
+    from app.tools.tables import create_table
+
+    space_id = (await auth_client.post("/api/spaces", json={"name": "S"})).json()["id"]
+    ctx = ToolContext(db=db_session, user_id=test_user.id, space_id=uuid.UUID(space_id))
+    table = await create_table(ctx, {"title": "Таблица", "columns": ["A"]})
+    with pytest.raises(ToolError):
+        await append_to_note(ctx, {"item_id": table["id"], "text": "мусор"})
+
+
+async def test_update_note_rejects_table_item(auth_client, db_session, test_user):
+    from app.tools.notes import update_note
+    from app.tools.tables import create_table
+
+    space_id = (await auth_client.post("/api/spaces", json={"name": "S"})).json()["id"]
+    ctx = ToolContext(db=db_session, user_id=test_user.id, space_id=uuid.UUID(space_id))
+    table = await create_table(ctx, {"title": "Таблица", "columns": ["A"]})
+    with pytest.raises(ToolError):
+        await update_note(ctx, {"item_id": table["id"], "content": "мусор"})
+
+
+async def test_get_note_rejects_list_item(auth_client, db_session, test_user):
+    from app.tools.lists import create_list
+
+    space_id = (await auth_client.post("/api/spaces", json={"name": "S"})).json()["id"]
+    ctx = ToolContext(db=db_session, user_id=test_user.id, space_id=uuid.UUID(space_id))
+    lst = await create_list(ctx, {"title": "Список"})
+    with pytest.raises(ToolError):
+        await get_note(ctx, {"item_id": lst["id"]})

@@ -11,6 +11,7 @@ const hooks = vi.hoisted(() => ({
   useCreateTable: vi.fn(),
   useCreateDialog: vi.fn(),
   useScopedFolderDialogs: vi.fn(),
+  useDeleteItem: vi.fn(),
 }));
 vi.mock("../api/hooks", () => hooks);
 
@@ -85,6 +86,7 @@ describe("NoteList — «Обсудить с ассистентом»", () => {
     hooks.useCreateTable.mockReturnValue(mockMutation());
     hooks.useCreateDialog.mockReturnValue(overrides.createDialog ?? mockMutation());
     hooks.useScopedFolderDialogs.mockReturnValue(overrides.scopedFolderDialogs ?? mockMutation());
+    hooks.useDeleteItem.mockReturnValue(mockMutation());
   }
 
   it("не показывается для «Все заметки» (folderId=null)", () => {
@@ -169,6 +171,31 @@ describe("NoteList — «Обсудить с ассистентом»", () => {
 
     expect(createDialog.mutateAsync).toHaveBeenCalledWith({ scoped_folder_id: "f1" });
     await waitFor(() => expect(onSelectDialog).toHaveBeenCalledWith("new-dialog"));
+  });
+
+  // Реальная жалоба: "эти чаты нельзя удалять почему-то" — у пикера чатов
+  // по папке не было кнопки удаления, хотя у аналогичных списков
+  // (NoteAssistantModal.tsx, DialogList.tsx) она уже есть.
+  it("удаление диалога в пикере зовёт deleteItem и убирает его из списка", async () => {
+    const deleteItem = mockMutation();
+    const scopedFolderDialogs = mockMutation({ mutateAsync: vi.fn().mockResolvedValue([dialogSummary({ id: "old-dialog" })]) });
+    // Единственный чат в пикере удаляется — компонент тут же создаёт новый
+    // взамен (см. onDeleted в NoteList.tsx), поэтому createDialog тоже
+    // должен реально резолвиться, не в undefined по умолчанию.
+    const createDialog = mockMutation({ mutateAsync: vi.fn().mockResolvedValue({ id: "fallback-dialog" }) });
+    setup({ scopedFolderDialogs, createDialog });
+    hooks.useDeleteItem.mockReturnValue(deleteItem);
+    const user = userEvent.setup();
+
+    render(<NoteList spaceId="s1" folderId="f1" tagId={null} selectedId={null} onSelect={vi.fn()} onSelectDialog={vi.fn()} />);
+    await user.click(screen.getByText("Обсудить с ассистентом"));
+    await waitFor(() => screen.getByText("Что по ТО?"));
+
+    await user.click(screen.getByTitle("Удалить диалог"));
+    await user.click(screen.getByText("Удалить"));
+
+    await waitFor(() => expect(deleteItem.mutateAsync).toHaveBeenCalledWith("old-dialog"));
+    await waitFor(() => expect(screen.queryByText("Что по ТО?")).not.toBeInTheDocument());
   });
 });
 
