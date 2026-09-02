@@ -738,12 +738,38 @@ export default function NoteEditor({
         return;
       }
 
+      // Реальный найденный риск: item здесь может быть УСТАРЕВШИМ снимком
+      // из персистентного react-query кэша (IndexedDB, main.tsx —
+      // офлайн-режим, maxAge 30 дней) — компонент мог смонтироваться с
+      // ним ДО того, как фоновый рефетч (staleTime по умолчанию 0) успел
+      // прийти, а этот эффект зависит только от item?.id, не от
+      // item.content — свежий item потом придёт, но эффект из-за этого
+      // НЕ перезапустится и не пересеет уже подключённую Yjs-комнату.
+      // Если этот клиент окажется сеятелем пустой/новой комнаты
+      // (app/collab.py), устаревшее содержимое буквально становится
+      // "правдой" для комнаты — следующий же автосейв уезжает на сервер
+      // поверх настоящего свежего content. Тот же класс бага, что уже
+      // чинили для переподключения ниже, просто для первого
+      // подключения — гарантированно свежий сид тем же приёмом
+      // "повторяем рефетч, пока не получим настоящие данные".
+      let seedContent = effectiveContent;
+      if (!hasUnseenLocalEdit) {
+        let fresh = await refetchItem();
+        while (!isStale() && fresh.data === undefined) {
+          await new Promise((resolve) => setTimeout(resolve, 2000));
+          if (isStale()) return;
+          fresh = await refetchItem();
+        }
+        if (isStale()) return;
+        if (fresh.data) seedContent = fresh.data.content;
+      }
+
       setCollabStatus("connecting");
       const provider = new CollabProvider(item.id, (s) => {
         if (!isStale()) setCollabStatus(s);
       });
       try {
-        await attachCollab(editor, editorExtensions, provider, effectiveContent || "", {
+        await attachCollab(editor, editorExtensions, provider, seedContent || "", {
           name: me?.name ?? "?",
           color: cursorColorForUser(me?.id),
         });
