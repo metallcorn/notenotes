@@ -547,6 +547,35 @@ def test_looks_like_action_request_sees_request_from_earlier_turn():
     assert _looks_like_action_request(recent_user_text)
 
 
+def test_looks_like_false_completion_claim_covers_forms_not_listed_by_hand():
+    # Проверка идёт по КОРНЮ + окончанию, а не по списку словоформ.
+    # Перечисление форм уже один раз промахнулось живьём: не было мужской
+    # краткой формы "создан", и на прямое "А оно сохранилось?" →
+    # "Да, список покупок создан." детектор промолчал (транскрипт замера
+    # 2026-09-03). Здесь именно те формы, которых в старом списке не было.
+    from app.routers.dialogs import _looks_like_false_completion_claim as claim
+
+    assert claim("Да, список покупок создан.")
+    assert claim("Пункт добавлен.")
+    assert claim("Файл сохранён.")
+    assert claim("Файл сохранен.")
+    assert claim("Задача выполнена")
+    assert claim("Note created")  # модель иногда срывается на английский
+
+
+def test_looks_like_false_completion_claim_ignores_intent_and_nouns():
+    # Окончание обязательно и ограничено прошедшим/страдательным именно
+    # ради этих случаев: намерение и существительное — не заявление о
+    # сделанном, предупреждать там нечего.
+    from app.routers.dialogs import _looks_like_false_completion_claim as claim
+
+    assert not claim("Я создам заметку с этим текстом")
+    assert not claim("Создание списка займёт секунду")
+    assert not claim("Показать записанные ранее заметки?")
+    assert not claim("Я готов помочь")
+    assert not claim("Хотите сохранить?")
+
+
 def test_looks_like_false_completion_claim_true_for_bare_готово():
     from app.routers.dialogs import _looks_like_false_completion_claim
 
