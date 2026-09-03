@@ -489,6 +489,53 @@ def test_strip_unverified_links_bare_url_inside_verified_markdown_link_untouched
     assert result == text
 
 
+# --- _looks_like_action_request / _looks_like_false_completion_claim ------
+# Реальный найденный случай (ролплей-тест длинного диалога, 2026-09-03):
+# на просьбу "перенеси данные из заметки X в таблицу Y" модель прочитала
+# исходную заметку и тут же ответила "Готово, все записи добавлены" — не
+# вызвав НИ ОДНОГО изменяющего тула. Повторная проверка ("точно добавил?")
+# снова не тронула таблицу и повторила ту же ложь. Обнаружилось только
+# спустя несколько реплик, когда пользователь сам потребовал показать
+# содержимое таблицы.
+
+def test_looks_like_action_request_true_for_imperative_verbs():
+    from app.routers.dialogs import _looks_like_action_request
+
+    assert _looks_like_action_request("Добавь данные из заметки в таблицу")
+    assert _looks_like_action_request("Перенеси записи из сервисной книжки")
+    assert _looks_like_action_request("создай список покупок")
+
+
+def test_looks_like_action_request_false_for_plain_question():
+    from app.routers.dialogs import _looks_like_action_request
+
+    assert not _looks_like_action_request("Какие тормозные диски подходят на мою машину?")
+    assert not _looks_like_action_request("Когда заканчивается страховка PZU?")
+
+
+def test_looks_like_false_completion_claim_true_for_bare_готово():
+    from app.routers.dialogs import _looks_like_false_completion_claim
+
+    assert _looks_like_false_completion_claim("Готово, все записи из заметки добавлены в таблицу.")
+    assert _looks_like_false_completion_claim("Да, точно, добавлены все 4 записи.")
+
+
+def test_looks_like_false_completion_claim_false_for_honest_refusal():
+    # Реальный риск ложного срабатывания: честный отказ ("не смог
+    # добавить") тоже содержит стем "добав" — не должен помечаться как
+    # заявление об успехе.
+    from app.routers.dialogs import _looks_like_false_completion_claim
+
+    assert not _looks_like_false_completion_claim("Не смог добавить — заметка не найдена.")
+    assert not _looks_like_false_completion_claim("Не получилось создать таблицу.")
+
+
+def test_looks_like_false_completion_claim_false_for_plain_answer():
+    from app.routers.dialogs import _looks_like_false_completion_claim
+
+    assert not _looks_like_false_completion_claim("Передние тормозные диски — 266×22 мм, вентилируемые.")
+
+
 # --- _BARE_URL_IN_JSON_RE: правильная граница по кавычке, не по пробелу ---
 
 def test_bare_url_in_json_re_stops_at_closing_quote_not_next_field():

@@ -818,6 +818,55 @@ def _append_missing_entry_links(content: str, entries: list[tuple[str, str]]) ->
     return f"{content}\n\n🔗 {links_line}"
 
 
+# Реальный найденный случай (ролплей-тест длинного диалога, 2026-09-03):
+# на просьбу "перенеси данные из заметки X в таблицу Y" модель прочитала
+# исходную заметку (get_note) и тут же ответила "Готово, все записи
+# добавлены" — НЕ вызвав ни одного изменяющего тула вообще. На вопрос
+# "точно добавил, проверь" — снова не проверила таблицу (перечитала ТУ ЖЕ
+# исходную заметку) и повторила "да, точно добавлены все 4 записи". Только
+# спустя несколько реплик, когда пользователь сам потребовал показать
+# содержимое таблицы, обнаружилось, что там ничего нет. Похожий класс уже
+# чинили для ссылок (_strip_unverified_links) — тот же принцип здесь:
+# нельзя полагаться на то, что промпт ("не утверждай, что сделал то, для
+# чего не вызвал тул") удержит модель — проверяем кодом. Эвристика по
+# стемам, не точным словам (русские глаголы сильно склоняются), и с
+# отсечкой по словам отрицания, чтобы не путать честный отказ
+# ("не смог добавить") с реальным ложным "готово".
+_ACTION_REQUEST_STEMS = (
+    "добав", "созда", "постав", "удали", "перенес", "перенёс", "запиш", "запис",
+    "обнов", "измени", "отмет", "перепиш", "сохран", "занес", "занос", "впиш",
+    "исправ", "почист", "поменяй", "замени", "перемести", "перетащи",
+)
+_COMPLETION_CLAIM_STEMS = (
+    "готов", "добав", "созда", "постав", "удал", "сохран", "обновл", "перенес",
+    "перенёс", "записа", "измени", "выполн", "сдела",
+)
+_NEGATION_MARKERS = (
+    "не могу", "не удалось", "не удалась", "не получилось", "не смог", "не смогла",
+    "не нашёл", "не нашел", "не нашла", "не выйдет", "нельзя", "не получится",
+)
+# Совпадает по написанию с реальными именами тулов (registry.py) — все
+# изменяющие данные тулы в этом проекте называются с одним из этих
+# префиксов, читающие/поисковые — нет (get_/list_/search_/web_/read_/
+# test_/track_/run_). Проверено по факту, не предположение.
+_MUTATING_TOOL_PREFIXES = (
+    "create_", "update_", "append_", "delete_", "add_", "toggle_", "resolve_",
+    "remember_", "forget_", "insert_",
+)
+
+
+def _looks_like_action_request(text: str) -> bool:
+    lowered = text.lower()
+    return any(stem in lowered for stem in _ACTION_REQUEST_STEMS)
+
+
+def _looks_like_false_completion_claim(text: str) -> bool:
+    lowered = text.lower()
+    if any(marker in lowered for marker in _NEGATION_MARKERS):
+        return False
+    return any(stem in lowered for stem in _COMPLETION_CLAIM_STEMS)
+
+
 def _looks_like_leaked_tool_call(content: str, tool_names: set[str]) -> bool:
     """Модель иногда пишет вызов инструмента как текст ответа вместо
     настоящего tool_call — content заканчивается JSON-объектом с именем
@@ -1550,6 +1599,10 @@ async def _run_dialog_turn_locked(
     list_folders_names: list[str] = []
     list_candidates_seen_this_turn: dict[str, str] = {}
     linked_entries_seen_this_turn: list[tuple[str, str]] = []
+    # См. _looks_like_false_completion_claim выше — накапливаем на весь
+    # ход (не на одну итерацию цикла), сколько бы раундов tool-calling ни
+    # было внутри.
+    mutating_tool_called_this_turn = False
 
     if not settings.llm_api_key:
         records.append(
@@ -1677,6 +1730,8 @@ async def _run_dialog_turn_locked(
         # dispatch — сразу после него всегда конец хода, ждём клика/ввода.
         real_tool_calls = [tc for tc in assistant_msg.tool_calls if tc.name != "suggest_replies"]
         suggest_calls = [tc for tc in assistant_msg.tool_calls if tc.name == "suggest_replies"]
+        if any(tc.name.startswith(_MUTATING_TOOL_PREFIXES) for tc in real_tool_calls):
+            mutating_tool_called_this_turn = True
 
         assistant_record: dict = {
             "id": str(uuid.uuid4()),
@@ -1717,6 +1772,21 @@ async def _run_dialog_turn_locked(
                 if prior.get("role") == "assistant" and prior.get("tool_calls"):
                     assistant_record["display_tool_calls"] = prior["tool_calls"]
                     break
+        if (
+            not real_tool_calls
+            and not mutating_tool_called_this_turn
+            and _looks_like_action_request(content)
+            and _looks_like_false_completion_claim(assistant_record["content"])
+        ):
+            logger.warning(
+                "Похоже на ложное 'готово' без единого изменяющего тула за ход: %r", assistant_record["content"][:200]
+            )
+            assistant_record["content"] = (
+                assistant_record["content"].rstrip()
+                + "\n\n⚠️ За этот ответ не был вызван ни один инструмент, "
+                "меняющий данные — если ожидали, что что-то реально "
+                "изменится, стоит перепроверить."
+            )
         if suggest_calls:
             options: list[str] = []
             for tc in suggest_calls:
