@@ -547,6 +547,35 @@ def test_looks_like_false_completion_claim_false_for_various_negation_phrasings(
     assert not _looks_like_false_completion_claim("Список пока не обновлён.")
 
 
+def test_looks_like_false_completion_claim_false_for_imperative_advice():
+    # Реальный найденный ложноположительный случай (тот же день, третий
+    # заход): обычный чек-лист советов ("сделай X", "проверь Y") задел
+    # прежний стем "сдела" — тот же кусок, что у "сделано". Раньше стемы
+    # были сырыми подстроками, совпадавшими и с повелительным наклонением
+    # того же глагола. Теперь список — только точные формы прошедшего
+    # времени/страдательного причастия через границы слов (\b), ни одна
+    # не пересекается с повелительным "сделай"/"добавь"/"создай" и т.п.
+    from app.routers.dialogs import _looks_like_false_completion_claim
+
+    assert not _looks_like_false_completion_claim(
+        "Сразу после покупки: сделай диагностику ЭБУ, обнови масло, сохрани все чеки."
+    )
+    assert not _looks_like_false_completion_claim("Создай список покупок и добавь туда молоко.")
+
+
+def test_looks_like_false_completion_claim_false_for_unrelated_word_with_same_root():
+    # Реальный найденный ложноположительный случай (тот же день): "Что
+    # приготовить на ужин" (шумная реплика не по теме) задела прежний стем
+    # "готов", хотя "приготовить" вообще не о выполнении задачи. Проверка
+    # по границам слова (\b) больше не считает "готов" внутри
+    # "приготовить" совпадением.
+    from app.routers.dialogs import _looks_like_false_completion_claim
+
+    assert not _looks_like_false_completion_claim(
+        "Что приготовить на ужин вместо макарон: жареная курица с картофелем."
+    )
+
+
 def test_looks_like_false_completion_claim_false_for_plain_answer():
     from app.routers.dialogs import _looks_like_false_completion_claim
 

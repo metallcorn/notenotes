@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from app.user_timezone import DEFAULT_TZ, assume_default_timezone, resolve_timezone, today_in_default_timezone
+from app.user_timezone import DEFAULT_TZ, assume_default_timezone, now_in_default_timezone, resolve_timezone
 
 
 # --- Реальная жалоба: письмо про встречу "17:30" в Познани показывалось в
@@ -26,11 +26,23 @@ def test_assume_default_timezone_already_aware_untouched():
     assert assume_default_timezone(aware) == aware
 
 
-def test_today_in_default_timezone_format():
-    today = today_in_default_timezone()
-    # Просто формат — сама дата зависит от текущего времени; полноценно её
-    # не протестировать без монки-патча datetime.now, не стоит того здесь.
-    datetime.strptime(today, "%Y-%m-%d")
+def test_now_in_default_timezone_includes_time_not_just_date():
+    # Реальный найденный случай: в промпт клалась только дата, без часов —
+    # и модель на вопрос "который час?" уверенно выдумывала время. Формат
+    # обязан содержать ЧАСЫ И МИНУТЫ, не только календарную дату.
+    now = now_in_default_timezone()
+    parsed = datetime.strptime(now, "%Y-%m-%d %H:%M")
+    assert parsed.year >= 2024
+
+
+def test_now_in_default_timezone_respects_explicit_timezone():
+    # Дубай (UTC+4) и UTC в один момент времени почти всегда дают разный
+    # час — проверяем, что пояс реально применяется, а не игнорируется.
+    dubai = datetime.strptime(now_in_default_timezone("Asia/Dubai"), "%Y-%m-%d %H:%M")
+    utc = datetime.strptime(now_in_default_timezone("UTC"), "%Y-%m-%d %H:%M")
+    diff_minutes = abs((dubai - utc).total_seconds()) / 60
+    # 4 часа ± минута на время между двумя вызовами.
+    assert 239 <= diff_minutes <= 241
 
 
 def test_default_tz_is_warsaw():
