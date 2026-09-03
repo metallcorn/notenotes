@@ -489,6 +489,19 @@ def test_strip_unverified_links_bare_url_inside_verified_markdown_link_untouched
     assert result == text
 
 
+def test_strip_unverified_links_strips_fabricated_custom_scheme():
+    # Пойман живьём в ролплей-прогоне (magistral, сценарий новичка): модель
+    # ответила "Готово!" без единого вызова тула и выдала кнопку с
+    # выдуманной схемой notenotes:// — старый шаблон с https? её не видел,
+    # и фальшивая кнопка доезжала до пользователя кликабельной.
+    from app.routers.dialogs import _strip_unverified_links
+
+    text = "Список создан. [Открыть «Покупки»](notenotes://list)"
+    result = _strip_unverified_links(text, set())
+    assert "notenotes://list" not in result
+    assert "Открыть «Покупки»" in result
+
+
 # --- _looks_like_action_request / _looks_like_false_completion_claim ------
 # Реальный найденный случай (ролплей-тест длинного диалога, 2026-09-03):
 # на просьбу "перенеси данные из заметки X в таблицу Y" модель прочитала
@@ -511,6 +524,27 @@ def test_looks_like_action_request_false_for_plain_question():
 
     assert not _looks_like_action_request("Какие тормозные диски подходят на мою машину?")
     assert not _looks_like_action_request("Когда заканчивается страховка PZU?")
+
+
+def test_looks_like_action_request_sees_request_from_earlier_turn():
+    # Детектор ложного "готово" смотрит не на текущее сообщение, а на
+    # склейку последних реплик пользователя (recent_user_text) — ровно по
+    # той же причине, что и _named_list_owner_mismatch. Пойман живьём в
+    # ролплей-прогоне сценария новичка: "а можно просто записать, что мне
+    # нужно купить?" → ассистент переспросил про папку → "может, без
+    # папки?" → "Хорошо, создаю список без папки. Готово!" без единого
+    # вызова тула. В ПОСЛЕДНЕМ сообщении просьбы о действии нет, и по нему
+    # одному детектор молчал.
+    from app.routers.dialogs import _looks_like_action_request
+
+    last_message = "Ой, а что это за папки? Я не понимаю. Может, без папки?"
+    assert not _looks_like_action_request(last_message)
+
+    recent_user_text = " ".join([
+        "а можно просто записать, что мне нужно купить?",
+        last_message,
+    ])
+    assert _looks_like_action_request(recent_user_text)
 
 
 def test_looks_like_false_completion_claim_true_for_bare_готово():

@@ -180,6 +180,15 @@ async def run_one(db, scenario: dict, opening: str, tester) -> str:
                     lines.append(f"АССИСТЕНТ [tool_call]: {tc.get('name')}({tc.get('arguments')})")
                 if r.get("content"):
                     lines.append(f"АССИСТЕНТ: {r['content']}")
+                # Кнопки НЕ лежат в tool_calls: dialogs.py намеренно вынимает
+                # suggest_replies из real_tool_calls (это разметка UI, а не
+                # тул с побочным эффектом) и кладёт варианты в отдельное поле.
+                # Без этой строки судья кнопок не видел вовсе и во всех 9
+                # прогонах сценария новичка писал «suggest_replies не вызван» —
+                # оценки были испорчены багом харнесса, а не поведением
+                # ассистента.
+                if r.get("suggested_replies"):
+                    lines.append(f"АССИСТЕНТ [кнопки]: {r['suggested_replies']}")
             elif r.get("role") == "tool":
                 lines.append(f"TOOL_RESULT: {(r.get('content') or '')[:500]}")
 
