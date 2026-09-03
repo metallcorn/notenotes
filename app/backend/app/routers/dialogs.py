@@ -878,10 +878,36 @@ _COMPLETION_CLAIM_RE = re.compile(
 # изменяющие данные тулы в этом проекте называются с одним из этих
 # префиксов, читающие/поисковые — нет (get_/list_/search_/web_/read_/
 # test_/track_/run_). Проверено по факту, не предположение.
+#
+# remember_/forget_ сознательно НЕ здесь: это память ассистента о
+# пользователе, а не видимый пользователю контент. Реальный найденный
+# случай: модель вызвала remember_fact, а потом заявила "всё сохранено в
+# заметке" — заметки при этом не было. Если считать remember_fact
+# "изменяющим", такая ложь проходила бы мимо проверки.
 _MUTATING_TOOL_PREFIXES = (
     "create_", "update_", "append_", "delete_", "add_", "toggle_", "resolve_",
-    "remember_", "forget_", "insert_",
+    "insert_",
 )
+
+
+def _dialog_has_mutating_tool_call(records: list[dict]) -> bool:
+    """Был ли за ВЕСЬ диалог (не только текущий ход) хоть один вызов
+    изменяющего тула.
+
+    Реальный найденный класс ложных срабатываний (ролплей-тесты, 3 подряд
+    в одном раунде): проверка была ограничена одним ходом, и честный ответ
+    на вопрос "всё ли сохранено?" ("Сохранено: список покупок и
+    напоминание созданы") получал предупреждение, хотя тулы реально
+    вызывались ХОДОМ РАНЬШЕ. Тот же эффект у промежуточных реплик посреди
+    многоходовой задачи. Настоящая ложь ("готово" там, где ничего не
+    создавалось) от этого не маскируется: в тех случаях изменяющих
+    вызовов не было во всём диалоге вообще."""
+    return any(
+        tc.get("name", "").startswith(_MUTATING_TOOL_PREFIXES)
+        for r in records
+        if r.get("role") == "assistant"
+        for tc in r.get("tool_calls", [])
+    )
 
 
 def _looks_like_action_request(text: str) -> bool:
@@ -1813,11 +1839,13 @@ async def _run_dialog_turn_locked(
         if (
             not real_tool_calls
             and not mutating_tool_called_this_turn
+            and not _dialog_has_mutating_tool_call(records)
             and _looks_like_action_request(content)
             and _looks_like_false_completion_claim(assistant_record["content"])
         ):
             logger.warning(
-                "Похоже на ложное 'готово' без единого изменяющего тула за ход: %r", assistant_record["content"][:200]
+                "Похоже на ложное 'готово' без единого изменяющего тула за весь диалог: %r",
+                assistant_record["content"][:200],
             )
             assistant_record["content"] = (
                 assistant_record["content"].rstrip()

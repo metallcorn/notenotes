@@ -576,6 +576,53 @@ def test_looks_like_false_completion_claim_false_for_unrelated_word_with_same_ro
     )
 
 
+# --- _dialog_has_mutating_tool_call: проверка по ВСЕМУ диалогу ------------
+# Реальный найденный класс ложных срабатываний (ролплей-тест «воскресный
+# ужин», 3 подряд в одном раунде): проверка была ограничена одним ходом, и
+# честный ответ на вопрос «всё ли сохранено?» получал предупреждение, хотя
+# список/напоминание реально создавались ходом раньше.
+
+def test_dialog_has_mutating_tool_call_true_for_earlier_create():
+    from app.routers.dialogs import _dialog_has_mutating_tool_call
+
+    records = [
+        {"role": "user", "content": "составь список покупок"},
+        {"role": "assistant", "content": "", "tool_calls": [{"name": "create_list", "arguments": {}}]},
+        {"role": "tool", "content": "{}"},
+        {"role": "assistant", "content": "Готово, список создан."},
+        {"role": "user", "content": "всё сохранено?"},
+    ]
+    assert _dialog_has_mutating_tool_call(records)
+
+
+def test_dialog_has_mutating_tool_call_false_for_read_only_dialog():
+    from app.routers.dialogs import _dialog_has_mutating_tool_call
+
+    records = [
+        {"role": "user", "content": "перенеси данные в таблицу"},
+        {"role": "assistant", "content": "", "tool_calls": [{"name": "get_note", "arguments": {}}]},
+        {"role": "tool", "content": "{}"},
+        {"role": "assistant", "content": "", "tool_calls": [{"name": "search_base", "arguments": {}}]},
+        {"role": "tool", "content": "{}"},
+    ]
+    assert not _dialog_has_mutating_tool_call(records)
+
+
+def test_dialog_has_mutating_tool_call_ignores_remember_fact():
+    # remember_fact — память ассистента, не видимый пользователю контент.
+    # Реальный случай: модель вызвала remember_fact и заявила "всё сохранено
+    # в заметке" — заметки не было. Если бы remember_ считался изменяющим,
+    # эта ложь прошла бы мимо проверки.
+    from app.routers.dialogs import _dialog_has_mutating_tool_call
+
+    records = [
+        {"role": "user", "content": "сохрани всё про машину"},
+        {"role": "assistant", "content": "", "tool_calls": [{"name": "remember_fact", "arguments": {}}]},
+        {"role": "tool", "content": "{}"},
+    ]
+    assert not _dialog_has_mutating_tool_call(records)
+
+
 def test_looks_like_false_completion_claim_false_for_plain_answer():
     from app.routers.dialogs import _looks_like_false_completion_claim
 
