@@ -37,7 +37,11 @@ const LLM_PROVIDERS = [
   { value: "", label: "По умолчанию" },
   { value: "mistral", label: "Mistral" },
   { value: "gemini", label: "Gemini Flash" },
-  { value: "groq", label: "Groq (Llama 3.3 70B)" },
+  // На бесплатном тарифе Groq не работает: наш запрос (схемы тулов +
+  // промпт) ~12800 токенов при лимите 8000 TPM — 413 на каждый вызов.
+  // См. подробности в core/config.py::groq_model. Оставляем в списке для
+  // платного тарифа, но честно помечаем.
+  { value: "groq", label: "Groq (нужен платный тариф)" },
 ];
 
 // Просто удобные подсказки в datalist, не полный список ~600 IANA-имён —
