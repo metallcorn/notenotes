@@ -841,10 +841,6 @@ _COMPLETION_CLAIM_STEMS = (
     "готов", "добав", "созда", "постав", "удал", "сохран", "обновл", "перенес",
     "перенёс", "записа", "измени", "выполн", "сдела",
 )
-_NEGATION_MARKERS = (
-    "не могу", "не удалось", "не удалась", "не получилось", "не смог", "не смогла",
-    "не нашёл", "не нашел", "не нашла", "не выйдет", "нельзя", "не получится",
-)
 # Совпадает по написанию с реальными именами тулов (registry.py) — все
 # изменяющие данные тулы в этом проекте называются с одним из этих
 # префиксов, читающие/поисковые — нет (get_/list_/search_/web_/read_/
@@ -861,10 +857,27 @@ def _looks_like_action_request(text: str) -> bool:
 
 
 def _looks_like_false_completion_claim(text: str) -> bool:
+    """Реальный найденный ложноположительный случай (тот же ролплей-тест,
+    другой сценарий, в тот же день): ответ начинался с "Похоже, заметка
+    НЕ была создана — я не сохранил обсуждённое" — честное признание
+    неудачи, а не ложное "готово". Общий список _NEGATION_MARKERS (целые
+    фразы) не покрывал "не была создана"/"не сохранил" — отрицание
+    сочетается со стемом почти как угодно. Вместо списка фраз — проверяем
+    ПОБЛИЗОСТИ от каждого конкретного совпадения стема: если "не "/"нет "
+    стоит в предшествующих ~20 символах ИМЕННО перед этим вхождением —
+    это не заявление об успехе, а честный отказ, не считаем."""
     lowered = text.lower()
-    if any(marker in lowered for marker in _NEGATION_MARKERS):
-        return False
-    return any(stem in lowered for stem in _COMPLETION_CLAIM_STEMS)
+    for stem in _COMPLETION_CLAIM_STEMS:
+        start = 0
+        while True:
+            pos = lowered.find(stem, start)
+            if pos == -1:
+                break
+            preceding = lowered[max(0, pos - 20) : pos]
+            if "не " not in preceding and "нет " not in preceding:
+                return True
+            start = pos + len(stem)
+    return False
 
 
 def _looks_like_leaked_tool_call(content: str, tool_names: set[str]) -> bool:

@@ -530,6 +530,23 @@ def test_looks_like_false_completion_claim_false_for_honest_refusal():
     assert not _looks_like_false_completion_claim("Не получилось создать таблицу.")
 
 
+def test_looks_like_false_completion_claim_false_for_various_negation_phrasings():
+    # Реальный найденный ложноположительный случай (тот же день, другой
+    # сценарий): "Похоже, заметка не была создана — я не сохранил
+    # обсуждённое" — честное признание, не заявление об успехе. Прежний
+    # список фраз-отрицаний ("не смог"/"не удалось" и т.п.) не покрывал
+    # "не была создана"/"не сохранил" — отрицание сочетается со стемом
+    # почти как угодно, поэтому проверка теперь по близости "не "/"нет "
+    # перед конкретным вхождением стема, а не по фиксированному списку фраз.
+    from app.routers.dialogs import _looks_like_false_completion_claim
+
+    assert not _looks_like_false_completion_claim(
+        "Похоже, заметка не была создана — я не сохранил обсуждённое в заметку."
+    )
+    assert not _looks_like_false_completion_claim("Напоминание не поставлено, попробуй ещё раз.")
+    assert not _looks_like_false_completion_claim("Список пока не обновлён.")
+
+
 def test_looks_like_false_completion_claim_false_for_plain_answer():
     from app.routers.dialogs import _looks_like_false_completion_claim
 
