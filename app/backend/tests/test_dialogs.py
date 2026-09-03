@@ -639,3 +639,45 @@ def test_bare_url_in_json_re_stops_at_closing_quote_not_next_field():
     result = {"url": "https://notenotes.example/?item=abc", "title": "Заметка с пробелами в названии"}
     found = [m.group(0) for m in _BARE_URL_IN_JSON_RE.finditer(json.dumps(result, ensure_ascii=False))]
     assert found == ["https://notenotes.example/?item=abc"]
+
+
+# --- Онбординг новичка: гейт по прошлым диалогам, не по пустой памяти ----
+# Реальный найденный случай (ролплей-тест "мама-пенсионерка"): онбординг
+# гейтился по `not memory_facts`, и если кто-то заранее добавил в память
+# факт о новом человеке ("маме 71 год, живёт в Костроме") — ровно то, что
+# сделает родственник, настраивая приложение пожилому родителю, —
+# онбординг не срабатывал вообще. Самый неуверенный пользователь получал
+# наименьшую помощь: за весь тестовый раунд suggest_replies не вызвался
+# ни разу, вместо кнопок были открытые вопросы "Чем помочь?".
+
+def test_onboarding_fragment_present_for_fresh_start():
+    from app.routers.dialogs import _build_system_prompt
+
+    prompt = _build_system_prompt([], "", {"suggest_replies"}, set(), True)
+    assert "Это первое сообщение пользователя" in prompt
+
+
+def test_onboarding_fragment_survives_non_empty_memory():
+    # Ключевая регрессия: наличие фактов в памяти больше НЕ отменяет
+    # онбординг — за него теперь отвечает отдельный признак "нет прошлых
+    # диалогов" (см. is_new_user в _run_dialog_turn_locked).
+    from app.routers.dialogs import _build_system_prompt
+
+    prompt = _build_system_prompt(["Маме 71 год, живёт в Костроме"], "", {"suggest_replies"}, set(), True)
+    assert "Это первое сообщение пользователя" in prompt
+
+
+def test_onboarding_fragment_absent_for_returning_user():
+    from app.routers.dialogs import _build_system_prompt
+
+    prompt = _build_system_prompt(["Маме 71 год"], "", {"suggest_replies"}, set(), False)
+    assert "Это первое сообщение пользователя" not in prompt
+
+
+def test_onboarding_fragment_demands_concrete_buttons():
+    # Смысл фрагмента — заставить дать ГОТОВЫЕ просьбы кнопками, а не
+    # открытый вопрос "чем помочь?".
+    from app.routers.dialogs import ONBOARDING_PROMPT_FRAGMENT
+
+    assert "suggest_replies" in ONBOARDING_PROMPT_FRAGMENT
+    assert "жаргон" in ONBOARDING_PROMPT_FRAGMENT.lower()
