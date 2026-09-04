@@ -48,7 +48,7 @@ DEFINITION = ToolDefinition(
 async def handle(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
     raw = str(args.get("tracking_number", "")).strip()
     if not raw:
-        raise ToolError("Не указан трек-номер или ссылка")
+        raise ToolError("Не указан трек-номер или ссылка — передай трек-номер посылки или ссылку на страницу отслеживания")
     carrier = args.get("carrier")
     return await track(raw, str(carrier).strip().lower() if carrier else None)
 
@@ -92,7 +92,7 @@ async def insert_delivery_block(ctx: ToolContext, args: dict[str, Any]) -> dict[
     item = await _get_item_cross_space(ctx, args.get("item_id"))
     raw = str(args.get("tracking_number", "")).strip()
     if not raw:
-        raise ToolError("Не указан трек-номер или ссылка")
+        raise ToolError("Не указан трек-номер или ссылка — передай трек-номер посылки или ссылку на страницу отслеживания")
     carrier_arg = args.get("carrier")
     result = await track(raw, str(carrier_arg).strip().lower() if carrier_arg else None)
     if result.get("need_carrier"):

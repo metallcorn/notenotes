@@ -50,21 +50,21 @@ def _parse(value: str) -> tuple[datetime | date, bool]:
         try:
             return date.fromisoformat(value), True
         except ValueError:
-            raise ToolError(f"Некорректная дата: {value}") from None
+            raise ToolError(f"Некорректная дата: {value} — нужен формат ISO, например 2026-09-04") from None
     try:
         return datetime.fromisoformat(value), False
     except ValueError:
-        raise ToolError(f"Некорректные дата/время: {value}") from None
+        raise ToolError(f"Некорректные дата/время: {value} — нужен формат ISO, например 2026-09-04T14:30") from None
 
 
 async def create_calendar_event(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
     title = str(args.get("title", "")).strip()
     if not title:
-        raise ToolError("Название события не может быть пустым")
+        raise ToolError("Название события не может быть пустым — коротко сформулируй, что за событие")
 
     start_raw = args.get("start")
     if not start_raw:
-        raise ToolError("start обязателен")
+        raise ToolError("start обязателен — дата 2026-09-04 для события на весь день или дата со временем 2026-09-04T14:30")
     start, all_day = _parse(str(start_raw))
 
     end_raw = args.get("end")

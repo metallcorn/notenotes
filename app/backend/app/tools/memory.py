@@ -26,7 +26,7 @@ REMEMBER_FACT = ToolDefinition(
 async def remember_fact(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
     fact = str(args.get("fact", "")).strip()
     if not fact:
-        raise ToolError("Пустой факт")
+        raise ToolError("Пустой факт — передай непустой content: одно короткое утверждение о пользователе")
     memory = AssistantMemory(user_id=ctx.user_id, content=fact)
     ctx.db.add(memory)
     await ctx.db.commit()
@@ -64,11 +64,11 @@ async def forget_fact(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
     try:
         memory_id = uuid.UUID(str(args.get("memory_id")))
     except (ValueError, TypeError):
-        raise ToolError(f"Некорректный id факта: {args.get('memory_id')}") from None
+        raise ToolError(f"Некорректный id факта: {args.get('memory_id')} — нужен UUID из результата list_memories") from None
 
     memory = await ctx.db.get(AssistantMemory, memory_id)
     if memory is None or memory.user_id != ctx.user_id:
-        raise ToolError("Факт не найден")
+        raise ToolError("Факт не найден — вызови list_memories, чтобы увидеть реальные факты и их id")
     await ctx.db.delete(memory)
     await ctx.db.commit()
     return {"deleted": True}

@@ -57,7 +57,7 @@ TEST_URL_REQUEST = ToolDefinition(
 async def test_url_request(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
     url = str(args.get("url", "")).strip()
     if not url:
-        raise ToolError("Ссылка не может быть пустой")
+        raise ToolError("Ссылка не может быть пустой — передай полный URL со схемой http:// или https://")
     headers = args.get("headers") if isinstance(args.get("headers"), dict) else None
     result = await check_url(url, headers)
     if "error" in result:
@@ -128,17 +128,17 @@ async def insert_url_check_block(ctx: ToolContext, args: dict[str, Any]) -> dict
     item = await _get_item_cross_space(ctx, args.get("item_id"))
     url = str(args.get("url", "")).strip()
     if not url:
-        raise ToolError("Ссылка не может быть пустой")
+        raise ToolError("Ссылка не может быть пустой — передай полный URL со схемой http:// или https://")
     fields_raw = args.get("fields")
     if not isinstance(fields_raw, list) or not fields_raw:
-        raise ToolError("Нужно хотя бы одно поле")
+        raise ToolError("Нужно хотя бы одно поле — передай то, что нужно изменить")
     fields = []
     for f in fields_raw:
         if not isinstance(f, dict) or not f.get("path") or not f.get("label"):
             continue
         fields.append({"path": str(f["path"]), "label": str(f["label"])})
     if not fields:
-        raise ToolError("Не удалось разобрать поля")
+        raise ToolError("Не удалось разобрать поля — fields должен быть объектом вида {\"имя\": \"значение\"}")
     headers_raw = args.get("headers")
     headers = {str(k): str(v) for k, v in headers_raw.items()} if isinstance(headers_raw, dict) else None
 

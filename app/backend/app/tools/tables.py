@@ -38,17 +38,17 @@ async def _get_table_item(ctx: ToolContext, table_id_raw: Any) -> Item:
     try:
         table_id = uuid.UUID(str(table_id_raw))
     except (ValueError, TypeError):
-        raise ToolError(f"Некорректный id таблицы: {table_id_raw}") from None
+        raise ToolError(f"Некорректный id таблицы: {table_id_raw} — нужен UUID из результата list_all_items, а не название таблицы") from None
 
     item = await ctx.db.get(Item, table_id)
     if item is None or item.material_type != "table" or item.deleted_at is not None:
-        raise ToolError("Таблица не найдена")
+        raise ToolError("Таблица не найдена — вызови list_all_items, чтобы увидеть реальные таблицы и их id")
     try:
         await ensure_space_access(ctx.db, item.space_id, ctx.user_id)
     except HTTPException:
-        raise ToolError("Таблица не найдена") from None
+        raise ToolError("Таблица не найдена — вызови list_all_items, чтобы увидеть реальные таблицы и их id") from None
     if await is_vault_space(ctx.db, item.space_id):
-        raise ToolError("Таблица не найдена")
+        raise ToolError("Таблица не найдена — вызови list_all_items, чтобы увидеть реальные таблицы и их id")
     return item
 
 
@@ -114,7 +114,7 @@ CREATE_TABLE = ToolDefinition(
 async def create_table(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
     title = str(args.get("title", "")).strip()
     if not title:
-        raise ToolError("Название таблицы не может быть пустым")
+        raise ToolError("Название таблицы не может быть пустым — придумай короткое по смыслу содержимого или спроси у пользователя через suggest_replies")
 
     folder_id, space_id = await _resolve_folder(ctx, args.get("folder_id"))
 
@@ -316,7 +316,7 @@ ADD_TABLE_COLUMN = ToolDefinition(
 async def add_table_column(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
     name = str(args.get("name", "")).strip()
     if not name:
-        raise ToolError("Пустое название столбца")
+        raise ToolError("Пустое название столбца — передай непустое name; текущие столбцы видны в результате get_table")
 
     item = await _get_table_item(ctx, args.get("table_id"))
     columns = list(item.properties.get("columns", []))

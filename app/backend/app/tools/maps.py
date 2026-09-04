@@ -41,5 +41,5 @@ CREATE_MAPS_LINK = ToolDefinition(
 async def create_maps_link(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
     query = str(args.get("query", "")).strip()
     if not query:
-        raise ToolError("Название места не может быть пустым")
+        raise ToolError("Название места не может быть пустым — передай название или адрес места")
     return {"query": query, "url": f"https://www.google.com/maps/search/?api=1&query={quote(query)}"}

@@ -29,5 +29,5 @@ DEFINITION = ToolDefinition(
 async def handle(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
     url = str(args.get("url", "")).strip()
     if not url:
-        raise ToolError("Ссылка не может быть пустой")
+        raise ToolError("Ссылка не может быть пустой — передай полный URL со схемой http:// или https://")
     return await fetch_website(url)

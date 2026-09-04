@@ -66,7 +66,7 @@ def _drop_privileges(uid: int, gid: int) -> None:
 async def run_python(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
     code = str(args.get("code", ""))
     if not code.strip():
-        raise ToolError("Пустой код")
+        raise ToolError("Пустой код — передай непустой code")
 
     user = _sandbox_user()
     if user is None:

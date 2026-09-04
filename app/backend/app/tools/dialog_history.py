@@ -39,7 +39,7 @@ GET_COMPACTED_HISTORY = ToolDefinition(
 async def get_compacted_history(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
     item = await _get_item_cross_space(ctx, args.get("dialog_id"))
     if item.material_type != "dialog":
-        raise ToolError("Это не диалог")
+        raise ToolError("Это не диалог — dialog_id должен быть id разговора с ассистентом, а не заметки или списка")
 
     snapshot_id = str(args.get("snapshot_id") or "")
     snapshot = next(

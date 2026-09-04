@@ -45,19 +45,19 @@ async def _resolve_folder(ctx: ToolContext, folder_id_raw: Any) -> tuple[uuid.UU
     try:
         folder_id = uuid.UUID(str(folder_id_raw))
     except ValueError:
-        raise ToolError(f"Некорректный id папки: {folder_id_raw}") from None
+        raise ToolError(f"Некорректный id папки: {folder_id_raw} — нужен UUID из результата list_folders, а не название папки") from None
     folder = await ctx.db.get(Folder, folder_id)
     if folder is None:
-        raise ToolError("Папка не найдена")
+        raise ToolError("Папка не найдена — вызови list_folders, чтобы увидеть реальные папки и их id")
     try:
         await ensure_space_access(ctx.db, folder.space_id, ctx.user_id)
     except HTTPException:
-        raise ToolError("Папка не найдена") from None
+        raise ToolError("Папка не найдена — вызови list_folders, чтобы увидеть реальные папки и их id") from None
     # Сейф — ассистент не должен даже знать о его существовании (тот же
     # ответ, что для реально недоступной папки), не только не читать
     # содержимое: сервер физически не может ничего прочитать в сейфе.
     if await is_vault_space(ctx.db, folder.space_id):
-        raise ToolError("Папка не найдена")
+        raise ToolError("Папка не найдена — вызови list_folders, чтобы увидеть реальные папки и их id")
     return folder_id, folder.space_id
 
 
@@ -65,17 +65,17 @@ async def _get_item_cross_space(ctx: ToolContext, item_id_raw: Any) -> Item:
     try:
         item_id = uuid.UUID(str(item_id_raw))
     except (ValueError, TypeError):
-        raise ToolError(f"Некорректный id заметки: {item_id_raw}") from None
+        raise ToolError(f"Некорректный id заметки: {item_id_raw} — нужен UUID из результата search_base или list_all_items, а не название заметки") from None
 
     item = await ctx.db.get(Item, item_id)
     if item is None or item.deleted_at is not None:
-        raise ToolError("Заметка не найдена")
+        raise ToolError("Заметка не найдена — найди её через search_base (по смыслу) или list_all_items и возьми id из результата")
     try:
         await ensure_space_access(ctx.db, item.space_id, ctx.user_id)
     except HTTPException:
-        raise ToolError("Заметка не найдена") from None
+        raise ToolError("Заметка не найдена — найди её через search_base (по смыслу) или list_all_items и возьми id из результата") from None
     if await is_vault_space(ctx.db, item.space_id):
-        raise ToolError("Заметка не найдена")
+        raise ToolError("Заметка не найдена — найди её через search_base (по смыслу) или list_all_items и возьми id из результата")
     return item
 
 
@@ -274,13 +274,13 @@ async def append_to_note(ctx: ToolContext, args: dict[str, Any]) -> dict[str, An
     # Реальный найденный баг: модель вызвала этот тул с параметром "content"
     # вместо "text" — перепутав со схемой соседнего update_note (у него
     # именно content). args.get("text", "") тихо давал "", тул отдавал
-    # "Пустой текст для добавления", а модель, ПОЛУЧИВ эту ошибку от тула,
+    # "Пустой текст для добавления — передай непустой text", а модель, ПОЛУЧИВ эту ошибку от тула,
     # всё равно доложила пользователю "Готово" — ничего не добавив. Раз
     # модель может недописать строгую форму (её слова), принимаем оба
     # имени параметра кодом, вместо того чтобы полагаться на промпт.
     text = str(args.get("text") or args.get("content") or "").strip()
     if not text:
-        raise ToolError("Пустой текст для добавления")
+        raise ToolError("Пустой текст для добавления — передай непустой text")
 
     ctx.db.add(ItemVersion(item_id=item.id, title=item.title, content=item.content, author_id=ctx.user_id))
     item.content = f"{item.content.rstrip()}\n\n{text}" if item.content.strip() else text
@@ -330,7 +330,7 @@ async def add_tag(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
     item = await _get_item_cross_space(ctx, args.get("item_id"))
     tag_name = str(args.get("tag_name", "")).strip()
     if not tag_name:
-        raise ToolError("Имя тега не может быть пустым")
+        raise ToolError("Имя тега не может быть пустым — существующие теги даёт list_tags")
 
     existing = await ctx.db.execute(select(Tag).where(Tag.user_id == ctx.user_id, Tag.name == tag_name))
     tag = existing.scalar_one_or_none()
@@ -400,7 +400,7 @@ CREATE_FOLDER = ToolDefinition(
 async def create_folder(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
     name = str(args.get("name", "")).strip()
     if not name:
-        raise ToolError("Название папки не может быть пустым")
+        raise ToolError("Название папки не может быть пустым — придумай короткое по смыслу содержимого или спроси у пользователя через suggest_replies")
 
     parent_id_raw = args.get("parent_id")
     parent_id: uuid.UUID | None = None
@@ -408,10 +408,10 @@ async def create_folder(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any
         try:
             parent_id = uuid.UUID(str(parent_id_raw))
         except ValueError:
-            raise ToolError(f"Некорректный id родительской папки: {parent_id_raw}") from None
+            raise ToolError(f"Некорректный id родительской папки: {parent_id_raw} — нужен UUID из результата list_folders, а не название папки") from None
         parent = await ctx.db.get(Folder, parent_id)
         if parent is None or parent.space_id != ctx.space_id:
-            raise ToolError("Родительская папка не найдена в текущем спейсе")
+            raise ToolError("Родительская папка не найдена в текущем спейсе — вызови list_folders, чтобы увидеть реальные папки и их id")
 
     folder = Folder(space_id=ctx.space_id, parent_id=parent_id, name=name)
     ctx.db.add(folder)
@@ -486,7 +486,7 @@ LIST_ITEMS_BY_TAG = ToolDefinition(
 async def list_items_by_tag(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
     tag_name = str(args.get("tag_name", "")).strip()
     if not tag_name:
-        raise ToolError("tag_name обязателен")
+        raise ToolError("tag_name обязателен — существующие теги даёт list_tags")
 
     tag = (
         await ctx.db.execute(

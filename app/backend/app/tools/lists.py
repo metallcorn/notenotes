@@ -47,16 +47,16 @@ async def _resolve_folder(ctx: ToolContext, folder_id_raw: Any) -> tuple[uuid.UU
     try:
         folder_id = uuid.UUID(str(folder_id_raw))
     except ValueError:
-        raise ToolError(f"Некорректный id папки: {folder_id_raw}") from None
+        raise ToolError(f"Некорректный id папки: {folder_id_raw} — нужен UUID из результата list_folders, а не название папки") from None
     folder = await ctx.db.get(Folder, folder_id)
     if folder is None:
-        raise ToolError("Папка не найдена")
+        raise ToolError("Папка не найдена — вызови list_folders, чтобы увидеть реальные папки и их id")
     try:
         await ensure_space_access(ctx.db, folder.space_id, ctx.user_id)
     except HTTPException:
-        raise ToolError("Папка не найдена") from None
+        raise ToolError("Папка не найдена — вызови list_folders, чтобы увидеть реальные папки и их id") from None
     if await is_vault_space(ctx.db, folder.space_id):
-        raise ToolError("Папка не найдена")
+        raise ToolError("Папка не найдена — вызови list_folders, чтобы увидеть реальные папки и их id")
     return folder_id, folder.space_id
 
 
@@ -67,17 +67,17 @@ async def _get_list_item(ctx: ToolContext, list_id_raw: Any) -> Item:
     try:
         list_id = uuid.UUID(str(list_id_raw))
     except (ValueError, TypeError):
-        raise ToolError(f"Некорректный id списка: {list_id_raw}") from None
+        raise ToolError(f"Некорректный id списка: {list_id_raw} — нужен UUID из результата list_all_items, а не название списка") from None
 
     item = await ctx.db.get(Item, list_id)
     if item is None or item.material_type != "list" or item.deleted_at is not None:
-        raise ToolError("Список не найден")
+        raise ToolError("Список не найден — вызови list_all_items, чтобы увидеть реальные списки и их id")
     try:
         await ensure_space_access(ctx.db, item.space_id, ctx.user_id)
     except HTTPException:
-        raise ToolError("Список не найден") from None
+        raise ToolError("Список не найден — вызови list_all_items, чтобы увидеть реальные списки и их id") from None
     if await is_vault_space(ctx.db, item.space_id):
-        raise ToolError("Список не найден")
+        raise ToolError("Список не найден — вызови list_all_items, чтобы увидеть реальные списки и их id")
     return item
 
 
@@ -117,7 +117,7 @@ CREATE_LIST = ToolDefinition(
 async def create_list(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
     title = str(args.get("title", "")).strip()
     if not title:
-        raise ToolError("Название списка не может быть пустым")
+        raise ToolError("Название списка не может быть пустым — придумай короткое по смыслу содержимого или спроси у пользователя через suggest_replies")
 
     folder_id, space_id = await _resolve_folder(ctx, args.get("folder_id"))
 
@@ -205,7 +205,7 @@ async def add_list_entry(ctx: ToolContext, args: dict[str, Any]) -> dict[str, An
 
     text = str(args.get("text", "")).strip()
     if not text:
-        raise ToolError("Пустой пункт")
+        raise ToolError("Пустой пункт — передай непустой text")
 
     entries = list(item.properties.get("entries", []))
     await _snapshot_version(ctx.db, item, ctx.user_id)
@@ -245,7 +245,7 @@ async def toggle_list_entry(ctx: ToolContext, args: dict[str, Any]) -> dict[str,
     text_match = str(args.get("text_match", "")).strip().lower()
     checked = args.get("checked")
     if checked is None:
-        raise ToolError("Не передан checked")
+        raise ToolError("Не передан checked — true чтобы отметить пункт купленным/сделанным, false чтобы снять отметку")
 
     existing = item.properties.get("entries", [])
     target = None

@@ -54,15 +54,15 @@ CREATE_REMINDER = ToolDefinition(
 async def create_reminder(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
     title = str(args.get("title", "")).strip()
     if not title:
-        raise ToolError("Название напоминания не может быть пустым")
+        raise ToolError("Название напоминания не может быть пустым — коротко сформулируй, о чём напомнить")
 
     trigger_raw = args.get("trigger_at")
     if not trigger_raw:
-        raise ToolError("trigger_at обязателен")
+        raise ToolError("trigger_at обязателен — время в формате ISO, например 2026-09-04T14:30 (в местном времени пользователя)")
     try:
         trigger_at = datetime.fromisoformat(str(trigger_raw))
     except ValueError:
-        raise ToolError(f"Некорректные дата/время: {trigger_raw}") from None
+        raise ToolError(f"Некорректные дата/время: {trigger_raw} — нужен формат ISO, например 2026-09-04T14:30 (в местном времени пользователя)") from None
     # Реальный найденный баг: наивное время (модель обычно так и отдаёт
     # trigger_at по просьбе "напомни в 9 утра") трактовалось как UTC — для
     # пользователя в Польше (CEST, UTC+2 летом) напоминание срабатывало на
@@ -85,7 +85,7 @@ async def create_reminder(ctx: ToolContext, args: dict[str, Any]) -> dict[str, A
         if entry_id_raw:
             entries = item.properties.get("entries", [])
             if not any(e["id"] == str(entry_id_raw) for e in entries):
-                raise ToolError("Пункт списка не найден")
+                raise ToolError("Пункт списка не найден — сначала вызови get_list, чтобы увидеть реальные пункты и их id")
             payload["entry_id"] = str(entry_id_raw)
 
         # Заметка/список могут быть общими на весь спейс — права на спейс
@@ -186,15 +186,15 @@ RESOLVE_REMINDER = ToolDefinition(
 async def resolve_reminder(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
     notification_id_raw = args.get("notification_id")
     if not notification_id_raw:
-        raise ToolError("notification_id обязателен")
+        raise ToolError("notification_id обязателен — id напоминания из результата list_reminders")
     try:
         notification_id = uuid.UUID(str(notification_id_raw))
     except ValueError:
-        raise ToolError("Некорректный notification_id") from None
+        raise ToolError("Некорректный notification_id — нужен UUID из результата list_reminders") from None
 
     notification = await ctx.db.get(Notification, notification_id)
     if notification is None or notification.user_id != ctx.user_id:
-        raise ToolError("Напоминание не найдено")
+        raise ToolError("Напоминание не найдено — вызови list_reminders, чтобы увидеть реальные напоминания и их id")
 
     if notification.resolved_at is None:
         notification.resolved_at = datetime.now(timezone.utc)
