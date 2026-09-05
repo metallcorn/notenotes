@@ -2030,6 +2030,7 @@ async def _run_dialog_turn_locked(
     cache_key = f"notenotes-u{user.id}"
     turn_prompt_tokens = 0
     turn_cached_tokens = 0
+    turn_llm_calls = 0
     # Разовая подсказка модели, которая НЕ пишется в records: диалог
     # пользователя ею не засоряется, а в запрос к LLM она попадает.
     # Нужна для случая «пообещал и завершил ход» (см.
@@ -2048,6 +2049,7 @@ async def _run_dialog_turn_locked(
             )
             turn_prompt_tokens += response.prompt_tokens
             turn_cached_tokens += response.cached_tokens
+            turn_llm_calls += 1
         except (httpx.HTTPError, EmptyLLMResponseError):
             logger.exception("Ошибка обращения к LLM-провайдеру")
             # Прежде чем сдаваться — одна тихая попытка на модели покрупнее,
@@ -2541,13 +2543,31 @@ async def _run_dialog_turn_locked(
     # промпта именно ради этого. Если доля просела — значит что-то снова
     # встало в начало и рвёт кэшируемый префикс.
     if turn_prompt_tokens:
+        hit_rate = 100 * turn_cached_tokens / turn_prompt_tokens
         logger.info(
             "Токены за ход: %d входных, из них %d из кэша (%.0f%%), диалог %s",
-            turn_prompt_tokens,
-            turn_cached_tokens,
-            100 * turn_cached_tokens / turn_prompt_tokens,
-            item.id,
+            turn_prompt_tokens, turn_cached_tokens, hit_rate, item.id,
         )
+        # Сигнал о СЛОМАННОМ кэше — на WARNING, потому что INFO по
+        # умолчанию не печатается и рутинная строка выше видна только при
+        # поднятом уровне.
+        #
+        # Условие выбрано так, чтобы ложных срабатываний не было вовсе.
+        # Ноль попаданий сам по себе нормален: первый ход в свежем
+        # диалоге, или возвращение пользователя после того, как кэш у
+        # провайдера истёк. А вот НЕСКОЛЬКО вызовов подряд внутри одного
+        # хода (агентный цикл: модель → тул → модель) идут с тем же
+        # префиксом с разницей в секунды — второй и последующие обязаны
+        # попадать. Если не попали, значит в начало промпта снова
+        # просочилось что-то меняющееся и рвёт префикс (ровно этот баг и
+        # был до 2026-09-05: строка с текущим временем стояла первой).
+        if turn_llm_calls >= 2 and turn_cached_tokens == 0:
+            logger.warning(
+                "Кэш промпта не сработал: %d вызовов LLM за ход, попаданий 0 "
+                "(%d входных токенов). Скорее всего в начало системного "
+                "промпта попало что-то изменчивое — см. _build_system_prompt.",
+                turn_llm_calls, turn_prompt_tokens,
+            )
 
     # list(records) — та же причина, что у раннего коммита выше в этой же
     # функции: после раннего коммита item.properties["messages"] уже
