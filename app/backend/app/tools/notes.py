@@ -398,7 +398,16 @@ CREATE_FOLDER = ToolDefinition(
 
 
 async def create_folder(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
-    name = str(args.get("name", "")).strip()
+    # И "name", и "title" — тот же приём, что у append_to_note с
+    # text/content, и по той же причине. Реальный случай (замер
+    # 2026-09-05, сценарий воскресного ужина, оценка 1/5): модель дважды
+    # подряд вызвала create_folder({"title": "Рецепты"}) и дважды получила
+    # «Название папки не может быть пустым» — при том что название она
+    # передала. Ошибка не в модели: create_note, create_table и
+    # create_calendar_event ждут "title", и create_folder выбивается из
+    # ряда единственный. Обобщение по трём соседним тулам — разумное
+    # поведение, а не сбой, поэтому чиним схему, а не модель.
+    name = str(args.get("name") or args.get("title") or "").strip()
     if not name:
         raise ToolError("Название папки не может быть пустым — придумай короткое по смыслу содержимого или спроси у пользователя через suggest_replies")
 

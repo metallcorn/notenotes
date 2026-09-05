@@ -314,7 +314,9 @@ ADD_TABLE_COLUMN = ToolDefinition(
 
 
 async def add_table_column(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
-    name = str(args.get("name", "")).strip()
+    # См. create_folder в notes.py: соседние тулы ждут "title", этот —
+    # "name". Принимаем оба, чтобы обобщение модели не ломало вызов.
+    name = str(args.get("name") or args.get("title") or "").strip()
     if not name:
         raise ToolError("Пустое название столбца — передай непустое name; текущие столбцы видны в результате get_table")
 

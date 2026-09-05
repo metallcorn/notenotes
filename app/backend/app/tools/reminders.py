@@ -11,7 +11,7 @@ from app.llm.base import ToolDefinition
 from app.models import Notification
 from app.tools.notes import _get_item_cross_space
 from app.tools.registry import ToolContext, ToolError
-from app.user_timezone import assume_default_timezone
+from app.user_timezone import assume_default_timezone, resolve_timezone
 
 # Напоминания переиспользуют центр уведомлений (ТЗ §13), не отдельную
 # таблицу — trigger_at в будущем просто не отдаётся списком, пока время не
@@ -50,6 +50,30 @@ CREATE_REMINDER = ToolDefinition(
     },
 )
 
+
+# Тул отдаёт время В ТОМ ЖЕ ПОЯСЕ, в котором его прислала модель, а не в
+# UTC. Это исправление реального бага, пойманного замером 2026-09-05
+# (сценарий воскресного ужина, проваливался ВО ВСЕХ замерах подряд):
+#
+#   АССИСТЕНТ: Начинать нужно в 13:30
+#   create_reminder(trigger_at='...T13:30')
+#   TOOL_RESULT: {"trigger_at": "2026-09-06T11:30:00+00:00"}   ← UTC, верно
+#   create_reminder(trigger_at='...T11:30')                    ← поверил эху
+#   TOOL_RESULT: {"trigger_at": "2026-09-06T09:30:00+00:00"}   ← дубль
+#
+# Модель задала верное время, увидела в ответе UTC-значение на два часа
+# меньше, решила что ошиблась — и создала ВТОРОЕ напоминание на два часа
+# раньше. Она не доверяет собственному правильному вводу, потому что эхо
+# выглядит иначе.
+#
+# Чинится не промптом, а форматом ответа: эхо должно подтверждать ввод.
+# Модель мыслит в местном времени пользователя (промпт так и устроен — см.
+# now_in_default_timezone), поэтому и отвечать надо в нём. UTC остаётся
+# отдельным полем: для хранения он и есть правда, и при разборе проблем
+# его полезно видеть.
+def _echo_times(dt: datetime, tz_name: str | None) -> dict[str, str]:
+    local = dt.astimezone(resolve_timezone(tz_name))
+    return {"trigger_at": local.isoformat(), "trigger_at_utc": dt.astimezone(timezone.utc).isoformat()}
 
 async def create_reminder(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
     title = str(args.get("title", "")).strip()
@@ -113,7 +137,11 @@ async def create_reminder(ctx: ToolContext, args: dict[str, Any]) -> dict[str, A
             own_notification = notification
     await ctx.db.commit()
     await ctx.db.refresh(own_notification)
-    return {"id": str(own_notification.id), "title": title, "trigger_at": trigger_at.isoformat()}
+    return {
+        "id": str(own_notification.id),
+        "title": title,
+        **_echo_times(trigger_at, ctx.client_timezone),
+    }
 
 
 # "Выполнено" — независимая ось от trigger_at (ТЗ живой жалобы: время
@@ -157,7 +185,11 @@ async def list_reminders(ctx: ToolContext, args: dict[str, Any]) -> dict[str, An
                 "id": str(n.id),
                 "title": n.title,
                 "body": n.body,
-                "trigger_at": n.trigger_at.isoformat() if n.trigger_at else None,
+                **(
+                    _echo_times(n.trigger_at, ctx.client_timezone)
+                    if n.trigger_at
+                    else {"trigger_at": None}
+                ),
             }
             for n in reminders
         ]
