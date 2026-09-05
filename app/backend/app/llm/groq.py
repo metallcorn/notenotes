@@ -16,9 +16,10 @@ class GroqClient:
     не параметризация MistralClient — чтобы не трогать уже проверенный
     рабочий путь ради экономии дублирования."""
 
-    def __init__(self, api_key: str, model: str) -> None:
+    def __init__(self, api_key: str, model: str, temperature: float | None = None) -> None:
         self._api_key = api_key
         self._model = model
+        self._temperature = temperature
 
     def _to_wire(self, messages: list[Message]) -> list[dict]:
         wire = []
@@ -68,6 +69,8 @@ class GroqClient:
 
     async def chat(self, messages: list[Message], tools: list[ToolDefinition]) -> LLMResponse:
         payload: dict = {"model": self._model, "messages": self._to_wire(messages)}
+        if self._temperature is not None:
+            payload["temperature"] = self._temperature
         if tools:
             payload["tools"] = [
                 {

@@ -98,6 +98,13 @@ VARIANTS = {
     "baseline": "как в проде: mistral-small, промпт без изменений",
     "plan_prompt": "B: абзац «сначала сформулируй задачу», 0 доп. вызовов",
     "magistral": "A: рассуждающая модель magistral-small-latest",
+    # Температура ДО 2026-09-05 не задавалась вовсе — работали на дефолте
+    # Mistral (0.3 у всех моделей, проверено через GET /v1/models). Это
+    # подозреваемый источник шума самого замера: один и тот же вариант,
+    # прогнанный дважды, дал по сценарию «ужин» 4,4,3 и 1,3,1. Часть этого
+    # разброса — просто сэмплирование, а не поведение ассистента.
+    "temp_zero": "T=0: детерминированное сэмплирование вместо дефолтных 0.3",
+    "temp_low": "T=0.1: почти детерминированно, но без полной жёсткости",
 }
 
 
@@ -232,9 +239,29 @@ async def main() -> None:
     dm.dispatch = stub_dispatch
 
     assistant_model = "magistral-small-latest" if args.variant == "magistral" else settings.llm_model
-    assistant = ThrottledClient(MistralClient(api_key=settings.llm_api_key, model=assistant_model))
-    tester = ThrottledClient(MistralClient(api_key=settings.llm_api_key, model="mistral-medium-latest"))
-    judge = ThrottledClient(MistralClient(api_key=settings.llm_api_key, model="mistral-medium-latest"))
+    # None — не передавать параметр вовсе (дефолт провайдера), это и есть
+    # baseline. 0.0 и 0.1 передаются явно.
+    assistant_temp = {"temp_zero": 0.0, "temp_low": 0.1}.get(args.variant)
+    assistant = ThrottledClient(
+        MistralClient(api_key=settings.llm_api_key, model=assistant_model, temperature=assistant_temp)
+    )
+    # Тестер и судья — ВСЕГДА T=0, независимо от варианта. Это настройка
+    # измерительного прибора, а не продукта: судья при дефолтных 0.3 мог
+    # поставить один и тот же транскрипт то на 4, то на 2, и этот шум
+    # смешивался с настоящей разницей между вариантами. Именно из-за него
+    # 2026-09-03 не удалось сравнить три варианта: один и тот же вариант,
+    # прогнанный дважды, дал по сценарию «ужин» 4,4,3 и 1,3,1.
+    #
+    # Тестер тоже: его собственная случайность добавляла расхождение
+    # диалогов сверх того, что вносил ассистент. Полной воспроизводимости
+    # это не даёт (реплики тестера всё равно зависят от ответов ассистента),
+    # но убирает один из трёх источников шума целиком.
+    tester = ThrottledClient(
+        MistralClient(api_key=settings.llm_api_key, model="mistral-medium-latest", temperature=0.0)
+    )
+    judge = ThrottledClient(
+        MistralClient(api_key=settings.llm_api_key, model="mistral-medium-latest", temperature=0.0)
+    )
 
     original_get = dm.get_llm_client
     original_base = dm.SYSTEM_PROMPT_BASE
@@ -247,7 +274,12 @@ async def main() -> None:
         raise SystemExit(f"нет сценария с именем {args.scenario}")
 
     print(f"вариант: {args.variant} — {VARIANTS[args.variant]}")
-    print(f"модель ассистента: {assistant_model}, прогонов на сценарий: {args.runs}\n", flush=True)
+    temp_label = "дефолт провайдера (0.3)" if assistant_temp is None else str(assistant_temp)
+    print(
+        f"модель ассистента: {assistant_model}, температура: {temp_label}, "
+        f"прогонов на сценарий: {args.runs}\n",
+        flush=True,
+    )
 
     started = time.monotonic()
     results: dict[str, list[int]] = {}
@@ -290,7 +322,8 @@ async def main() -> None:
     out = [
         f"# Ролплей-оценка ассистента — вариант «{args.variant}»\n",
         f"{VARIANTS[args.variant]}\n",
-        f"Модель ассистента: `{assistant_model}` · прогонов на сценарий: {args.runs} · "
+        f"Модель ассистента: `{assistant_model}` · температура: {temp_label} · "
+        f"прогонов на сценарий: {args.runs} · "
         f"{datetime.now().strftime('%Y-%m-%d %H:%M')} · {minutes:.0f} мин\n",
         f"Вызовов LLM: {_stats['calls']} · повторов по 429: {_stats['retries']} · "
         f"обращений к Tavily: **0** (перехвачено стабом: {_stats['search_stubs']})\n",

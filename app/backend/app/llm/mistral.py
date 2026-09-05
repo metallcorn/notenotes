@@ -13,9 +13,12 @@ class MistralClient:
     """LLMClient поверх Mistral chat completions API — протокол tool-calling
     совместим с форматом OpenAI (id/type/function.arguments как JSON-строка)."""
 
-    def __init__(self, api_key: str, model: str) -> None:
+    def __init__(self, api_key: str, model: str, temperature: float | None = None) -> None:
         self._api_key = api_key
         self._model = model
+        # None = не передавать параметр вовсе (дефолт провайдера), а не 0.0:
+        # разница существенная, 0.0 — это осознанный детерминизм.
+        self._temperature = temperature
 
     def _to_wire(self, messages: list[Message]) -> list[dict]:
         wire = []
@@ -67,6 +70,8 @@ class MistralClient:
 
     async def chat(self, messages: list[Message], tools: list[ToolDefinition]) -> LLMResponse:
         payload: dict = {"model": self._model, "messages": self._to_wire(messages)}
+        if self._temperature is not None:
+            payload["temperature"] = self._temperature
         if tools:
             payload["tools"] = [
                 {

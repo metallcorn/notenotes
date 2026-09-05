@@ -20,9 +20,10 @@ class GeminiClient:
     (в отличие от Mistral, где _to_llm_messages в dialogs.py явно этого
     требует — здесь просто игнорируем id при сборке wire-формата)."""
 
-    def __init__(self, api_key: str, model: str) -> None:
+    def __init__(self, api_key: str, model: str, temperature: float | None = None) -> None:
         self._api_key = api_key
         self._model = model
+        self._temperature = temperature
 
     def _to_wire(self, messages: list[Message]) -> tuple[dict | None, list[dict]]:
         system_parts: list[str] = []
@@ -82,6 +83,10 @@ class GeminiClient:
     async def chat(self, messages: list[Message], tools: list[ToolDefinition]) -> LLMResponse:
         system_instruction, contents = self._to_wire(messages)
         payload: dict = {"contents": contents}
+        # У Gemini параметры генерации лежат отдельным объектом, а не
+        # плоско в корне запроса, как у OpenAI-совместимых.
+        if self._temperature is not None:
+            payload["generationConfig"] = {"temperature": self._temperature}
         if system_instruction:
             payload["system_instruction"] = system_instruction
         if tools:

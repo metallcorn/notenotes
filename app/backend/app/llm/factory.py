@@ -18,11 +18,11 @@ def _client_for(provider: str) -> LLMClient:
     один инстанс на провайдер безопасно шарить между всеми пользователями."""
     settings = get_settings()
     if provider == "mistral":
-        return MistralClient(api_key=settings.llm_api_key, model=settings.llm_model)
+        return MistralClient(api_key=settings.llm_api_key, model=settings.llm_model, temperature=settings.llm_temperature)
     if provider == "gemini":
-        return GeminiClient(api_key=settings.gemini_api_key, model=settings.gemini_model)
+        return GeminiClient(api_key=settings.gemini_api_key, model=settings.gemini_model, temperature=settings.llm_temperature)
     if provider == "groq":
-        return GroqClient(api_key=settings.groq_api_key, model=settings.groq_model)
+        return GroqClient(api_key=settings.groq_api_key, model=settings.groq_model, temperature=settings.llm_temperature)
     raise ValueError(f"Неизвестный LLM-провайдер: {provider}")
 
 
@@ -56,7 +56,9 @@ def _escalated_client_for(provider: str) -> LLMClient | None:
     if escalation_model is None:
         return None
     if provider == "mistral":
-        return MistralClient(api_key=settings.llm_api_key, model=escalation_model)
+        return MistralClient(
+            api_key=settings.llm_api_key, model=escalation_model, temperature=settings.llm_temperature
+        )
     return None
 
 
