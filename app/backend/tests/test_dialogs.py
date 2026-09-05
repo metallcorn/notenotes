@@ -547,6 +547,149 @@ def test_looks_like_action_request_sees_request_from_earlier_turn():
     assert _looks_like_action_request(recent_user_text)
 
 
+# --- «дорогие» темы: жёсткое правило про подтверждённые факты -------------
+# Самый опасный класс из найденных замерами: модель звучит ОДИНАКОВО
+# уверенно, когда права и когда выдумывает. Подтверждено живьём — неверный
+# вид животного для звонка в экстренную службу (с польской фразой, которую
+# человек прочитал бы диспетчеру), визовые требования из головы, цены без
+# проверки. Отличить по тону нельзя, поэтому режем по теме.
+
+def test_high_stakes_topic_detected():
+    from app.routers.dialogs import _is_high_stakes_topic as high
+
+    assert high("а сколько ибупрофена можно в день?")
+    assert high("мне назначили новый препарат, какие побочки?")
+    assert high("когда заканчивается моя виза и что нужно для продления")
+    assert high("маме плохо, вызывать скорую?")
+    assert high("какой штраф за превышение в Польше")
+
+
+def test_high_stakes_dosage_caught_without_drug_names():
+    # Названия лекарств не перечислить — их тысячи, и это тот же тупик,
+    # что список словоформ. Ловим форму вопроса о дозе: она покрывает
+    # любой препарат, включая тот, о котором мы никогда не слышали.
+    from app.routers.dialogs import _is_high_stakes_topic as high
+
+    assert high("сколько принимать этого сиропа ребёнку")
+    assert high("а сколько раз в день пить назначенное?")
+
+
+def test_high_stakes_topic_catches_plain_medical_question():
+    # Регрессия на собственную ошибку (замер 2026-09-04): этот вопрос —
+    # самый буквальный из возможных — темой «дорогой» НЕ считался, потому
+    # что в списке не было ни «парацетамол», ни «температур».
+    from app.routers.dialogs import _is_high_stakes_topic as high
+
+    assert high("Ребёнку 4 года, температура 38.5. Сколько парацетамола можно дать?")
+    assert high("малому 4 года, жар 38.5. сколько парацетамола давать то?")
+
+
+def test_high_stakes_not_triggered_on_everyday_requests():
+    # Главный риск правила — сделать ассистента бесполезно-осторожным.
+    # Эти запросы должны идти БЕЗ дополнительного фрагмента в промпте.
+    from app.routers.dialogs import _is_high_stakes_topic as high
+
+    assert not high("Составь список покупок: молоко, хлеб, яйца.")
+    assert not high("В воскресенье гости к 15:00, 6 человек. Что приготовить?")
+    assert not high("напомни завтра полить цветы")
+    assert not high("добрый день. сын установил, сказал помощник. а что тут делать то?")
+    # Ловушка: слово «страховка» СОЗНАТЕЛЬНО не в списке — оно чаще всего
+    # встречается в бытовом поиске заметки, где правило не нужно, а лишний
+    # фрагмент в промпте это чистый риск занудства. Сценарий note_link,
+    # который идёт на 5/5/5, использует ровно эту формулировку.
+    assert not high("Найди мою заметку про страховку PZU и дай ссылку")
+
+
+def test_unconfirmed_high_stakes_number_detected():
+    # Реальный найденный случай (замер 2026-09-04, сценарий про дозу
+    # парацетамола ребёнку, 2 прогона из 3): все числа взяты из головы,
+    # web_search возвращал пустоту. Худший прогон судья оценил на 5/5,
+    # потому что модель вписала коэффициенты ЛИТЕРАЛАМИ в код run_python
+    # и подала расчёт как подтверждённый инструментом — калькулятор
+    # перемножил догадку, а не проверил её.
+    from app.routers.dialogs import _has_unconfirmed_high_stakes_number as num
+
+    # Медицинская доза ловится ВНЕ ЗАВИСИМОСТИ от того, распознана ли
+    # тема по словам: единица измерения устойчивее формулировки вопроса.
+    # Это исправление собственной ошибки — сначала проверка была привязана
+    # к списку слов, и он промахнулся на «Ребёнку 4 года, температура 38.5.
+    # Сколько парацетамола можно дать?».
+    assert num("это 250 мг парацетамола", False)
+    assert num("разовая доза 10–15 мг/кг массы тела", False)
+    assert num("дать 1 таблетку сейчас и вторую через 6 часов", False)
+    # Деньги — только когда тема распознана: сумма сама по себе безобидна.
+    assert num("штраф около 500 злотых", True)
+
+
+def test_unconfirmed_high_stakes_number_ignores_advice_without_numbers():
+    # Общие объяснения и порядок действий безвредны и полезны — пометка
+    # там была бы чистым занудством.
+    from app.routers.dialogs import _has_unconfirmed_high_stakes_number as num
+
+    assert not num("Температуру сбивают, когда ребёнку плохо, а не по цифре", False)
+    assert not num("Дозу я не проверял — она зависит от веса, уточните у врача", False)
+    assert not num("Вызывайте скорую, если появится сыпь или судороги", False)
+    # «мл», «г» и «раз в день» сознательно не считаются дозой: они рядовые
+    # в рецептах и списке покупок, пометка там была бы занудством.
+    assert not num("Купить: 200 мл молока, 500 г муки", False)
+    assert not num("Поливать 2 раза в день", False)
+    assert not num("записал: молоко 5 злотых, хлеб 4 злотых", False)
+
+
+def test_high_stakes_fragment_mixed_into_prompt_only_when_needed():
+    from app.routers.dialogs import HIGH_STAKES_PROMPT_FRAGMENT, _build_system_prompt
+
+    marker = HIGH_STAKES_PROMPT_FRAGMENT[:40]
+    with_rule = _build_system_prompt([], "", set(), set(), False, "Europe/Warsaw", True)
+    without = _build_system_prompt([], "", set(), set(), False, "Europe/Warsaw", False)
+    assert marker in with_rule
+    assert marker not in without
+
+
+# --- _looks_like_unkept_promise: обещание, за которым ход закончился ------
+# Реальный найденный случай (ролплей-замер 2026-09-03, сценарий ужина):
+# «Сейчас создам папку «Рецепты» и список «К ужину в воскресенье».
+# Подождите немного.» — и конец хода, ни одного создающего вызова.
+# Человеку сказали ждать, а не произойдёт уже ничего. Это НЕ ложное
+# «готово»: там прошедшее время, здесь будущее, и лечится оно иначе —
+# ход не отпускается, модели возвращается указание доделать.
+
+def test_looks_like_unkept_promise_catches_real_cases():
+    from app.routers.dialogs import _looks_like_unkept_promise as promise
+
+    assert promise("Сейчас создам папку «Рецепты» и список. Подождите немного.")
+    assert promise("Сейчас добавлю сыр и колбасу.")
+    assert promise("Секунду, запишу это в заметку.")
+    assert promise("Минутку, сохраню изменения.")
+
+
+def test_looks_like_unkept_promise_ignores_offers_and_questions():
+    # Требуются ОБА признака — глагол будущего времени и маркер «прямо
+    # сейчас». Одного глагола мало: «создам, если скажешь название» —
+    # уточнение, а не обещание, и ход там закончен правильно.
+    from app.routers.dialogs import _looks_like_unkept_promise as promise
+
+    assert not promise("Создам список покупок?")
+    assert not promise("Создам список, если скажешь название")
+    assert not promise("Могу создать список покупок")
+    assert not promise("Хотите, я сделаю напоминание?")
+    assert not promise("Сейчас в списке пять пунктов.")
+
+
+def test_unkept_promise_and_false_completion_do_not_overlap():
+    # Два детектора закрывают РАЗНЫЕ случаи и не должны ловить чужой:
+    # прошедшее время — ложное «готово», будущее — невыполненное обещание.
+    from app.routers.dialogs import (
+        _looks_like_false_completion_claim as claim,
+        _looks_like_unkept_promise as promise,
+    )
+
+    past = "Готово, список покупок создан."
+    future = "Сейчас создам список покупок. Подождите."
+    assert claim(past) and not promise(past)
+    assert promise(future) and not claim(future)
+
+
 def test_looks_like_false_completion_claim_covers_forms_not_listed_by_hand():
     # Проверка идёт по КОРНЮ + окончанию, а не по списку словоформ.
     # Перечисление форм уже один раз промахнулось живьём: не было мужской
