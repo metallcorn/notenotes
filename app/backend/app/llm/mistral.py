@@ -68,10 +68,22 @@ class MistralClient:
 
         return Message(role="assistant", content=content, tool_calls=tool_calls)
 
-    async def chat(self, messages: list[Message], tools: list[ToolDefinition]) -> LLMResponse:
+    async def chat(
+        self,
+        messages: list[Message],
+        tools: list[ToolDefinition],
+        cache_key: str | None = None,
+    ) -> LLMResponse:
         payload: dict = {"model": self._model, "messages": self._to_wire(messages)}
         if self._temperature is not None:
             payload["temperature"] = self._temperature
+        # Кэш промпта: подсказка провайдеру направить запрос туда, где уже
+        # лежит общий префикс. Кэшированные входные токены стоят 10% от
+        # обычного тарифа. Работает только если префикс реально совпадает —
+        # поэтому всё изменчивое (время) вынесено в КОНЕЦ системного
+        # промпта, см. _build_system_prompt в routers/dialogs.py.
+        if cache_key:
+            payload["prompt_cache_key"] = cache_key
         if tools:
             payload["tools"] = [
                 {
@@ -99,6 +111,11 @@ class MistralClient:
             data = resp.json()
 
         choice = data["choices"][0]
+        usage = data.get("usage") or {}
         return LLMResponse(
-            message=self._from_wire(choice["message"]), finish_reason=choice.get("finish_reason", "")
+            message=self._from_wire(choice["message"]),
+            finish_reason=choice.get("finish_reason", ""),
+            prompt_tokens=usage.get("prompt_tokens", 0) or 0,
+            cached_tokens=(usage.get("prompt_tokens_details") or {}).get("cached_tokens", 0) or 0,
+            completion_tokens=usage.get("completion_tokens", 0) or 0,
         )

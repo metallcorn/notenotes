@@ -43,10 +43,23 @@ class ToolDefinition:
 class LLMResponse:
     message: Message
     finish_reason: str
+    # Расход токенов за этот вызов, если провайдер его сообщил. Нужен,
+    # чтобы эффект кэша промпта можно было ИЗМЕРИТЬ, а не предполагать:
+    # cached_tokens показывает, сколько входных токенов попало в кэш и
+    # оплачивается по 10% тарифа (Mistral отдаёт их в
+    # usage.prompt_tokens_details.cached_tokens).
+    prompt_tokens: int = 0
+    cached_tokens: int = 0
+    completion_tokens: int = 0
 
 
 class LLMClient(Protocol):
-    async def chat(self, messages: list[Message], tools: list[ToolDefinition]) -> LLMResponse: ...
+    async def chat(
+        self,
+        messages: list[Message],
+        tools: list[ToolDefinition],
+        cache_key: str | None = None,
+    ) -> LLMResponse: ...
 
 
 class EmptyLLMResponseError(Exception):

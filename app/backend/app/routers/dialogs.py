@@ -704,6 +704,40 @@ def _build_system_prompt(
     client_timezone: str | None = None,
     high_stakes: bool = False,
 ) -> str:
+    # Отметка времени НЕ первой строкой, а в самом конце промпта (см.
+    # ниже) — иначе кэш промпта у провайдера бесполезен. Кэш совпадает по
+    # ПРЕФИКСУ, а время меняется каждую минуту: строка на позиции 0 рвала
+    # бы совпадение на первых же токенах, и все ~11 тысяч символов
+    # статичных правил переставали бы кэшироваться. Проверено на живом API
+    # Mistral: при неизменном префиксе cached_tokens = 8688 из 8716.
+    #
+    # Для самой модели перенос в конец не хуже, а скорее лучше: инструкции
+    # ближе к концу контекста получают больше внимания, а время — ровно то,
+    # что должно быть свежим в момент ответа.
+    prompt = SYSTEM_PROMPT_BASE
+    if SHOW_NOTE_IMAGES_SKILL not in disabled_tools:
+        prompt += "\n\n" + SHOW_NOTE_IMAGES_PROMPT_FRAGMENT
+    if is_fresh_start:
+        prompt += "\n\n" + ONBOARDING_PROMPT_FRAGMENT
+    if high_stakes:
+        prompt += "\n\n" + HIGH_STAKES_PROMPT_FRAGMENT
+    for tool_name, fragment in TOOL_PROMPT_FRAGMENTS.items():
+        if tool_name in enabled_tools:
+            prompt += "\n\n" + fragment
+    if memory_facts:
+        facts_block = "\n".join(f"- {f}" for f in memory_facts)
+        prompt += f"\n\nЗапомненные факты об этом пользователе (используй их, не спрашивай заново):\n{facts_block}"
+    if custom_instructions.strip():
+        prompt += f"\n\nДополнительные инструкции от пользователя:\n{custom_instructions.strip()}"
+    # Самым последним — всё, что меняется от запроса к запросу, чтобы не
+    # рвать кэшируемый префикс выше.
+    #
+    # Дата И ВРЕМЯ, не только дата: реальный найденный случай (ролплей-тест,
+    # 2026-09-03) — на бытовой вопрос «который час?» модель уверенно
+    # выдумывала время и даже «прокручивала» его от реплики к реплике
+    # (15:47 → … → 16:52 за несколько реальных минут), потому что часов в
+    # промпте просто не было. Дешевле дать настоящее время, чем запрещать
+    # отвечать (см. now_in_default_timezone).
     # ISO, не локализованное имя дня недели — strftime("%A") в контейнере
     # без ru_RU-локали всё равно выдал бы английское имя, а модели ISO-даты
     # достаточно, чтобы правильно резолвить "на этой неделе"/"вчера" и т.п.
@@ -724,26 +758,12 @@ def _build_system_prompt(
     # промпте просто не было. Дешевле дать настоящее время, чем запрещать
     # отвечать (см. now_in_default_timezone).
     now = now_in_default_timezone(client_timezone)
-    prompt = (
-        f"Текущие дата и время: {now} (местное время пользователя). "
+    prompt += (
+        f"\n\nТекущие дата и время: {now} (местное время пользователя). "
         "Это время момента, когда пользователь отправил ЭТО сообщение — "
         "внутри одного длинного разговора оно не меняется само по себе, "
-        "не выдумывай, что прошло сколько-то минут.\n\n"
-    ) + SYSTEM_PROMPT_BASE
-    if SHOW_NOTE_IMAGES_SKILL not in disabled_tools:
-        prompt += "\n\n" + SHOW_NOTE_IMAGES_PROMPT_FRAGMENT
-    if is_fresh_start:
-        prompt += "\n\n" + ONBOARDING_PROMPT_FRAGMENT
-    if high_stakes:
-        prompt += "\n\n" + HIGH_STAKES_PROMPT_FRAGMENT
-    for tool_name, fragment in TOOL_PROMPT_FRAGMENTS.items():
-        if tool_name in enabled_tools:
-            prompt += "\n\n" + fragment
-    if memory_facts:
-        facts_block = "\n".join(f"- {f}" for f in memory_facts)
-        prompt += f"\n\nЗапомненные факты об этом пользователе (используй их, не спрашивай заново):\n{facts_block}"
-    if custom_instructions.strip():
-        prompt += f"\n\nДополнительные инструкции от пользователя:\n{custom_instructions.strip()}"
+        "не выдумывай, что прошло сколько-то минут."
+    )
     return prompt
 
 
@@ -2001,6 +2021,15 @@ async def _run_dialog_turn_locked(
             "с этим dialog_id и нужным snapshot_id, чтобы прочитать дословный оригинал."
         )
     tool_call_leak_retried = False
+    # Ключ кэша промпта — ПО ПОЛЬЗОВАТЕЛЮ, а не по диалогу: системный
+    # промпт (правила + схемы тулов, вместе больше 10 тысяч символов) у
+    # одного человека одинаков во всех его разговорах, и с общим ключом
+    # переиспользуется между ними, а не только внутри одного диалога.
+    # Разделение по пользователям сохраняется: в промпт входят его
+    # запомненные факты и личные инструкции.
+    cache_key = f"notenotes-u{user.id}"
+    turn_prompt_tokens = 0
+    turn_cached_tokens = 0
     # Разовая подсказка модели, которая НЕ пишется в records: диалог
     # пользователя ею не засоряется, а в запрос к LLM она попадает.
     # Нужна для случая «пообещал и завершил ход» (см.
@@ -2013,8 +2042,12 @@ async def _run_dialog_turn_locked(
     for _ in range(MAX_TOOL_ITERATIONS):
         try:
             response = await active_llm_client.chat(
-                _to_llm_messages(records, system_prompt) + transient_nudges, tool_definitions
+                _to_llm_messages(records, system_prompt) + transient_nudges,
+                tool_definitions,
+                cache_key=cache_key,
             )
+            turn_prompt_tokens += response.prompt_tokens
+            turn_cached_tokens += response.cached_tokens
         except (httpx.HTTPError, EmptyLLMResponseError):
             logger.exception("Ошибка обращения к LLM-провайдеру")
             # Прежде чем сдаваться — одна тихая попытка на модели покрупнее,
@@ -2501,6 +2534,20 @@ async def _run_dialog_turn_locked(
             "Напомни выпить таблетки",
             "Запиши рецепт",
         ]
+
+    # Расход токенов за весь ход одной строкой — единственный способ
+    # увидеть, работает ли кэш промпта на реальной нагрузке. Доля попаданий
+    # обязана быть высокой: всё изменчивое вынесено в конец системного
+    # промпта именно ради этого. Если доля просела — значит что-то снова
+    # встало в начало и рвёт кэшируемый префикс.
+    if turn_prompt_tokens:
+        logger.info(
+            "Токены за ход: %d входных, из них %d из кэша (%.0f%%), диалог %s",
+            turn_prompt_tokens,
+            turn_cached_tokens,
+            100 * turn_cached_tokens / turn_prompt_tokens,
+            item.id,
+        )
 
     # list(records) — та же причина, что у раннего коммита выше в этой же
     # функции: после раннего коммита item.properties["messages"] уже

@@ -67,7 +67,14 @@ class GroqClient:
 
         return Message(role="assistant", content=content, tool_calls=tool_calls)
 
-    async def chat(self, messages: list[Message], tools: list[ToolDefinition]) -> LLMResponse:
+    async def chat(
+        self,
+        messages: list[Message],
+        tools: list[ToolDefinition],
+        cache_key: str | None = None,
+    ) -> LLMResponse:
+        # Groq кэш промпта не предлагает — параметр принимается ради
+        # единой сигнатуры LLMClient и игнорируется.
         payload: dict = {"model": self._model, "messages": self._to_wire(messages)}
         if self._temperature is not None:
             payload["temperature"] = self._temperature

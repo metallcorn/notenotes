@@ -80,7 +80,15 @@ class GeminiClient:
                 )
         return Message(role="assistant", content="".join(text_parts), tool_calls=tool_calls)
 
-    async def chat(self, messages: list[Message], tools: list[ToolDefinition]) -> LLMResponse:
+    async def chat(
+        self,
+        messages: list[Message],
+        tools: list[ToolDefinition],
+        cache_key: str | None = None,
+    ) -> LLMResponse:
+        # У Gemini кэширование контекста устроено иначе (явные
+        # cachedContents с TTL, а не подсказка в запросе) — параметр
+        # принимается ради единой сигнатуры и пока игнорируется.
         system_instruction, contents = self._to_wire(messages)
         payload: dict = {"contents": contents}
         # У Gemini параметры генерации лежат отдельным объектом, а не
