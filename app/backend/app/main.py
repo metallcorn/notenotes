@@ -62,6 +62,12 @@ logger = logging.getLogger(__name__)
 # завершится НЕ через штатную отмену при остановке приложения — лог и
 # перезапуск через паузу, а не тихая смерть до следующего деплоя.
 async def _supervised(name: str, worker) -> None:
+    """Для БЕСКОНЕЧНЫХ воркеров: возврат из worker() считается сбоем и
+    приводит к перезапуску. Одноразовую задачу сюда передавать нельзя —
+    она будет перезапускаться в плотном цикле без паузы (поймано живьём:
+    догоняющая индексация завершалась штатно, супервизор звал её снова, и
+    Postgres держал 93% CPU на повторном тяжёлом запросе). Для таких —
+    _once ниже."""
     while True:
         try:
             await worker()
@@ -70,6 +76,17 @@ async def _supervised(name: str, worker) -> None:
         except Exception:
             logger.exception("Фоновый воркер %s неожиданно завершился — перезапускаю через 5с", name)
             await asyncio.sleep(5)
+
+
+async def _once(name: str, task) -> None:
+    """Одноразовая фоновая задача: отработала — и всё. Ошибку пишем, но не
+    повторяем: если проход упал, повтор в цикле упрётся в ту же причину."""
+    try:
+        await task()
+    except asyncio.CancelledError:
+        raise
+    except Exception:
+        logger.exception("Фоновая задача %s завершилась с ошибкой", name)
 
 
 @asynccontextmanager
@@ -94,7 +111,7 @@ async def lifespan(app: FastAPI):
     # в базе уже лежат сотни записей. Фоном, а не в await — иначе
     # приложение не поднималось бы, пока не отработают сотни запросов к
     # API эмбеддингов, и перезапуск превращался бы в долгий простой.
-    backfill_task = asyncio.create_task(_supervised("embedding_backfill", run_embedding_backfill))
+    backfill_task = asyncio.create_task(_once("embedding_backfill", run_embedding_backfill))
     await register_telegram_webhook()
     try:
         yield
