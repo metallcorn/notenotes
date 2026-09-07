@@ -256,3 +256,60 @@ async def test_sql_hash_matches_python_hash(auth_client, db_session, test_user, 
         )
     ).scalar_one()
     assert py_hash == sql_hash
+
+
+async def test_empty_note_never_becomes_stale_forever(
+    auth_client, db_session, test_user, fake_embed
+):
+    """Регрессия, пойманная на боевой базе: пустая запись загоняла
+    догоняющий проход в бесконечный цикл.
+
+    В заметке без заголовка и текста резать нечего — index_item честно
+    возвращает 0 кусков и не создаёт строк в индексе. А запрос отставших
+    искал записи, у которых строк в индексе нет, и возвращал такую заметку
+    СНОВА И СНОВА. Четыре пустые заметки из 225 держали бэкенд на 58% CPU,
+    Postgres на 37%.
+    """
+    space_id = await _space(auth_client)
+    note_id = await _make_note(auth_client, "", "", space_id)
+
+    item = await db_session.get(Item, uuid.UUID(note_id))
+    assert await embeddings.index_item(db_session, item) == 0
+    # Главное: пустая запись НЕ считается отставшей, иначе цикл вечен.
+    assert uuid.UUID(note_id) not in await embeddings.find_stale_item_ids(db_session)
+
+
+async def test_note_that_gets_content_later_is_picked_up(
+    auth_client, db_session, test_user, fake_embed
+):
+    """Обратная сторона предыдущего: пустая запись исключена не навсегда.
+    Как только в ней появится текст, она обязана попасть в индекс."""
+    space_id = await _space(auth_client)
+    note_id = await _make_note(auth_client, "", "", space_id)
+    assert uuid.UUID(note_id) not in await embeddings.find_stale_item_ids(db_session)
+
+    item = await db_session.get(Item, uuid.UUID(note_id))
+    item.content = "Теперь тут есть текст про замену масла"
+    await db_session.commit()
+
+    assert uuid.UUID(note_id) in await embeddings.find_stale_item_ids(db_session)
+
+
+async def test_backfill_stops_instead_of_spinning(
+    auth_client, db_session, test_user, fake_embed, monkeypatch
+):
+    """Страховка на будущее: если пачка обработана, а список отставших не
+    сократился, проход обязан остановиться — какой бы ни была причина."""
+    stuck = [uuid.uuid4()]
+
+    async def _always_same(db, limit=200):
+        return list(stuck)
+
+    async def _noop(item_id):
+        return None
+
+    monkeypatch.setattr(embeddings, "find_stale_item_ids", _always_same)
+    monkeypatch.setattr(embeddings, "_process", _noop)
+
+    # Без страховки этот вызов не вернулся бы никогда.
+    assert await embeddings.run_backfill(batch=5) == 1

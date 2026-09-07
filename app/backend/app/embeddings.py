@@ -228,6 +228,13 @@ async def find_stale_item_ids(db: AsyncSession, limit: int = 200) -> list[uuid.U
             where i.deleted_at is null
               and i.material_type = any(:types)
               and s.is_vault = false
+              -- Пустая запись (ни заголовка, ни текста) НИКОГДА не станет
+              -- проиндексированной: резать нечего, строки в индексе не
+              -- появляется, и без этого условия запрос возвращал бы её
+              -- вечно. Поймано на боевой базе: 4 пустые заметки из 225
+              -- загнали догоняющий проход в бесконечный цикл, бэкенд жёг
+              -- 58% CPU, Postgres 37%.
+              and length(trim(coalesce(i.title,'') || coalesce(i.content,''))) > 0
               and (e.content_hash is null or e.content_hash <> encode(
                     sha256(convert_to(
                         coalesce(i.title,'') || E'\\n' || coalesce(i.content,''), 'UTF8')), 'hex'))
@@ -354,6 +361,7 @@ async def run_backfill(batch: int = 20) -> int:
             return done
         if not ids:
             return done
+        before = done
         for item_id in ids:
             try:
                 await _process(item_id)
@@ -361,3 +369,17 @@ async def run_backfill(batch: int = 20) -> int:
             except Exception:
                 logger.exception("Backfill: не удалось проиндексировать %s", item_id)
                 return done
+        # Страховка от вечного цикла: если пачка обработана, а список
+        # отставших не сократился, значит эти записи не индексируются в
+        # принципе и следующий проход вернёт их снова. Условие выше
+        # закрывает известную причину (пустой текст), эта проверка —
+        # любую будущую.
+        async with async_session() as db:
+            if set(await find_stale_item_ids(db, limit=batch)) == set(ids):
+                logger.warning(
+                    "Backfill: %d записей не индексируются и не уходят из очереди, останавливаюсь: %s",
+                    len(ids), [str(i) for i in ids[:5]],
+                )
+                return done
+        if done == before:
+            return done
