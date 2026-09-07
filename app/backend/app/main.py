@@ -9,6 +9,7 @@ from starlette.responses import FileResponse
 from starlette.requests import Request
 
 from app.autotag import run_worker as run_autotag_worker
+from app.embeddings import run_backfill as run_embedding_backfill, run_worker as run_embedding_worker
 from app.cleanup import run_periodic_sweep
 from app.note_recording import resume_pending as resume_note_recording, run_worker as run_note_recording_worker
 from app.notification_dispatch import run_dispatch_worker as run_notification_dispatch_worker
@@ -77,6 +78,7 @@ async def lifespan(app: FastAPI):
     transcription_task = asyncio.create_task(_supervised("transcription", run_transcription_worker))
     vision_task = asyncio.create_task(_supervised("vision", run_vision_worker))
     autotag_task = asyncio.create_task(_supervised("autotag", run_autotag_worker))
+    embedding_task = asyncio.create_task(_supervised("embeddings", run_embedding_worker))
     telegram_task = asyncio.create_task(_supervised("telegram", run_telegram_worker))
     pdf_task = asyncio.create_task(_supervised("pdf_ocr", run_pdf_worker))
     ticket_task = asyncio.create_task(_supervised("tickets", run_ticket_worker))
@@ -87,6 +89,12 @@ async def lifespan(app: FastAPI):
     await resume_stuck_replacements()
     await resume_pdf_ocr()
     await resume_note_recording()
+    # Догнать всё, что не проиндексировано: очередь векторов живёт в
+    # памяти процесса и теряется при перезапуске, а на момент внедрения
+    # в базе уже лежат сотни записей. Фоном, а не в await — иначе
+    # приложение не поднималось бы, пока не отработают сотни запросов к
+    # API эмбеддингов, и перезапуск превращался бы в долгий простой.
+    backfill_task = asyncio.create_task(_supervised("embedding_backfill", run_embedding_backfill))
     await register_telegram_webhook()
     try:
         yield
@@ -95,6 +103,8 @@ async def lifespan(app: FastAPI):
         transcription_task.cancel()
         vision_task.cancel()
         autotag_task.cancel()
+        embedding_task.cancel()
+        backfill_task.cancel()
         telegram_task.cancel()
         pdf_task.cancel()
         ticket_task.cancel()

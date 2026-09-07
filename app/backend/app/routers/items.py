@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import collab, realtime
 from app.autotag import enqueue_autotag, suggest_tags_now
+from app.embeddings import INDEXABLE_TYPES, enqueue_embedding
 from app.db import get_db
 from app.deps import ensure_space_access, get_current_user, is_vault_space
 from app.models import Folder, Item, ItemTag, ItemVersion, Notification, Space, SpaceMember, Tag, Upload, User
@@ -150,6 +151,11 @@ async def create_item_row(
     await realtime.notify_space(item.space_id, "dialogs" if material_type == "dialog" else "items")
     if material_type == "note" and len(content.strip()) >= _MIN_CONTENT_FOR_AUTOTAG:
         enqueue_autotag(item.id)
+    # Векторы — без порога по длине, в отличие от автотегов: короткая
+    # заметка ("позвонить в сервис насчёт замены масла") семантически
+    # ищется так же осмысленно, как длинная, а тегировать её нечем.
+    if material_type in INDEXABLE_TYPES:
+        enqueue_embedding(item.id)
     return item
 
 
@@ -454,6 +460,12 @@ async def update_item(
         ).scalar_one_or_none()
         if has_tags is None:
             enqueue_autotag(item.id)
+
+    # Переиндексация при любой правке: индексируется текст, а изменился он
+    # или нет, дешевле выяснить в воркере по content_hash, чем повторять
+    # эту проверку здесь (см. embeddings.find_stale_item_ids).
+    if item.material_type in INDEXABLE_TYPES:
+        enqueue_embedding(item.id)
 
     return await _serialize(db, item, user.id)
 

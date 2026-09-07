@@ -128,3 +128,13 @@ class ItemTitleSearchResult(BaseModel):
     title: str
     space_id: uuid.UUID
     material_type: str
+
+
+class SemanticHit(BaseModel):
+    """Результат поиска по смыслу. Кроме самой записи несёт близость и
+    совпавший КУСОК текста — без него результат по длинной заметке
+    бесполезен: непонятно, что именно в ней нашлось."""
+
+    item: ItemOut
+    score: float
+    excerpt: str

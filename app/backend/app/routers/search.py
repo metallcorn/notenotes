@@ -9,7 +9,8 @@ from app.db import get_db
 from app.deps import get_current_user
 from app.models import Item, Space, SpaceMember, User
 from app.routers.items import _serialize
-from app.schemas.item import ItemOut
+from app.schemas.item import ItemOut, SemanticHit
+from app.embeddings import search_semantic
 from app.transliterate import transliteration_variant
 
 router = APIRouter(prefix="/api/search", tags=["search"])
@@ -124,3 +125,35 @@ async def search(
 ) -> list[ItemOut]:
     items = await search_items(db, user.id, q, material_types=("note", "ticket"))
     return [await _serialize(db, item, user.id) for item in items]
+
+
+# Порог близости. Косинусное сходство у mistral-embed редко опускается
+# ниже ~0.5 даже для совсем несвязанных текстов — без отсечки «расширенный
+# поиск» всегда возвращал бы полный список записей, отсортированный по
+# чему-то невнятному, и выглядел бы сломанным. Значение подобрано на
+# реальной базе (см. scripts/semantic-eval.sh).
+_MIN_SEMANTIC_SCORE = 0.72
+
+
+@router.get("/semantic", response_model=list[SemanticHit])
+async def search_semantic_endpoint(
+    q: str,
+    space_id: uuid.UUID | None = None,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> list[SemanticHit]:
+    """Поиск по смыслу — ОТДЕЛЬНЫЙ маршрут, а не режим основного.
+
+    По ТЗ §10 это единый флоу с прогрессивной загрузкой: быстрые
+    результаты (полнотекст) появляются мгновенно, семантические подгружаются
+    следом отдельным блоком с индикатором. Разделение на два запроса —
+    единственный способ дать это на практике: семантический ход требует
+    обращения к API эмбеддингов и занимает сотни миллисекунд, и ждать его
+    ради мгновенной выдачи было бы шагом назад.
+    """
+    hits = await search_semantic(db, user.id, q, space_id=space_id)
+    return [
+        SemanticHit(item=await _serialize(db, item, user.id), score=round(score, 4), excerpt=chunk[:300])
+        for item, score, chunk in hits
+        if score >= _MIN_SEMANTIC_SCORE
+    ]

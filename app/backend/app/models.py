@@ -398,6 +398,41 @@ class LinkPreview(Base):
     fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class ItemEmbedding(Base):
+    """Кусок записи и его вектор для семантического поиска (ТЗ §10).
+
+    Отдельная таблица, а не колонка `embedding` в items, как предполагает
+    ТЗ §3.2: у mistral-embed лимит 8192 токена, длинные заметки режутся на
+    куски, и связь становится 1:N. Правилу «одна универсальная таблица
+    items» это не противоречит — таблица описывает не тип контента, а
+    индекс над ним (та же логика, что у Notification/Feedback).
+
+    Сам вектор из ORM не читается и не пишется: pgvector-тип SQLAlchemy без
+    отдельной зависимости не знает, поэтому все операции с embedding идут
+    явным SQL (app/embeddings.py). ORM нужна для остального — связи,
+    каскадного удаления вместе с записью и проверки актуальности по хэшу.
+    """
+
+    __tablename__ = "item_embeddings"
+    __table_args__ = (UniqueConstraint("item_id", "chunk_index", name="uq_item_embeddings_item_chunk"),)
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    item_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("items.id", ondelete="CASCADE"), index=True)
+    chunk_index: Mapped[int] = mapped_column(Integer)
+    # Текст куска рядом с вектором: нужен, чтобы показать пользователю
+    # именно ту часть длинной заметки, которая совпала по смыслу, а не её
+    # начало. Без этого результат по заметке на 80 тысяч символов
+    # бесполезен — непонятно, что в ней нашлось.
+    chunk_text: Mapped[str] = mapped_column(Text, server_default="")
+    # sha256 текста, из которого считались векторы этой записи. Одинаков у
+    # всех её кусков; сравнивается с хэшем текущего содержимого, чтобы
+    # понять, устарел ли индекс. Очередь индексации живёт в памяти
+    # процесса и теряется при перезапуске — хэш и есть то, что позволяет
+    # найти пропущенное одним запросом.
+    content_hash: Mapped[str] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class AssistantMemory(Base):
     """Факты, которые AI-ассистент запомнил о пользователе между диалогами
     (ТЗ §10a, расширение). Не items: это не контент базы, а служебные
