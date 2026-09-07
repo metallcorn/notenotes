@@ -206,6 +206,14 @@ async def find_stale_item_ids(db: AsyncSession, limit: int = 200) -> list[uuid.U
     Сравнение по content_hash, а не по updated_at: правка тегов или
     переименование папки меняют updated_at, но не текст — переиндексация
     там была бы тратой запросов к API впустую.
+
+    convert_to(..., 'UTF8'), а НЕ text::bytea. Поймано на боевой базе сразу
+    после выкатки: приведение текста к bytea разбирает содержимое как
+    escape-последовательности, и первая же заметка с обратным слэшем
+    роняет весь запрос («invalid input syntax for type bytea»).
+    Проиндексировалось ровно 20 записей — одна пачка, — после чего
+    догоняющий проход падал. convert_to кодирует текст как UTF-8 байты,
+    что и совпадает с content_hash в Python (str.encode()).
     """
     rows = await db.execute(
         text(
@@ -221,7 +229,8 @@ async def find_stale_item_ids(db: AsyncSession, limit: int = 200) -> list[uuid.U
               and i.material_type = any(:types)
               and s.is_vault = false
               and (e.content_hash is null or e.content_hash <> encode(
-                    sha256((coalesce(i.title,'') || E'\\n' || coalesce(i.content,''))::bytea), 'hex'))
+                    sha256(convert_to(
+                        coalesce(i.title,'') || E'\\n' || coalesce(i.content,''), 'UTF8')), 'hex'))
             limit :limit
             """
         ),
@@ -334,8 +343,15 @@ async def run_backfill(batch: int = 20) -> int:
     """
     done = 0
     while True:
-        async with async_session() as db:
-            ids = await find_stale_item_ids(db, limit=batch)
+        try:
+            async with async_session() as db:
+                ids = await find_stale_item_ids(db, limit=batch)
+        except Exception:
+            # Сам поиск отставших тоже может упасть — так и случилось при
+            # первой выкатке. Не даём этому оборвать проход молча: пишем
+            # причину в лог, а не притворяемся, что всё проиндексировано.
+            logger.exception("Backfill: не удалось получить список неиндексированных")
+            return done
         if not ids:
             return done
         for item_id in ids:

@@ -206,3 +206,53 @@ async def test_other_users_notes_are_never_returned(
 
     # Тот же запрос от чужого пользователя не находит ничего.
     assert await search_semantic(db_session, stranger.id, query) == []
+
+
+async def test_stale_detection_survives_backslashes_in_content(
+    auth_client, db_session, test_user, fake_embed
+):
+    """Регрессия, пойманная на БОЕВОЙ базе сразу после выкатки.
+
+    Поиск отставших сравнивал хэш через text::bytea — а это приведение
+    разбирает содержимое как escape-последовательности, и первая же
+    заметка с обратным слэшем роняла весь запрос («invalid input syntax
+    for type bytea»). Проиндексировалось ровно 20 записей, одна пачка,
+    после чего догоняющий проход падал. Здесь текст, на котором это
+    воспроизводится.
+    """
+    space_id = await _space(auth_client)
+    tricky = "Путь C:\\Users\\test и regex \\d+ и хвост \\"
+    note_id = await _make_note(auth_client, "Заметка с \\ слэшем", tricky, space_id)
+
+    # Главное: запрос не падает.
+    stale = await embeddings.find_stale_item_ids(db_session)
+    assert uuid.UUID(note_id) in stale
+
+    item = await db_session.get(Item, uuid.UUID(note_id))
+    await embeddings.index_item(db_session, item)
+    assert uuid.UUID(note_id) not in await embeddings.find_stale_item_ids(db_session)
+
+
+async def test_sql_hash_matches_python_hash(auth_client, db_session, test_user, fake_embed):
+    """Хэш считается в ДВУХ местах: в Python при индексации и в SQL при
+    поиске отставших. Разойдись они — и каждая запись вечно считалась бы
+    устаревшей, то есть переиндексировалась бы на каждом проходе, сжигая
+    запросы к API впустую. Проверяем на не-ASCII и переносах."""
+    space_id = await _space(auth_client)
+    note_id = await _make_note(
+        auth_client, "Ёлка «ёжик»", "Первая строка\n\nВторая — тире и ё", space_id
+    )
+    item = await db_session.get(Item, uuid.UUID(note_id))
+
+    py_hash = content_hash(item.title or "", item.content or "")
+    sql_hash = (
+        await db_session.execute(
+            text(
+                "select encode(sha256(convert_to("
+                "coalesce(title,'') || E'\\n' || coalesce(content,''), 'UTF8')), 'hex') "
+                "from items where id = :id"
+            ),
+            {"id": item.id},
+        )
+    ).scalar_one()
+    assert py_hash == sql_hash
