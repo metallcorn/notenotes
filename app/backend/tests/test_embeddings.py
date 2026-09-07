@@ -313,3 +313,45 @@ async def test_backfill_stops_instead_of_spinning(
 
     # Без страховки этот вызов не вернулся бы никогда.
     assert await embeddings.run_backfill(batch=5) == 1
+
+
+async def test_semantic_endpoint_filters_by_threshold_and_caps_results(
+    auth_client, db_session, test_user, fake_embed, monkeypatch
+):
+    """Эндпоинт обязан отсекать слабые совпадения и ограничивать выдачу.
+
+    Порог измерен на боевой базе: осмысленные запросы дают 0.734–0.815,
+    посторонние 0.687–0.751 — диапазоны перекрываются, идеального порога
+    не существует. Это свойство многоязычной модели: любой русский запрос
+    получает базовые ~0.73 к любой русской заметке. Тест сторожит не
+    конкретное значение, а то, что отсечка и потолок вообще применяются.
+    """
+    from app.routers import search as search_router
+
+    space_id = await _space(auth_client)
+    ids = [await _make_note(auth_client, f"Заметка {i}", f"Текст {i}", space_id) for i in range(8)]
+    for note_id in ids:
+        await embeddings.index_item(db_session, await db_session.get(Item, uuid.UUID(note_id)))
+
+    strong, weak = ids[0], ids[1]
+
+    async def _fake_search(db, user_id, query, *, limit=20, space_id=None):
+        items = {i: await db.get(Item, uuid.UUID(i)) for i in ids}
+        # Один уверенный результат, один пограничный (ниже порога) и шесть
+        # уверенных сверх потолка выдачи.
+        out = [(items[strong], 0.95, "кусок")]
+        out += [(items[i], 0.90, "кусок") for i in ids[2:]]
+        out += [(items[weak], 0.60, "кусок")]
+        return out
+
+    monkeypatch.setattr(search_router, "search_semantic", _fake_search)
+
+    r = await auth_client.get("/api/search/semantic", params={"q": "запрос"})
+    assert r.status_code == 200
+    body = r.json()
+
+    assert len(body) == search_router._MAX_SEMANTIC_HITS
+    returned = {h["item"]["id"] for h in body}
+    assert weak not in returned, "результат ниже порога не должен возвращаться"
+    assert all(h["score"] >= search_router._MIN_SEMANTIC_SCORE for h in body)
+    assert all(h["excerpt"] for h in body), "выдача обязана нести совпавший кусок"
