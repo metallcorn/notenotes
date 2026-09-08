@@ -57,15 +57,26 @@ async def test_webhook_rejects_bad_signature(client, monkeypatch):
 async def test_webhook_unknown_local_part_returns_200_without_creating(client, db_session, monkeypatch):
     monkeypatch.setattr(get_settings(), "mailgun_webhook_signing_key", _SIGNING_KEY)
 
+    from sqlalchemy import func, select
+
+    from app.models import Item
+
+    # Считаем ДО и ПОСЛЕ, а не «в базе ровно ноль записей». Смысл теста —
+    # «письмо на неизвестный адрес не создаёт заметку», и он выражается
+    # именно так. Прежняя формулировка требовала, чтобы вся база была
+    # пуста, и потому изредка падала на полном прогоне от любой посторонней
+    # записи — поймано дважды за шесть прогонов, при этом в одиночку и с
+    # соседними файлами тест проходил.
+    async def items_count() -> int:
+        return (await db_session.execute(select(func.count()).select_from(Item))).scalar_one()
+
+    before = await items_count()
+
     form = _signed_form(recipient="doesnotexist@mail.notenotes.example", subject="X")
     r = await client.post("/api/mail/webhook", data=form)
     assert r.status_code == 200 and r.json() == {"ok": True}
 
-    from sqlalchemy import select, func
-    from app.models import Item
-
-    count = (await db_session.execute(select(func.count()).select_from(Item))).scalar_one()
-    assert count == 0
+    assert await items_count() == before
 
 
 async def test_webhook_groups_notes_by_sender_folder(client, db_session, test_user, monkeypatch):
