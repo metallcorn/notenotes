@@ -16,6 +16,7 @@ import { Archive, ChevronLeft, Code2, Eye, FileText, Globe, History, MoreVertica
 import { ApiError } from "../api/client";
 import type { Item } from "../api/types";
 import { uiStorage, type ContentWidth } from "../lib/storage";
+import { shouldFlushPendingSave } from "../lib/pendingSave";
 import TableOfContentsPanel from "./TableOfContentsPanel";
 import { useVersionCheck } from "../lib/useVersionCheck";
 import { getVaultKey } from "../lib/vaultSession";
@@ -385,6 +386,20 @@ export default function NoteEditor({
   const savedRef = useRef({ title: "", content: "" });
   const pendingRef = useRef<{ id: string; title: string; content: string } | null>(null);
   const loadedItemIdRef = useRef<string | null>(null);
+  // Заметка, для которой загрузка ПОЛНОСТЬЮ завершилась: контент в
+  // редакторе, базовая точка savedRef согласована, коллаборация (если она
+  // нужна) подключена. До этого момента содержимое редактора — не
+  // пользовательские данные, а переходное состояние, и сохранять его нельзя.
+  //
+  // Реальная потеря данных (2026-09-08, две заметки, второй раз за двое
+  // суток): пользователь быстро переключался между заметками. Открыл
+  // заметку, через 567 мс ушёл на другую — и «досохранение при
+  // переключении» (эффект по [itemId] ниже) немедленно записало на сервер
+  // ПУСТОЕ содержимое, потому что документ ещё догружался: GET /collab
+  // пришёл уже ПОСЛЕ этого PATCH. Заметка на 2228 символов обнулилась.
+  // Дебаунс в 1200 мс тут не спасал — досохранение работает сразу, в этом
+  // его смысл.
+  const initializedItemIdRef = useRef<string | null>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   // editorExtensions ниже собирается один раз (useMemo с []) — тот же
@@ -700,6 +715,12 @@ export default function NoteEditor({
       // content — значит редактор точно показывает не эту заметку, и его
       // содержимое надо просто отбросить, не сохранять.
       const isFirstLoadOfThisItem = loadedItemIdRef.current !== item.id;
+    if (initializedItemIdRef.current !== item.id) {
+      // Пока эта заметка не догрузилась, любое состояние редактора
+      // относится к предыдущей или ни к чему — гасим накопленное
+      // «несохранённое», чтобы его не записали на новую заметку.
+      pendingRef.current = null;
+    }
       const liveMarkdown = isFirstLoadOfThisItem && !item.content.trim() ? editor.storage.markdown.getMarkdown() : "";
       const hasUnseenLocalEdit = liveMarkdown.trim() !== "";
       const effectiveContent = hasUnseenLocalEdit ? liveMarkdown : item.content;
@@ -733,6 +754,7 @@ export default function NoteEditor({
           setContent(normalized);
           savedRef.current = { ...savedRef.current, content: normalized };
         }
+        initializedItemIdRef.current = item.id;
         setStatus(hasUnseenLocalEdit ? "saving" : "idle");
         setCollabStatus(null);
         return;
@@ -804,6 +826,7 @@ export default function NoteEditor({
       const normalized = editor.storage.markdown.getMarkdown();
       setContent(normalized);
       savedRef.current = { ...savedRef.current, content: normalized };
+      initializedItemIdRef.current = item.id;
       setStatus("idle");
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1007,6 +1030,10 @@ export default function NoteEditor({
 
   useEffect(() => {
     if (!item) return;
+    // Заметка ещё не догрузилась — то, что сейчас в редакторе, не её
+    // содержимое. См. initializedItemIdRef: именно эта проверка не даёт
+    // записать переходное (часто пустое) состояние на сервер.
+    if (initializedItemIdRef.current !== item.id) return;
     if (title === savedRef.current.title && content === savedRef.current.content) {
       pendingRef.current = null;
       return;
@@ -1029,10 +1056,16 @@ export default function NoteEditor({
   useEffect(() => {
     return () => {
       const pending = pendingRef.current;
-      if (pending && !updateAvailableRef.current) {
-        updateItem.mutate({ id: pending.id, title: pending.title, content: pending.content });
-        pendingRef.current = null;
+      // Второй рубеж к проверке в автосейве выше. Досохранение работает
+      // МГНОВЕННО, без дебаунса — если сюда всё же попадёт переходное
+      // состояние недогруженной заметки, оно уйдёт на сервер сразу, и
+      // ничто его не остановит. Именно так и были обнулены две заметки
+      // 2026-09-08: PATCH ушёл через 567 мс после открытия, раньше чем
+      // подключилась коллаборация.
+      if (shouldFlushPendingSave(pending, initializedItemIdRef.current, updateAvailableRef.current)) {
+        updateItem.mutate({ id: pending!.id, title: pending!.title, content: pending!.content });
       }
+      pendingRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [itemId]);
