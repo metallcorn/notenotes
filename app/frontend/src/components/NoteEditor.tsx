@@ -16,7 +16,7 @@ import { Archive, ChevronLeft, Code2, Eye, FileText, Globe, History, MoreVertica
 import { ApiError } from "../api/client";
 import type { Item } from "../api/types";
 import { uiStorage, type ContentWidth } from "../lib/storage";
-import { shouldFlushPendingSave } from "../lib/pendingSave";
+import { useNoteAutosave } from "../lib/useNoteAutosave";
 import TableOfContentsPanel from "./TableOfContentsPanel";
 import { useVersionCheck } from "../lib/useVersionCheck";
 import { getVaultKey } from "../lib/vaultSession";
@@ -384,7 +384,6 @@ export default function NoteEditor({
   const [recordingInsertPos, setRecordingInsertPos] = useState<number | null>(null);
 
   const savedRef = useRef({ title: "", content: "" });
-  const pendingRef = useRef<{ id: string; title: string; content: string } | null>(null);
   const loadedItemIdRef = useRef<string | null>(null);
   // Заметка, для которой загрузка ПОЛНОСТЬЮ завершилась: контент в
   // редакторе, базовая точка savedRef согласована, коллаборация (если она
@@ -715,12 +714,6 @@ export default function NoteEditor({
       // content — значит редактор точно показывает не эту заметку, и его
       // содержимое надо просто отбросить, не сохранять.
       const isFirstLoadOfThisItem = loadedItemIdRef.current !== item.id;
-    if (initializedItemIdRef.current !== item.id) {
-      // Пока эта заметка не догрузилась, любое состояние редактора
-      // относится к предыдущей или ни к чему — гасим накопленное
-      // «несохранённое», чтобы его не записали на новую заметку.
-      pendingRef.current = null;
-    }
       const liveMarkdown = isFirstLoadOfThisItem && !item.content.trim() ? editor.storage.markdown.getMarkdown() : "";
       const hasUnseenLocalEdit = liveMarkdown.trim() !== "";
       const effectiveContent = hasUnseenLocalEdit ? liveMarkdown : item.content;
@@ -1028,47 +1021,22 @@ export default function NoteEditor({
     updateAvailableRef.current = updateAvailable;
   }, [updateAvailable]);
 
-  useEffect(() => {
-    if (!item) return;
-    // Заметка ещё не догрузилась — то, что сейчас в редакторе, не её
-    // содержимое. См. initializedItemIdRef: именно эта проверка не даёт
-    // записать переходное (часто пустое) состояние на сервер.
-    if (initializedItemIdRef.current !== item.id) return;
-    if (title === savedRef.current.title && content === savedRef.current.content) {
-      pendingRef.current = null;
-      return;
-    }
-    pendingRef.current = { id: item.id, title, content };
-    setStatus("saving");
-    const timer = setTimeout(() => {
-      if (updateAvailableRef.current) return;
-      updateItem.mutate({ id: item.id, title, content });
-      savedRef.current = { title, content };
-      pendingRef.current = null;
-      setStatus("saved");
-    }, 1200);
-    return () => clearTimeout(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [title, content]);
-
-  // Переключились на другую заметку, пока предыдущая ещё не сохранилась —
-  // досохраняем немедленно, а не теряем последние правки.
-  useEffect(() => {
-    return () => {
-      const pending = pendingRef.current;
-      // Второй рубеж к проверке в автосейве выше. Досохранение работает
-      // МГНОВЕННО, без дебаунса — если сюда всё же попадёт переходное
-      // состояние недогруженной заметки, оно уйдёт на сервер сразу, и
-      // ничто его не остановит. Именно так и были обнулены две заметки
-      // 2026-09-08: PATCH ушёл через 567 мс после открытия, раньше чем
-      // подключилась коллаборация.
-      if (shouldFlushPendingSave(pending, initializedItemIdRef.current, updateAvailableRef.current)) {
-        updateItem.mutate({ id: pending!.id, title: pending!.title, content: pending!.content });
-      }
-      pendingRef.current = null;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [itemId]);
+  // Автосохранение и досохранение при уходе — в отдельном хуке
+  // (lib/useNoteAutosave.ts). Вынесено после реальной потери данных
+  // 2026-09-08: это единственное место, где решается судьба содержимого
+  // заметки, а здесь, внутри компонента с полусотней зависимостей, его
+  // нельзя было проверить тестом.
+  useNoteAutosave({
+    itemId,
+    item,
+    title,
+    content,
+    initializedItemId: initializedItemIdRef.current,
+    updateAvailable,
+    savedRef,
+    save: (payload) => updateItem.mutate(payload),
+    onStatus: setStatus,
+  });
 
   function switchMode(next: Mode) {
     if (next === mode || !editor) return;
