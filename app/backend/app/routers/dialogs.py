@@ -1,5 +1,6 @@
 import asyncio
 import json
+from functools import lru_cache
 import logging
 import re
 import uuid
@@ -1197,6 +1198,22 @@ def _looks_like_unkept_promise(text: str) -> bool:
     return bool(_PROMISE_VERB_RE.search(stripped) and _PROMISE_NOW_RE.search(stripped))
 
 
+# JSON-объект в самом конце текста — кандидат на утёкшие аргументы тула.
+# Без вложенности: у аргументов наших тулов она встречается редко, а
+# жадный разбор ловил бы куски обычного текста со скобками.
+_TRAILING_JSON_RE = re.compile(r"\{[^{}]*\}$")
+
+
+@lru_cache(maxsize=1)
+def _known_tool_argument_names() -> frozenset[str]:
+    """Имена параметров всех тулов — из реестра, а не списком руками:
+    список разошёлся бы с реальностью при первом же новом инструменте."""
+    names: set[str] = set()
+    for definition in get_tool_definitions():
+        names.update((definition.parameters or {}).get("properties", {}))
+    return frozenset(names)
+
+
 def _looks_like_leaked_tool_call(content: str, tool_names: set[str]) -> bool:
     """Модель иногда пишет вызов инструмента как текст ответа вместо
     настоящего tool_call — content заканчивается JSON-объектом с именем
@@ -1211,7 +1228,30 @@ def _looks_like_leaked_tool_call(content: str, tool_names: set[str]) -> bool:
     stripped = content.strip()
     if not stripped.endswith("}"):
         return False
-    return any(re.search(rf"{re.escape(name)}\s*\{{", stripped) for name in tool_names)
+    if any(re.search(rf"{re.escape(name)}\s*\{{", stripped) for name in tool_names):
+        return True
+    # Второй, более скрытный вид: модель пишет ОДНИ АРГУМЕНТЫ, без имени
+    # тула перед ними. Реальный случай (диалог про замену прав, 2026-09-09):
+    # ответ заканчивался склеенным с текстом
+    #     ...карта побыту){"query": "как создать Profil Zaufany иностранцу"}
+    # — проверка выше требует имя, поэтому пропускала это целиком, и сырой
+    # JSON доезжал до пользователя как часть ответа.
+    #
+    # Опознаём по КЛЮЧАМ: если все они — имена параметров наших же тулов,
+    # это почти наверняка утёкший вызов, а не осмысленный JSON в ответе.
+    # Внутри блока кода не трогаем: там JSON законен (пользователь мог
+    # попросить показать его).
+    if stripped.endswith("```"):
+        return False
+    tail = _TRAILING_JSON_RE.search(stripped)
+    if tail:
+        try:
+            parsed = json.loads(tail.group(0))
+        except ValueError:
+            return False
+        if isinstance(parsed, dict) and parsed and set(parsed) <= _known_tool_argument_names():
+            return True
+    return False
 
 
 def _looks_like_missed_choice(content: str) -> bool:

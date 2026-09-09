@@ -887,3 +887,44 @@ def test_onboarding_fragment_demands_concrete_buttons():
 
     assert "suggest_replies" in ONBOARDING_PROMPT_FRAGMENT
     assert "жаргон" in ONBOARDING_PROMPT_FRAGMENT.lower()
+
+
+def test_leaked_tool_call_without_tool_name_is_caught():
+    """Реальный случай (диалог про замену прав, 2026-09-09): ответ
+    заканчивался склеенными с текстом АРГУМЕНТАМИ вызова, без имени тула
+    перед ними:
+
+        ...карта побыту){"query": "как создать Profil Zaufany иностранцу"}
+
+    Прежняя проверка требовала имя тула рядом с «{», поэтому пропускала это
+    целиком, и сырой JSON доезжал до пользователя как часть ответа.
+    """
+    from app.routers.dialogs import _looks_like_leaked_tool_call
+    from app.tools.registry import get_tool_definitions
+
+    names = {d.name for d in get_tool_definitions()}
+    leaked = (
+        "Profil Zaufany выдают и иностранцам, если есть PESEL"
+        '{"query": "как создать Profil Zaufany иностранцу в Польше 2026"}'
+    )
+    assert _looks_like_leaked_tool_call(leaked, names)
+
+
+def test_json_in_a_code_block_is_not_a_leaked_call():
+    """Пользователь мог попросить показать JSON — внутри блока кода он
+    законен, и вырезать ответ было бы хуже, чем пропустить утечку."""
+    from app.routers.dialogs import _looks_like_leaked_tool_call
+    from app.tools.registry import get_tool_definitions
+
+    names = {d.name for d in get_tool_definitions()}
+    legit = 'Вот пример запроса:\n\n```json\n{"query": "пример"}\n```'
+    assert not _looks_like_leaked_tool_call(legit, names)
+
+
+def test_ordinary_answer_ending_with_brace_is_not_a_leaked_call():
+    """Ложные срабатывания тут дороги: обрежем настоящий ответ."""
+    from app.routers.dialogs import _looks_like_leaked_tool_call
+    from app.tools.registry import get_tool_definitions
+
+    names = {d.name for d in get_tool_definitions()}
+    assert not _looks_like_leaked_tool_call('Формула такая: {"a": 1, "b": 2}', names)
