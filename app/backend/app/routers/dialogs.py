@@ -2155,6 +2155,7 @@ async def _run_dialog_turn_locked(
     promise_nudged = False
     remember_nudged = False
     capitulation_nudged = False
+    dose_nudged = False
 
     for _ in range(MAX_TOOL_ITERATIONS):
         try:
@@ -2407,6 +2408,43 @@ async def _run_dialog_turn_locked(
         # ссылки (_strip_unverified_links) число может быть и верным, а
         # молча вырезать его из медицинского ответа опаснее, чем показать
         # рядом честную пометку.
+        # СНАЧАЛА пробуем вернуть ход, и только если это не помогло —
+        # помечаем (блок ниже). Пометка меньшее зло, но всё же зло: человек
+        # уже прочитал конкретную цифру, и приписка её не стирает. Замер
+        # 2026-09-09 показал, что выдуманные дозы остаются в двух прогонах
+        # из трёх — помечаются, но продолжают появляться.
+        #
+        # Даём модели один шанс исправиться самой: либо подтвердить поиском,
+        # либо ответить без числа. Тот же приём, что для обещаний и
+        # капитуляции, третий случай к нему.
+        if (
+            not used_web_search
+            and not assistant_msg.tool_calls
+            and not dose_nudged
+            and _has_unconfirmed_high_stakes_number(assistant_record["content"], high_stakes_topic)
+        ):
+            dose_nudged = True
+            logger.warning(
+                "Непроверенное число по «дорогой» теме, возвращаю ход (диалог %s)", item.id
+            )
+            transient_nudges.append(Message(role="assistant", content=assistant_record["content"]))
+            transient_nudges.append(
+                Message(
+                    role="user",
+                    content=(
+                        "Ты назвал конкретное число (дозу, срок, сумму), но не "
+                        "проверил его ни одним инструментом — значит взял по памяти. "
+                        "В этой теме так нельзя. Сделай одно из двух: найди "
+                        "подтверждение через web_search и ответь по источнику — или "
+                        "перепиши ответ БЕЗ конкретных чисел, объяснив, от чего они "
+                        "зависят и где их посмотреть. Помогать при этом не "
+                        "переставай: что делать, куда обратиться, когда вызывать "
+                        "скорую — говори как обычно."
+                    ),
+                )
+            )
+            continue
+
         if (
             not used_web_search
             and not assistant_msg.tool_calls
