@@ -928,3 +928,31 @@ def test_ordinary_answer_ending_with_brace_is_not_a_leaked_call():
 
     names = {d.name for d in get_tool_definitions()}
     assert not _looks_like_leaked_tool_call('Формула такая: {"a": 1, "b": 2}', names)
+
+
+# --- прямая просьба запомнить ---------------------------------------------
+# Реальный случай (диалог про замену прав, 2026-09-09): на «я не гражданин
+# Польши, я гражданин РФ, запомни уже это» ассистент ответил текстом и НЕ
+# вызвал remember_fact — за весь диалог из 34 сообщений вызывался только
+# web_search. Гражданство в память не попало, и дальше он советовал то,
+# что гражданину РФ недоступно (онлайн-мельдунек): по официальным правилам
+# gov.pl не гражданин ЕС/EFTA замельдоваться через интернет не может.
+
+def test_explicit_request_to_remember_is_detected():
+    from app.routers.dialogs import _asks_to_remember
+
+    assert _asks_to_remember("я гражданин РФ, запомни уже это")
+    assert _asks_to_remember("не забывай что у меня Citroën C4")
+    assert _asks_to_remember("Сохрани в памяти: жена — Алина")
+
+
+def test_ordinary_messages_are_not_requests_to_remember():
+    """Ложное срабатывание стоит лишнего вызова LLM и задержки ответа,
+    поэтому берём только явные формы. «Учти» и «имей в виду» сознательно
+    НЕ считаются: они чаще про текущий ответ, а не про долгую память."""
+    from app.routers.dialogs import _asks_to_remember
+
+    assert not _asks_to_remember("что мне нужно для замены прав")
+    assert not _asks_to_remember("учти что я тороплюсь")
+    assert not _asks_to_remember("имей в виду, вечером не смогу")
+    assert not _asks_to_remember("я запомнил, спасибо")

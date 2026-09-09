@@ -1184,6 +1184,32 @@ def _has_unconfirmed_high_stakes_number(text: str, high_stakes_topic: bool) -> b
     return high_stakes_topic and bool(_MONEY_AMOUNT_RE.search(text))
 
 
+# Прямая просьба запомнить. Только явные формы: «учти» и «имей в виду»
+# сюда НЕ входят — это чаще про текущий ответ, а не про долгую память, и
+# на них ассистент правильно ничего не сохраняет.
+_REMEMBER_REQUEST_RE = re.compile(
+    r"\bзапомни\b|\bзапоминай\b|\bне забывай\b|\bзаруби\b|\bсохрани в памяти\b"
+    r"|\bremember (?:that|this)\b",
+    re.IGNORECASE,
+)
+
+
+def _asks_to_remember(text: str) -> bool:
+    """Пользователь прямо просит запомнить факт о себе.
+
+    Реальный случай (диалог про замену прав, 2026-09-09): на «я не гражданин
+    Польши, я гражданин РФ, запомни уже это» ассистент ответил текстом и НЕ
+    вызвал remember_fact — за весь диалог из 34 сообщений вызывался только
+    web_search. Гражданство в память не попало, и дальше он советовал то,
+    что гражданину РФ недоступно (онлайн-мельдунек), потому что снова о нём
+    не знал.
+
+    Пропущенная просьба запомнить дороже обычной ошибки: она повторяется в
+    каждом следующем разговоре, а человек уверен, что уже всё сказал.
+    """
+    return bool(_REMEMBER_REQUEST_RE.search(text))
+
+
 def _looks_like_unkept_promise(text: str) -> bool:
     """Ход закончился обещанием сделать, но инструмент не вызван.
 
@@ -2079,6 +2105,7 @@ async def _run_dialog_turn_locked(
     # помогает уже сама пересдача.
     transient_nudges: list[Message] = []
     promise_nudged = False
+    remember_nudged = False
 
     for _ in range(MAX_TOOL_ITERATIONS):
         try:
@@ -2249,6 +2276,39 @@ async def _run_dialog_turn_locked(
                         "инструмента — значит не сделано ничего. Вызови нужный "
                         "инструмент прямо сейчас. Если чего-то не хватает, чтобы его "
                         "вызвать, спроси об этом через suggest_replies вместо обещания."
+                    ),
+                )
+            )
+            continue
+
+        # Просили запомнить — а remember_fact не вызван. Тот же приём, что
+        # с невыполненным обещанием выше: не отпускаем ход, возвращаем
+        # модели указание.
+        #
+        # По ТЕКУЩЕМУ сообщению, а не по recent_user_text: просьба «запомни»
+        # относится к тому, что человек сказал сейчас. Взяли бы шире —
+        # ассистент дёргался бы на каждом ходу после одной такой просьбы.
+        if (
+            not assistant_msg.tool_calls
+            and not remember_nudged
+            and _asks_to_remember(content)
+            and not any(
+                tc.get("name", "").startswith("remember_")
+                for r in records
+                if r.get("role") == "assistant"
+                for tc in r.get("tool_calls", [])
+            )
+        ):
+            remember_nudged = True
+            logger.warning("Просили запомнить, но remember_fact не вызван (диалог %s)", item.id)
+            transient_nudges.append(Message(role="assistant", content=assistant_record["content"]))
+            transient_nudges.append(
+                Message(
+                    role="user",
+                    content=(
+                        "Я просил запомнить это — вызови remember_fact, иначе в "
+                        "следующем разговоре ты снова не будешь этого знать. "
+                        "Сохрани одним коротким утверждением обо мне, потом отвечай."
                     ),
                 )
             )
