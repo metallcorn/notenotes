@@ -70,7 +70,7 @@ from app.llm.mistral import MistralClient
 from app.models import AssistantMemory, Space, SpaceMember, User
 from app.routers.items import create_item_row
 from app.security import hash_password
-from eval.scenarios import EMPTY_SEARCH, RECORDED_BRAKE_DISCS, SCENARIOS, TESTER_SYSTEM, judge_prompt
+from eval.scenarios import EMPTY_SEARCH, RECORDED_SEARCHES, SCENARIOS, TESTER_SYSTEM, judge_prompt
 
 MAX_TURNS = 12
 
@@ -267,7 +267,9 @@ async def main() -> None:
         if name == "web_search":
             _stats["search_stubs"] += 1
             if search_mode["mode"] == "recorded":
-                return RECORDED_BRAKE_DISCS
+                # Набор по имени: сценариев с записанным поиском больше
+                # одного, и раньше сюда было жёстко зашито «тормозные диски».
+                return RECORDED_SEARCHES[search_mode.get("recorded", "brake_discs")]
             return EMPTY_SEARCH
         return await real_dispatch(name, ctx, arguments, disabled=disabled)
 
@@ -324,6 +326,7 @@ async def main() -> None:
             for sc in scenarios:
                 print(f"=== {sc['name']} ===", flush=True)
                 search_mode["mode"] = sc.get("search_mode", "none")
+                search_mode["recorded"] = sc.get("recorded", "brake_discs")
                 scores: list[int] = []
                 for i in range(args.runs):
                     opening = sc["openings"][i % len(sc["openings"])]
