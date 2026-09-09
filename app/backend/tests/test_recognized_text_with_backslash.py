@@ -75,3 +75,39 @@ def test_pdf_and_vision_use_function_replacement():
                     f"{module.__name__}: подстановка строкой в subn вернулась — "
                     f"обратный слэш в распознанном тексте снова уронит обработчик:\n{line.strip()}"
                 )
+
+
+# --- сломанная кодировка шрифта в PDF ------------------------------------
+
+def test_broken_font_encoding_is_detected():
+    """Реальный случай (2026-09-09): страховой полис отдавал
+    «2GSRZLHG]LDOQR» вместо «Odpowiedzialność» — встроенный шрифт со
+    смещением. Текстовый слой формально есть, поэтому запасной путь через
+    vision не включался, и пользователь получал в заметке кашу."""
+    from app.pdf_processing import looks_like_broken_encoding
+
+    garbage = "2GSRZLHG]LDOQR F\\ZLOQD 3HUVRQDO OLDELOLW\\ 3R]RVWDZLRQH PLHQLH /HIRUPD " * 5
+    assert looks_like_broken_encoding(garbage)
+
+
+def test_normal_documents_are_not_mistaken_for_broken():
+    """Цена ложного срабатывания — лишний прогон через vision, то есть
+    деньги и минуты. Проверяем на том, что реально лежит в базе."""
+    from app.pdf_processing import looks_like_broken_encoding
+
+    polish = "Odpowiedzialność cywilna Personal liability Pozostawione mienie ubezpieczenie podróży " * 5
+    russian = "Полис страхования путешествий AXA Assistance номер 1234509876 сумма 1500000 PLN " * 5
+    table = "| Pole | Wartość |\n|---|---|\n| Data | 28.8.2026 |\n| Godzina | 22:00 |\n" * 6
+    # Код в документе — главная ловушка: скобки и слэши там законны, и по
+    # одному признаку «невозможных символов» он давал 21% ложных.
+    code = "const x = arr[0]; if (a || b) { return `${x}`; }  path C:\\Users\\test " * 5
+
+    for text in (polish, russian, table, code):
+        assert not looks_like_broken_encoding(text), text[:60]
+
+
+def test_short_text_is_never_judged():
+    """Документ из пары артикулов даёт любые доли — судить по нему нельзя."""
+    from app.pdf_processing import looks_like_broken_encoding
+
+    assert not looks_like_broken_encoding("AXA-4585 PLN 1500 \\Z ]X[")
