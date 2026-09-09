@@ -46,6 +46,11 @@ _CHUNK_CHARS = 4000
 # одном из них целиком.
 _CHUNK_OVERLAP = 400
 
+# Повторы при сбое провайдера. Три попытки с нарастающей паузой: 503 у
+# Mistral обычно проходит за секунды.
+_EMBED_RETRIES = 3
+_EMBED_RETRY_DELAY_SECONDS = 2.0
+
 # Типы, которые имеет смысл искать по смыслу. dialog сознательно НЕ здесь:
 # разговоры с ассистентом это не контент базы, они длинные, их много (102
 # против 206 заметок), и семантические попадания в них зашумляли бы выдачу
@@ -124,14 +129,32 @@ async def embed_texts(texts: list[str]) -> list[list[float]]:
     settings = get_settings()
     if not settings.llm_api_key:
         raise RuntimeError("LLM_API_KEY не задан — векторный поиск недоступен")
-    async with httpx.AsyncClient(timeout=60) as client:
-        resp = await client.post(
-            "https://api.mistral.ai/v1/embeddings",
-            headers={"Authorization": f"Bearer {settings.llm_api_key}"},
-            json={"model": settings.embedding_model, "input": texts},
-        )
-        resp.raise_for_status()
-        data = resp.json()
+    # Повторы на 5xx и 429. Провайдер сегодня отдавал 503 несколько раз
+    # подряд (2026-09-09), и без повторов это тихо ломает две вещи сразу:
+    # индексацию (её видно по счётчику) и определение «дорогой» темы —
+    # а вот его НЕ видно вовсе, защита просто перестала бы включаться.
+    last_error: Exception | None = None
+    for attempt in range(_EMBED_RETRIES):
+        try:
+            async with httpx.AsyncClient(timeout=60) as client:
+                resp = await client.post(
+                    "https://api.mistral.ai/v1/embeddings",
+                    headers={"Authorization": f"Bearer {settings.llm_api_key}"},
+                    json={"model": settings.embedding_model, "input": texts},
+                )
+                resp.raise_for_status()
+                data = resp.json()
+            break
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code < 500 and exc.response.status_code != 429:
+                raise  # 400/401 повтором не лечится
+            last_error = exc
+        except httpx.HTTPError as exc:
+            last_error = exc
+        if attempt < _EMBED_RETRIES - 1:
+            await asyncio.sleep(_EMBED_RETRY_DELAY_SECONDS * (attempt + 1))
+    else:
+        raise last_error if last_error else RuntimeError("Не удалось получить эмбеддинги")
     # Порядок в ответе соответствует порядку входа, но index приходит явно —
     # сортируем по нему, а не полагаемся на порядок.
     return [d["embedding"] for d in sorted(data["data"], key=lambda d: d["index"])]

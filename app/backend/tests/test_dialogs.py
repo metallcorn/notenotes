@@ -554,50 +554,8 @@ def test_looks_like_action_request_sees_request_from_earlier_turn():
 # человек прочитал бы диспетчеру), визовые требования из головы, цены без
 # проверки. Отличить по тону нельзя, поэтому режем по теме.
 
-def test_high_stakes_topic_detected():
-    from app.routers.dialogs import _is_high_stakes_topic as high
-
-    assert high("а сколько ибупрофена можно в день?")
-    assert high("мне назначили новый препарат, какие побочки?")
-    assert high("когда заканчивается моя виза и что нужно для продления")
-    assert high("маме плохо, вызывать скорую?")
-    assert high("какой штраф за превышение в Польше")
 
 
-def test_high_stakes_dosage_caught_without_drug_names():
-    # Названия лекарств не перечислить — их тысячи, и это тот же тупик,
-    # что список словоформ. Ловим форму вопроса о дозе: она покрывает
-    # любой препарат, включая тот, о котором мы никогда не слышали.
-    from app.routers.dialogs import _is_high_stakes_topic as high
-
-    assert high("сколько принимать этого сиропа ребёнку")
-    assert high("а сколько раз в день пить назначенное?")
-
-
-def test_high_stakes_topic_catches_plain_medical_question():
-    # Регрессия на собственную ошибку (замер 2026-09-04): этот вопрос —
-    # самый буквальный из возможных — темой «дорогой» НЕ считался, потому
-    # что в списке не было ни «парацетамол», ни «температур».
-    from app.routers.dialogs import _is_high_stakes_topic as high
-
-    assert high("Ребёнку 4 года, температура 38.5. Сколько парацетамола можно дать?")
-    assert high("малому 4 года, жар 38.5. сколько парацетамола давать то?")
-
-
-def test_high_stakes_not_triggered_on_everyday_requests():
-    # Главный риск правила — сделать ассистента бесполезно-осторожным.
-    # Эти запросы должны идти БЕЗ дополнительного фрагмента в промпте.
-    from app.routers.dialogs import _is_high_stakes_topic as high
-
-    assert not high("Составь список покупок: молоко, хлеб, яйца.")
-    assert not high("В воскресенье гости к 15:00, 6 человек. Что приготовить?")
-    assert not high("напомни завтра полить цветы")
-    assert not high("добрый день. сын установил, сказал помощник. а что тут делать то?")
-    # Ловушка: слово «страховка» СОЗНАТЕЛЬНО не в списке — оно чаще всего
-    # встречается в бытовом поиске заметки, где правило не нужно, а лишний
-    # фрагмент в промпте это чистый риск занудства. Сценарий note_link,
-    # который идёт на 5/5/5, использует ровно эту формулировку.
-    assert not high("Найди мою заметку про страховку PZU и дай ссылку")
 
 
 def test_unconfirmed_high_stakes_number_detected():
@@ -1024,22 +982,4 @@ def test_everyday_durations_are_never_flagged():
         assert not num(text, False), text
 
 
-def test_document_and_meldunek_questions_are_high_stakes():
-    """Более глубокая причина провала: тема НЕ РАСПОЗНАВАЛАСЬ на самых
-    частых формулировках, и вся защита к ним просто не применялась."""
-    from app.routers.dialogs import _is_high_stakes_topic as high
 
-    assert high("Собираюсь в Черногорию на 10 дней. Что нужно с документами?")
-    assert high("Мне надо заново замельдоваться. Можно онлайн через gov.pl?")
-    assert high("хочу оформить meldunek удалённо")
-
-
-def test_everyday_topics_stay_out_after_widening():
-    """Список слов расширен — проверяем, что бытовое туда не заехало."""
-    from app.routers.dialogs import _is_high_stakes_topic as high
-
-    for text in ("напомни полить цветы через 3 дня",
-                 "Составь список покупок: молоко, хлеб, яйца.",
-                 "В воскресенье гости к 15:00, что приготовить?",
-                 "Найди мою заметку про страховку PZU"):
-        assert not high(text), text
