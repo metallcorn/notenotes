@@ -997,3 +997,49 @@ def test_plain_questions_are_not_challenges():
 
     assert not cap("а можно просто текст написать?", "Да, конечно! Можно создать заметку.")
     assert not cap("что нужно для замены прав?", "Да, вам потребуется паспорт и карта побыту.")
+
+
+# --- сроки и количество дней в «дорогих» темах ----------------------------
+# Замер 2026-09-09: в сценарии про визу ВСЕ ТРИ прогона назвали безвизовый
+# срок, и назвали РАЗНЫЙ — «30 дней», «90 дней», «до 90 дней». Модель его
+# не знает и говорит уверенно, а прежние шаблоны (дозы и деньги) на «дни»
+# не реагировали вовсе.
+
+def test_terms_in_days_are_caught_in_high_stakes_topics():
+    from app.routers.dialogs import _has_unconfirmed_high_stakes_number as num
+
+    assert num("Без визы можно находиться до 90 дней", True)
+    assert num("россияне могут быть в Черногории 30 дней", True)
+    assert num("Карта побыту действует ещё 2 года", True)
+    assert num("Рассмотрение занимает 30 суток", True)
+
+
+def test_everyday_durations_are_never_flagged():
+    """Главный риск: «поливать 2 раза в день» и «напомню через 3 дня» —
+    бытовые. Помечать их — приучить игнорировать пометку вообще."""
+    from app.routers.dialogs import _has_unconfirmed_high_stakes_number as num
+
+    for text in ("Поливать 2 раза в день", "Напомню через 3 дня",
+                 "Готовить 40 минут", "Список на 6 человек"):
+        assert not num(text, False), text
+
+
+def test_document_and_meldunek_questions_are_high_stakes():
+    """Более глубокая причина провала: тема НЕ РАСПОЗНАВАЛАСЬ на самых
+    частых формулировках, и вся защита к ним просто не применялась."""
+    from app.routers.dialogs import _is_high_stakes_topic as high
+
+    assert high("Собираюсь в Черногорию на 10 дней. Что нужно с документами?")
+    assert high("Мне надо заново замельдоваться. Можно онлайн через gov.pl?")
+    assert high("хочу оформить meldunek удалённо")
+
+
+def test_everyday_topics_stay_out_after_widening():
+    """Список слов расширен — проверяем, что бытовое туда не заехало."""
+    from app.routers.dialogs import _is_high_stakes_topic as high
+
+    for text in ("напомни полить цветы через 3 дня",
+                 "Составь список покупок: молоко, хлеб, яйца.",
+                 "В воскресенье гости к 15:00, что приготовить?",
+                 "Найди мою заметку про страховку PZU"):
+        assert not high(text), text
