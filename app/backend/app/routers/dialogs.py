@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app import realtime
 from app.core.config import get_settings
 from app.db import get_db
+from app.expiry_check import find_expired_claims
 from app.dialog_compaction import _DEFAULT_KEEP_LAST, _MIN_OLD_MESSAGES, find_cut_index, summarize_records
 from app.deps import ensure_space_access, get_current_user, is_vault_space
 from app.llm.base import EmptyLLMResponseError, Message, ToolCall
@@ -23,7 +24,7 @@ from app.models import AssistantMemory, Folder, Item, Space, SpaceMember, User
 from app.routers.items import create_item_row
 from app.schemas.dialog import DialogCompactCreate, DialogCreate, DialogOut, DialogSummaryOut, MessageCreate
 from app.tools.registry import ToolContext, dispatch, get_tool_definitions
-from app.user_timezone import now_in_default_timezone
+from app.user_timezone import now_in_default_timezone, now_local_date
 
 router = APIRouter(prefix="/api/dialogs", tags=["dialogs"])
 logger = logging.getLogger(__name__)
@@ -2339,6 +2340,24 @@ async def _run_dialog_turn_locked(
                 + "\n\n⚠️ Числа выше я не проверял по источникам — в этой теме "
                 "цена ошибки высокая, обязательно сверьтесь с врачом, "
                 "инструкцией к препарату или официальным сайтом."
+            )
+
+        # Срок действия, который уже прошёл, поданный как действующий.
+        # Текущая дата у модели в промпте есть — она её просто не
+        # сравнивает (см. app/expiry_check.py). Арифметику проверяем кодом:
+        # это дёшево, а цена пропуска — человек идёт подавать документы с
+        # просроченной бумагой.
+        expired = find_expired_claims(
+            assistant_record["content"], now_local_date(client_timezone)
+        )
+        if expired:
+            logger.warning("Просроченные сроки в ответе (диалог %s): %s", item.id, expired)
+            dates = ", ".join(d.strftime("%d.%m.%Y") for d in expired)
+            assistant_record["content"] = (
+                assistant_record["content"].rstrip()
+                + f"\n\n⚠️ Срок {dates} уже прошёл — сегодня "
+                + now_local_date(client_timezone).strftime("%d.%m.%Y")
+                + ". Проверьте, не нужно ли оформить заново."
             )
 
         if suggest_calls:

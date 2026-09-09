@@ -45,6 +45,21 @@ def assume_default_timezone(dt: datetime, tz_name: str | None = None) -> datetim
     return dt.replace(tzinfo=resolve_timezone(tz_name)).astimezone(timezone.utc)
 
 
+def now_local_date(tz_name: str | None = None):
+    """Сегодняшняя дата по местному поясу пользователя.
+
+    Отдельно от now_in_default_timezone (та отдаёт строку для промпта) —
+    нужна для АРИФМЕТИКИ: сравнить срок действия документа с сегодняшним
+    днём (см. app/expiry_check.py). Пояс важен ровно по той же причине, что
+    и там: у границы полуночи «сегодня» по UTC и по местному времени — два
+    разных календарных дня, и документ, истекающий сегодня, оказался бы
+    просроченным на сутки раньше.
+    """
+    from datetime import datetime
+
+    return datetime.now(resolve_timezone(tz_name)).date()
+
+
 def now_in_default_timezone(tz_name: str | None = None) -> str:
     """Текущие дата и время по местному поясу пользователя (tz_name —
     обычно живой пояс из браузера), не по UTC. Пояс важен у границы
