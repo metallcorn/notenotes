@@ -60,7 +60,11 @@ class ThrottledClient:
     def __init__(self, inner):
         self._inner = inner
 
-    async def chat(self, messages, tools):
+    async def chat(self, messages, tools, cache_key=None):
+        # cache_key появился вместе с кэшем промпта (2026-09-05) — обёртка
+        # обязана принимать всю сигнатуру LLMClient и пробрасывать её
+        # дальше, иначе замер падает на первом же вызове. Поймано живьём:
+        # харнесс не запускали четверо суток после той правки.
         global _last_call_at
         for attempt in range(MAX_RETRIES):
             elapsed = time.monotonic() - _last_call_at
@@ -68,7 +72,7 @@ class ThrottledClient:
                 await asyncio.sleep(CALL_DELAY_SECONDS - elapsed)
             _last_call_at = time.monotonic()
             try:
-                result = await self._inner.chat(messages, tools)
+                result = await self._inner.chat(messages, tools, cache_key=cache_key)
                 _stats["calls"] += 1
                 return result
             except httpx.HTTPStatusError as e:
