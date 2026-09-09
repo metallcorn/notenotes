@@ -36,6 +36,7 @@ import type {
   UrlCheckWidgetState,
   User,
   VaultUnlockInfo,
+  SemanticHit,
 } from "./types";
 
 // --- auth --------------------------------------------------------------
@@ -1211,6 +1212,24 @@ export function useSpeak() {
 }
 
 // --- search --------------------------------------------------------------
+
+/**
+ * Поиск по смыслу — ОТДЕЛЬНЫМ запросом от быстрого полнотекстового.
+ *
+ * По ТЗ §10 это один поток с прогрессивной загрузкой: быстрые результаты
+ * появляются мгновенно, семантические подгружаются следом. Один общий
+ * запрос был бы шагом назад — семантика требует обращения к API
+ * эмбеддингов и занимает сотни миллисекунд, и вся выдача ждала бы её.
+ */
+export function useSemanticSearch(q: string) {
+  return useQuery<SemanticHit[]>({
+    queryKey: ["search-semantic", q],
+    queryFn: () => api.get<SemanticHit[]>(`/search/semantic?q=${encodeURIComponent(q)}`),
+    // Порог длины выше, чем у полнотекстового: по двум буквам смысл искать
+    // бессмысленно, а каждый запрос стоит обращения к платному API.
+    enabled: q.trim().length >= 3,
+  });
+}
 
 export function useSearch(q: string) {
   return useQuery<Item[]>({

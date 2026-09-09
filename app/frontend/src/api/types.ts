@@ -281,3 +281,12 @@ export interface ShareInfo {
   share_single_use: boolean;
   share_used_at: string | null;
 }
+
+/** Результат поиска по смыслу (ТЗ §10, «расширенный поиск»). */
+export interface SemanticHit {
+  item: Item;
+  /** Косинусная близость 0..1. Порог отсечки — на бэкенде. */
+  score: number;
+  /** Кусок текста, который совпал по смыслу — не начало заметки. */
+  excerpt: string;
+}
