@@ -144,7 +144,18 @@ def _entities_to_markdown(text: str, entities: list[dict] | None) -> str:
             wrap = _ENTITY_MARKDOWN_WRAP[etype]
             parts.append(f"{wrap}{segment}{wrap}")
         elif etype == "text_link" and e.get("url"):
-            parts.append(f"[{segment}]({e['url']})")
+            # Скобки в ТЕКСТЕ ссылки ломают разметку: «[смотри [тут]]»
+            # разъезжается, и в заметке остаётся мусор вместо ссылки. Тот же
+            # класс, что \Z в подстановке распознанного текста — чужой текст
+            # попадает туда, где символы что-то значат.
+            #
+            # URL сознательно НЕ трогаем. Закрывающая скобка в адресе
+            # (википедия) теоретически обрывает ссылку, но лечение — обернуть
+            # в <>, а поддержку этой формы нашим редактором я не проверял.
+            # Риск сломать ВСЕ ссылки из Telegram ради редкого случая
+            # несоразмерен; отдельная задача, если всплывёт живьём.
+            label = segment.replace("[", "\\[").replace("]", "\\]")
+            parts.append(f"[{label}]({e['url']})")
         elif etype == "pre":
             parts.append(f"\n```{e.get('language', '')}\n{segment}\n```\n")
         else:

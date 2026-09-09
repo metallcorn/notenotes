@@ -111,3 +111,33 @@ def test_short_text_is_never_judged():
     from app.pdf_processing import looks_like_broken_encoding
 
     assert not looks_like_broken_encoding("AXA-4585 PLN 1500 \\Z ]X[")
+
+
+# --- обход всех мест, где чужой текст попадает в «значимый» контекст -----
+# Проведён 2026-09-09 после третьего за три дня случая (\Z в подстановке,
+# ::bytea в векторном поиске). Ниже — то, что обход нашёл; остальное
+# проверено и оказалось чистым (см. сообщение коммита).
+
+def test_like_wildcards_from_user_are_escaped():
+    """Поиск по названию: «%» и «_» из запроса не должны работать как
+    подстановочные символы SQL. Инъекции тут нет (запрос параметризован),
+    это про правильность выдачи — «50%» находил бы вообще всё."""
+    from app.routers.items import _escape_like
+
+    assert _escape_like("50%") == r"50\%"
+    assert _escape_like("файл_1") == r"файл\_1"
+    # Обратный слэш ПЕРВЫМ, иначе он экранировал бы то, что сам же вписал.
+    assert _escape_like("путь\\дом") == "путь\\\\дом"
+    assert _escape_like("обычный текст") == "обычный текст"
+
+
+def test_telegram_link_label_brackets_are_escaped():
+    """Квадратные скобки в тексте ссылки из Telegram ломали markdown:
+    «[смотри [тут]](url)» разъезжается, и в заметке остаётся мусор."""
+    from app.telegram_bot import _entities_to_markdown
+
+    text = "смотри [тут]"
+    entities = [{"type": "text_link", "offset": 0, "length": len(text), "url": "https://example.com"}]
+    result = _entities_to_markdown(text, entities)
+
+    assert result == r"[смотри \[тут\]](https://example.com)"
