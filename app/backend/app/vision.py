@@ -178,7 +178,13 @@ async def _replace_by_pattern(upload_id: uuid.UUID, pattern: re.Pattern, new: st
             touched_spaces = set()
             touched_item_ids = []
             for item in items:
-                new_content, n = pattern.subn(new, item.content)
+                # Замена ФУНКЦИЕЙ, а не строкой — см. pdf_processing.py:
+                # re.subn разбирает строку замены как шаблон, где обратный
+                # слэш особый, и падает на распознанном тексте, где он
+                # обычный символ. В PDF это уже случилось живьём
+                # ("bad escape \Z"), а сюда приходит текст ровно того же
+                # происхождения — распознанный из чужого документа.
+                new_content, n = pattern.subn(lambda _match: new, item.content)
                 if n:
                     if snapshot_version:
                         db.add(ItemVersion(item_id=item.id, title=item.title, content=item.content, author_id=item.author_id))

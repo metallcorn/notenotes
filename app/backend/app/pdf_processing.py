@@ -101,7 +101,16 @@ async def _replace_document_card(upload_id: uuid.UUID, new_card_html: str) -> No
             touched_spaces = set()
             touched_item_ids = []
             for item in items:
-                new_content, n = pattern.subn(new_card_html, item.content)
+                # Замена ФУНКЦИЕЙ, а не строкой. re.subn трактует строку
+                # замены как шаблон, где обратный слэш имеет особый смысл, —
+                # и падает на распознанном тексте, где он встречается как
+                # обычный символ. Поймано живьём: PDF со страховым полисом
+                # содержал последовательность \Z, обработчик рухнул с
+                # "re.error: bad escape \Z", а карточка в заметке навсегда
+                # осталась в состоянии «распознаётся». Выглядело как
+                # «распознавание идёт очень долго», хотя на деле не шло
+                # вовсе. Функция возвращает замену как есть, без разбора.
+                new_content, n = pattern.subn(lambda _match: new_card_html, item.content)
                 if n:
                     item.content = new_content
                     touched_spaces.add(item.space_id)
