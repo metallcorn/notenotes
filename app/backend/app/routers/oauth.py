@@ -39,6 +39,7 @@ from pydantic import BaseModel
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app import audit
 from app.core.config import get_settings
 from app.db import get_db
 from app.deps import get_current_user
@@ -178,6 +179,8 @@ async def register_client(
     await db.commit()
     await db.refresh(client)
     logger.info("Зарегистрирован OAuth-клиент %s (%s)", client.id, client.client_name)
+    await audit.record(db, event=audit.OAUTH_CLIENT_REGISTERED, subject=str(client.id),
+                       source=client_subnet(request), details={"name": client.client_name})
     return JSONResponse(
         status_code=status.HTTP_201_CREATED,
         content={
@@ -342,6 +345,7 @@ async def authorize_decide(
     user = await get_current_user(request, db)
 
     if decision != "allow":
+        await audit.record(db, event=audit.OAUTH_DENIED, user_id=user.id, subject=str(client.id))
         return _redirect_with_error(redirect_uri, state, "access_denied", "Пользователь отказал")
 
     raw_code = secrets.token_urlsafe(32)
@@ -356,6 +360,8 @@ async def authorize_decide(
     ))
     await db.commit()
     logger.info("Выдан код авторизации клиенту %s для пользователя %s", client.id, user.id)
+    await audit.record(db, event=audit.OAUTH_GRANTED, user_id=user.id, subject=str(client.id),
+                       details={"name": client.client_name, "redirect_uri": redirect_uri})
 
     params = {"code": raw_code}
     if state:
@@ -457,6 +463,9 @@ async def _grant_authorization_code(
         )
         await db.commit()
         logger.warning("Повторное использование кода авторизации (клиент %s) — токены отозваны", entry.client_id)
+        # Повтор означает, что код у кого-то ещё. Это ровно тот след,
+        # ради которого аудит и заводился.
+        await audit.record(db, event=audit.OAUTH_CODE_REPLAY, user_id=entry.user_id, subject=str(entry.client_id))
         return _token_error("invalid_grant", "Код уже использован")
 
     if entry.expires_at <= _now():
@@ -498,6 +507,7 @@ async def _grant_refresh(db: AsyncSession, refresh_token: str, client_id: str) -
         )
         await db.commit()
         logger.warning("Повторное использование refresh-токена — цепочка %s отозвана", entry.family_id)
+        await audit.record(db, event=audit.OAUTH_REFRESH_REPLAY, user_id=entry.user_id, subject=str(entry.client_id))
         return _token_error("invalid_grant", "Refresh-токен уже использован")
 
     if entry.expires_at <= _now():
@@ -584,3 +594,4 @@ async def revoke_connection(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Подключение не найдено")
     await db.commit()
     logger.info("Отозвано OAuth-подключение %s пользователем %s", client_id, user.id)
+    await audit.record(db, event=audit.OAUTH_CONNECTION_REVOKED, user_id=user.id, subject=str(client_id))

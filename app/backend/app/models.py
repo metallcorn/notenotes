@@ -111,6 +111,42 @@ class MCPToken(Base):
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
+class AuditLog(Base):
+    """След действий, за которые потом придётся отвечать.
+
+    Зачем отдельная таблица, если события и так пишутся в лог. Docker
+    крутит логи по 10 МБ × 3 — этого хватает на дни, а вопрос «кто и когда
+    подключался к моей базе» задают через месяцы. Плюс в логе всё
+    вперемешку с access-строками и ищется только grep'ом по тексту.
+
+    ЧТО СЮДА НЕ ПОПАДАЕТ: содержимое заметок, аргументы инструментов,
+    сами токены. Только имя события и идентификаторы. Иначе аудит станет
+    вторым местом, где лежат личные данные, и придётся защищать уже его —
+    а по CLAUDE.md PII и так не должна расползаться.
+
+    user_id nullable: у неудачной попытки входа пользователя нет, а
+    записать её надо именно ради этого случая.
+    """
+
+    __tablename__ = "audit_log"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    user_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    # Короткое машинное имя: mcp.tool, mcp.token.created, oauth.granted...
+    event: Mapped[str] = mapped_column(String(64), index=True)
+    # На что подействовали: имя инструмента, id токена, id клиента.
+    subject: Mapped[str] = mapped_column(String(255), default="", server_default="")
+    # Откуда пришли. Нужен именно у неудачных попыток — по нему видно
+    # перебор.
+    source: Mapped[str] = mapped_column(String(64), default="", server_default="")
+    details: Mapped[dict] = mapped_column(JSONB, default=dict)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), index=True
+    )
+
+
 class OAuthClient(Base):
     """Клиент, зарегистрировавшийся сам (RFC 7591).
 

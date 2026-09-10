@@ -2,12 +2,26 @@ import { useState } from "react";
 import { Check, Copy, Plus, Trash2 } from "lucide-react";
 import {
   useCreateMcpToken,
+  useMcpAudit,
   useMcpTokens,
   useOAuthConnections,
   useRevokeMcpToken,
   useRevokeOAuthConnection,
 } from "../api/hooks";
 import Spinner from "./Spinner";
+
+/** Машинные имена событий — человеческими словами (см. app/audit.py). */
+const AUDIT_LABELS: Record<string, string> = {
+  "mcp.tool": "Вызов инструмента",
+  "mcp.token.created": "Создан токен",
+  "mcp.token.revoked": "Отозван токен",
+  "oauth.granted": "Разрешён доступ",
+  "oauth.denied": "Отказано в доступе",
+  "oauth.connection.revoked": "Отключено",
+  "oauth.client.registered": "Клиент зарегистрирован",
+  "oauth.code.replay": "Повторное использование кода",
+  "oauth.refresh.replay": "Повторное использование токена",
+};
 
 /**
  * Подключение базы к внешнему ассистенту по MCP.
@@ -30,6 +44,8 @@ export default function McpSettings() {
   const [name, setName] = useState("");
   const [freshToken, setFreshToken] = useState<string | null>(null);
   const [copied, setCopied] = useState<"token" | "command" | null>(null);
+  const [auditOpen, setAuditOpen] = useState(false);
+  const { data: auditEntries } = useMcpAudit(auditOpen);
 
   const mcpUrl = `${window.location.origin}/api/mcp`;
   const command =
@@ -174,7 +190,34 @@ export default function McpSettings() {
         </div>
       )}
 
-      <details className="mt-5 rounded border px-3 py-2">
+      <details className="mt-3 rounded border px-3 py-2" onToggle={(e) => setAuditOpen(e.currentTarget.open)}>
+        <summary className="cursor-pointer text-sm text-secondary">Что делали с базой</summary>
+        <div className="mt-2 text-xs text-subtle">
+          Действия внешних ассистентов за последние полгода. Содержимое заметок сюда не пишется —
+          только что вызывали и когда.
+        </div>
+        {auditEntries === undefined && <div className="mt-2 text-xs text-subtle">Загрузка…</div>}
+        {auditEntries?.length === 0 && (
+          <div className="mt-2 text-xs text-subtle">Пока ничего не происходило</div>
+        )}
+        {auditEntries !== undefined && auditEntries.length > 0 && (
+          <ul className="mt-2 max-h-60 space-y-0.5 overflow-y-auto">
+            {auditEntries.map((e, i) => (
+              <li key={i} className="flex items-baseline justify-between gap-3 text-xs">
+                <span className="min-w-0 truncate text-secondary">
+                  {AUDIT_LABELS[e.event] ?? e.event}
+                  {e.subject && <span className="text-subtle"> · {e.subject}</span>}
+                </span>
+                <span className="shrink-0 tabular-nums text-subtle">
+                  {new Date(e.created_at).toLocaleString()}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </details>
+
+      <details className="mt-3 rounded border px-3 py-2">
         <summary className="cursor-pointer text-sm text-secondary">Как подключить — по шагам</summary>
         <div className="mt-3 space-y-3 text-xs text-secondary">
           <div>

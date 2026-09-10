@@ -14,6 +14,7 @@ import {
 import { getVaultKey, unlockVault, useVaultUnlocked } from "../lib/vaultSession";
 import type {
   AssistantMemoryFact,
+  AuditEntry,
   DetectedEvent,
   Dialog,
   DialogSummary,
@@ -130,6 +131,16 @@ export function useRevokeOAuthConnection() {
   return useMutation({
     mutationFn: (clientId: string) => api.delete<void>(`/oauth/connections/${clientId}`),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["oauth-connections"] }),
+  });
+}
+
+export function useMcpAudit(enabled: boolean) {
+  return useQuery<AuditEntry[]>({
+    queryKey: ["mcp-audit"],
+    queryFn: () => api.get<AuditEntry[]>("/mcp-audit?limit=100"),
+    // Только когда раздел раскрыт: журнал никому не нужен фоном, а
+    // запрос не бесплатный.
+    enabled,
   });
 }
 

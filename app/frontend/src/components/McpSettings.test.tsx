@@ -9,6 +9,7 @@ const hooks = vi.hoisted(() => ({
   useRevokeMcpToken: vi.fn(),
   useOAuthConnections: vi.fn(),
   useRevokeOAuthConnection: vi.fn(),
+  useMcpAudit: vi.fn(),
 }));
 vi.mock("../api/hooks", () => hooks);
 
@@ -16,6 +17,7 @@ function setup(
   tokens: unknown[] = [],
   created = { token: "nn_секрет123", id: "t1", name: "" },
   connections: unknown[] = [],
+  auditEntries: unknown[] | undefined = [],
 ) {
   const mutateAsync = vi.fn().mockResolvedValue(created);
   const revoke = vi.fn();
@@ -25,6 +27,7 @@ function setup(
   hooks.useRevokeMcpToken.mockReturnValue({ mutate: revoke, isPending: false });
   hooks.useOAuthConnections.mockReturnValue({ data: connections });
   hooks.useRevokeOAuthConnection.mockReturnValue({ mutate: revokeConn, isPending: false });
+  hooks.useMcpAudit.mockReturnValue({ data: auditEntries });
   render(<McpSettings />);
   return { mutateAsync, revoke, revokeConn };
 }
@@ -129,5 +132,41 @@ describe("инструкция", () => {
     expect(screen.getByText(/Claude Code \(в терминале\)/)).toBeInTheDocument();
     expect(screen.getByText(/claude.ai \(веб и приложение\)/)).toBeInTheDocument();
     expect(screen.getByText(/Токен для этого не нужен/)).toBeInTheDocument();
+  });
+});
+
+
+describe("журнал действий", () => {
+  it("показывает событие человеческими словами", async () => {
+    // Машинное «mcp.tool» человеку ничего не говорит.
+    setup([], undefined, [], [
+      { event: "mcp.tool", subject: "search_base", created_at: "2026-09-10T12:00:00Z" },
+    ]);
+
+    await userEvent.click(screen.getByText("Что делали с базой"));
+
+    expect(screen.getByText(/Вызов инструмента/)).toBeInTheDocument();
+    expect(screen.getByText(/search_base/)).toBeInTheDocument();
+  });
+
+  it("обещает, что содержимого заметок там нет", async () => {
+    setup();
+    await userEvent.click(screen.getByText("Что делали с базой"));
+    expect(screen.getByText(/Содержимое заметок сюда не пишется/)).toBeInTheDocument();
+  });
+
+  it("пустой журнал не выглядит поломкой", async () => {
+    setup();
+    await userEvent.click(screen.getByText("Что делали с базой"));
+    expect(screen.getByText("Пока ничего не происходило")).toBeInTheDocument();
+  });
+
+  it("неизвестное событие показывается как есть, а не пропадает", async () => {
+    // Иначе новое событие в бэкенде молча исчезало бы из журнала.
+    setup([], undefined, [], [
+      { event: "нечто.новое", subject: "", created_at: "2026-09-10T12:00:00Z" },
+    ]);
+    await userEvent.click(screen.getByText("Что делали с базой"));
+    expect(screen.getByText("нечто.новое")).toBeInTheDocument();
   });
 });

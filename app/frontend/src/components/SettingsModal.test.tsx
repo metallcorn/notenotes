@@ -44,6 +44,7 @@ const hooks = vi.hoisted(() => {
     useRevokeMcpToken: vi.fn(() => idle),
     useOAuthConnections: vi.fn(() => ({ data: [] })),
     useRevokeOAuthConnection: vi.fn(() => idle),
+    useMcpAudit: vi.fn(() => ({ data: [] })),
   };
 });
 vi.mock("../api/hooks", () => hooks);

@@ -31,6 +31,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app import audit
 from app.core.config import get_settings
 from app.db import get_db
 from app.deps import get_current_user
@@ -216,6 +217,17 @@ async def _authenticate(request: Request, db: AsyncSession) -> MCPPrincipal:
                 user = await db.get(User, user_id)
 
     if user is None:
+        # Единственный след перебора токенов. Пишется с потолком (см.
+        # app/audit.py), иначе сам перебор раздувал бы базу.
+        await audit.record(
+            db,
+            event=audit.MCP_AUTH_FAILED,
+            source=client_subnet(request),
+            details={"scheme": "personal" if raw.startswith(TOKEN_PREFIX) else "oauth"},
+            # Следом полетит 401, обычного коммита не будет — а сохранить
+            # надо ИМЕННО этот случай.
+            commit=True,
+        )
         raise _unauthorized(request)
 
     if space_id is None:
@@ -272,6 +284,7 @@ async def _call_tool(principal: MCPPrincipal, db: AsyncSession, params: dict) ->
     # ходил», а не ЧТО он делал. Аргументы не пишем: там содержимое
     # заметок, и логи стали бы вторым местом, где лежат личные данные.
     logger.info("MCP: %s (пользователь %s)", name, principal.user.id)
+    await audit.record(db, event=audit.MCP_TOOL, user_id=principal.user.id, subject=name)
     result = await dispatch(name, ctx, arguments, disabled=principal.disabled)
 
     # MCP отдаёт результат блоками контента. Наши инструменты возвращают
@@ -413,6 +426,8 @@ async def create_token(
     await db.commit()
     await db.refresh(token)
     logger.info("Создан MCP-токен %s для пользователя %s", token.id, user.id)
+    await audit.record(db, event=audit.MCP_TOKEN_CREATED, user_id=user.id, subject=str(token.id),
+                       details={"name": token.name})
     return MCPTokenCreated(
         id=token.id, name=token.name, created_at=token.created_at, last_used_at=None, token=raw
     )
@@ -432,3 +447,43 @@ async def revoke_token(
     token.revoked_at = datetime.now(timezone.utc)
     await db.commit()
     logger.info("Отозван MCP-токен %s пользователем %s", token_id, user.id)
+    await audit.record(db, event=audit.MCP_TOKEN_REVOKED, user_id=user.id, subject=str(token_id),
+                       details={"name": token.name})
+
+
+# --- аудит: показать человеку, что делали с его базой --------------------
+
+
+class AuditEntryOut(BaseModel):
+    event: str
+    subject: str
+    created_at: datetime
+
+
+@router.get("/mcp-audit", response_model=list[AuditEntryOut])
+async def read_audit(
+    limit: int = 100,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> list[AuditEntryOut]:
+    """Последние события ПО СВОЕЙ базе.
+
+    Только свои: user_id в запросе жёстко, без параметра. Чужой аудит —
+    это карта того, чем человек пользуется и когда, и отдавать её нельзя
+    даже «на посмотреть».
+
+    Неудачные попытки входа сюда не попадают: у них нет user_id (токен-то
+    не подошёл), и приписывать их кому-то было бы враньём. Они лежат в
+    таблице и видны в логах — на случай, когда придётся разбираться.
+    """
+    from app.models import AuditLog
+
+    rows = (
+        await db.execute(
+            select(AuditLog)
+            .where(AuditLog.user_id == user.id)
+            .order_by(AuditLog.created_at.desc())
+            .limit(max(1, min(limit, 500)))
+        )
+    ).scalars().all()
+    return [AuditEntryOut(event=r.event, subject=r.subject, created_at=r.created_at) for r in rows]

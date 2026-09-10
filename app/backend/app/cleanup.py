@@ -8,7 +8,7 @@ from sqlalchemy import delete, select
 from app import realtime
 from app.core.config import get_settings
 from app.db import async_session
-from app.models import Item, Notification, OAuthClient, OAuthCode, OAuthRefreshToken, Upload
+from app.models import AuditLog, Item, Notification, OAuthClient, OAuthCode, OAuthRefreshToken, Upload
 
 logger = logging.getLogger(__name__)
 
@@ -80,6 +80,21 @@ async def _purge_trash_once() -> int:
         return len(candidates)
 
 
+# Срок хранения аудита. Это и есть его «ротация» — но с понятным сроком,
+# а не «сколько влезло в 30 МБ docker-логов». Полгода: вопрос «кто
+# подключался к моей базе» задают через месяцы, а держать вечно незачем,
+# на 4 ГБ VPS место не бесконечное.
+_AUDIT_RETENTION = timedelta(days=180)
+
+
+async def _purge_audit_once() -> int:
+    async with async_session() as db:
+        cutoff = datetime.now(timezone.utc) - _AUDIT_RETENTION
+        result = await db.execute(delete(AuditLog).where(AuditLog.created_at < cutoff))
+        await db.commit()
+        return result.rowcount or 0
+
+
 async def _purge_oauth_once() -> int:
     """Отработавшие коды, мёртвые refresh и клиенты, которыми не пользуются.
 
@@ -136,4 +151,10 @@ async def run_periodic_sweep() -> None:
                 logger.info("Очистка OAuth: удалено %d записей", purged)
         except Exception:
             logger.exception("Ошибка при очистке OAuth")
+        try:
+            purged = await _purge_audit_once()
+            if purged:
+                logger.info("Очистка аудита (>180 дней): удалено %d записей", purged)
+        except Exception:
+            logger.exception("Ошибка при очистке аудита")
         await asyncio.sleep(_SWEEP_INTERVAL_SECONDS)

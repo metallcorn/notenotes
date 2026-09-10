@@ -38,6 +38,12 @@ export interface OAuthConnection {
   last_refreshed_at: string | null;
 }
 
+export interface AuditEntry {
+  event: string;
+  subject: string;
+  created_at: string;
+}
+
 export interface Skill {
   name: string;
   label: string;
