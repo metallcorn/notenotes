@@ -38,10 +38,11 @@ def _item(title: str, content: str = "", material_type: str = "note"):
 @pytest.fixture
 def stub(monkeypatch):
     """Подменяет оба поиска: тест про склейку выдач, не про сами поиски."""
-    state = {"fulltext": [], "semantic": [], "semantic_calls": 0, "raises": False}
+    state = {"fulltext": [], "loose": [], "semantic": [], "semantic_calls": 0, "raises": False}
 
-    async def fake_fulltext(*args, **kwargs):
-        return list(state["fulltext"])
+    async def fake_fulltext(db, user_id, query, **kwargs):
+        # match="or" — мягкий запасной поиск, у него своя заготовка.
+        return list(state["loose"] if kwargs.get("match") == "or" else state["fulltext"])
 
     async def fake_semantic(db, user_id, query, **kwargs):
         state["semantic_calls"] += 1
@@ -154,3 +155,46 @@ def test_описание_инструмента_предупреждает_о_�
     description = search_base.DEFINITION.description
     assert "по смыслу" in description.lower()
     assert "get_note" in description
+
+
+async def test_мусор_из_мягкого_поиска_не_вытесняет_смысловой(stub):
+    """Главный найденный дефект, поймано на боевой базе 2026-09-10.
+
+    Запрос «проблемы с машиной»: строгий полнотекст 0 результатов, мягкий
+    (по любому слову) — ДВАДЦАТЬ, и все не по теме («Career Master File»,
+    «Контракты Мужа»). Модель получала их без пометки, как точные, а
+    настоящий ответ по смыслу в двадцатку не попадал вовсе.
+
+    Мягкий поиск теперь только когда пусто и точно, и по смыслу.
+    """
+    right = _item("Обслуживание", "замена масла, Citroën")
+    stub["semantic"] = [(right, 0.81, "замена масла, Citroën")]
+    stub["loose"] = [_item(f"Мусор {i}") for i in range(20)]
+
+    out = await search_base.handle(_ctx(), {"query": "проблемы с машиной"})
+
+    assert [r["title"] for r in out["results"]] == ["Обслуживание"]
+
+
+async def test_мягкий_поиск_ограничен_и_честно_помечен(stub):
+    """Когда не нашлось совсем ничего — пять штук и с оговоркой.
+
+    Двадцать нерелевантных заметок в контексте не «на всякий случай», а
+    активная помеха: модель отвечает по первой попавшейся.
+    """
+    stub["loose"] = [_item(f"Не по теме {i}") for i in range(5)]
+
+    out = await search_base.handle(_ctx(), {"query": "проблемы с машиной"})
+
+    assert len(out["results"]) == search_base._MAX_LOOSE_HITS
+    assert all("совпало отдельное слово" in r["match"] for r in out["results"])
+
+
+async def test_мягкий_поиск_не_зовётся_когда_есть_точное(stub):
+    """Нашлось точно — мягкий не нужен, он только разбавит выдачу."""
+    stub["fulltext"] = [_item("Страховка PZU")]
+    stub["loose"] = [_item("Мусор")]
+
+    out = await search_base.handle(_ctx(), {"query": "страховка"})
+
+    assert [r["title"] for r in out["results"]] == ["Страховка PZU"]

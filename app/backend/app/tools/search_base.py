@@ -12,6 +12,12 @@ from app.tools.registry import ToolContext
 
 logger = logging.getLogger(__name__)
 
+# Потолок для мягкого запасного поиска. Двадцать нерелевантных заметок в
+# контексте — не «на всякий случай», а активная помеха: модель отвечает по
+# первой попавшейся. Пять оставлены как подсказка «в базе есть что-то
+# похожее по словам», не как выдача.
+_MAX_LOOSE_HITS = 5
+
 
 DEFINITION = ToolDefinition(
     name="search_base",
@@ -42,14 +48,9 @@ async def handle(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
     query = str(args.get("query", "")).strip()
     if not query:
         return {"results": []}
-    items = await search_items(ctx.db, ctx.user_id, query, material_types=("note", "list", "ticket", "table"), limit=20)
-    if not items:
-        # Модель обычно пишет запрос естественной фразой ("купить продукты"),
-        # а не одним точным словом — при пустом строгом результате пробуем
-        # мягче, по любому слову, а не по всем сразу.
-        items = await search_items(
-            ctx.db, ctx.user_id, query, material_types=("note", "list", "ticket", "table"), limit=20, match="or"
-        )
+    types = ("note", "list", "ticket", "table")
+    items = await search_items(ctx.db, ctx.user_id, query, material_types=types, limit=20)
+
     def _serialize(item: Any) -> dict[str, Any]:
         base = {
             "id": str(item.id),
@@ -71,7 +72,7 @@ async def handle(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
 
     results = [_serialize(item) for item in items]
 
-    # Смысловой поиск ПОСЛЕ полнотекстового и отдельной пометкой.
+    # Смысловой поиск отдельной пометкой.
     #
     # Зачем вообще. Полнотекст идёт по to_tsvector('simple') — конфигурации
     # БЕЗ словаря (в базе перемешаны русский, польский и английский, и
@@ -117,6 +118,29 @@ async def handle(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
         # смыслу, а не точное попадание, и проверить содержимое через
         # get_note, прежде чем отвечать по нему.
         entry["match"] = "по смыслу, не точное совпадение слов"
+        results.append(entry)
+
+    if results:
+        return {"results": results}
+
+    # Не нашлось ни точно, ни по смыслу — последняя попытка: полнотекст по
+    # ЛЮБОМУ слову запроса, а не по всем сразу. Модель пишет запрос
+    # естественной фразой («проблемы с машиной»), и строгий AND на такой
+    # фразе почти всегда пуст.
+    #
+    # РАНЬШЕ ЭТО СТОЯЛО ВЫШЕ и было главным источником мусора. Проверено на
+    # боевой базе: «проблемы с машиной» — строгий поиск 0 результатов,
+    # мягкий 20, и все двадцать не по теме («Career Master File», «Контракты
+    # Мужа»), потому что совпало отдельное слово. Модель получала их без
+    # всякой пометки, как точные попадания, а настоящий ответ («Обслуживание»
+    # по смыслу) в эту двадцатку не попадал вовсе — его вытесняли.
+    #
+    # Поэтому теперь: только когда пусто и точно, и по смыслу; впятеро
+    # меньше результатов; и с честной пометкой, что совпало одно слово.
+    loose = await search_items(ctx.db, ctx.user_id, query, material_types=types, limit=_MAX_LOOSE_HITS, match="or")
+    for item in loose:
+        entry = _serialize(item)
+        entry["match"] = "совпало отдельное слово запроса, скорее всего не по теме"
         results.append(entry)
 
     return {"results": results}
