@@ -71,6 +71,46 @@ class InviteCode(Base):
     )
 
 
+class MCPToken(Base):
+    """Личный токен для доступа к базе по MCP (Claude Code и подобные).
+
+    Хранится ХЭШ, не сам токен — по образцу пароля: утечка дампа БД не
+    должна давать доступ к заметкам. Плейнтекст показывается один раз при
+    создании и больше нигде не восстановим.
+
+    Префикс «nn_» у самого токена нужен не нам, а сканерам секретов и
+    глазам в логах: строку сразу видно как ключ, а не как случайный мусор.
+
+    space_id НЕОБЯЗАТЕЛЕН и обычно пуст. Пусто = вести себя как
+    Telegram-бот: писать в «домашний» спейс, который вычисляет
+    _default_space_id (routers/dialogs.py) — самый старый не-сейф спейс.
+    Заводить выбор при создании токена было бы лишним решением на пустом
+    месте: у пользователя девять спейсов, и угадывать за него не нужно, а
+    механизм «куда по умолчанию» в проекте уже есть и обкатан. Поле здесь
+    на случай, когда «Личное» окажется не тем местом — тогда его можно
+    поменять, не перевыпуская токен.
+    """
+
+    __tablename__ = "mcp_tokens"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    # Человеку — чтобы отличать «ноутбук» от «телефона» в списке и понимать,
+    # какой именно отзывать.
+    name: Mapped[str] = mapped_column(String(255), default="", server_default="")
+    token_hash: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    space_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("spaces.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    # Единственный способ заметить забытый или утёкший токен: если им никто
+    # не пользовался месяц, его пора отозвать.
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Отзыв, а не удаление строки: по last_used_at видно, ходил ли кто-то
+    # этим токеном уже ПОСЛЕ того, как его отозвали.
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
 class Space(Base):
     __tablename__ = "spaces"
 

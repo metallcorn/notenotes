@@ -23,6 +23,8 @@ import type {
   ItemVersion,
   LinkPreviewData,
   ListDetail,
+  MCPToken,
+  MCPTokenCreated,
   Notification,
   ShareInfo,
   Skill,
@@ -89,6 +91,29 @@ export function useUpdateCustomInstructions() {
   return useMutation({
     mutationFn: (custom_instructions: string) => api.patch<User>("/auth/me", { custom_instructions }),
     onSuccess: (user) => qc.setQueryData(["me"], user),
+  });
+}
+
+export function useMcpTokens() {
+  return useQuery<MCPToken[]>({
+    queryKey: ["mcp-tokens"],
+    queryFn: () => api.get<MCPToken[]>("/mcp-tokens"),
+  });
+}
+
+export function useCreateMcpToken() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (name: string) => api.post<MCPTokenCreated>("/mcp-tokens", { name }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["mcp-tokens"] }),
+  });
+}
+
+export function useRevokeMcpToken() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.delete<void>(`/mcp-tokens/${id}`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["mcp-tokens"] }),
   });
 }
 

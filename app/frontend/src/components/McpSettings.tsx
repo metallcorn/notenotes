@@ -1,0 +1,141 @@
+import { useState } from "react";
+import { Check, Copy, Plus, Trash2 } from "lucide-react";
+import { useCreateMcpToken, useMcpTokens, useRevokeMcpToken } from "../api/hooks";
+import Spinner from "./Spinner";
+
+/**
+ * Подключение базы к внешнему ассистенту по MCP.
+ *
+ * Отдельным файлом, а не ещё одной секцией внутри SettingsModal: тот уже
+ * 650 строк, и здесь своё состояние (показанный один раз токен), которое
+ * не должно мешаться с остальными настройками.
+ *
+ * Токен показывается ЕДИНОЖДЫ — на сервере лежит только хэш, восстановить
+ * нечего. Поэтому блок с ним намеренно заметный и не исчезает сам: закрыть
+ * его должен человек, скопировав.
+ */
+export default function McpSettings() {
+  const { data: tokens, isLoading } = useMcpTokens();
+  const createToken = useCreateMcpToken();
+  const revokeToken = useRevokeMcpToken();
+
+  const [name, setName] = useState("");
+  const [freshToken, setFreshToken] = useState<string | null>(null);
+  const [copied, setCopied] = useState<"token" | "command" | null>(null);
+
+  const mcpUrl = `${window.location.origin}/api/mcp`;
+  const command =
+    `claude mcp add -t http notenotes ${mcpUrl} \\\n` +
+    `  -H "Authorization: Bearer ${freshToken ?? "nn_..."}"`;
+
+  async function handleCreate() {
+    const created = await createToken.mutateAsync(name.trim());
+    setFreshToken(created.token);
+    setName("");
+  }
+
+  async function copy(text: string, what: "token" | "command") {
+    await navigator.clipboard.writeText(text);
+    setCopied(what);
+    setTimeout(() => setCopied(null), 1500);
+  }
+
+  return (
+    <div className="mb-6">
+      <div className="mb-1 text-sm font-medium text-primary">Подключение по MCP</div>
+      <div className="mb-2 text-xs text-subtle">
+        Даёт внешнему ассистенту (Claude Code и подобным) доступ к заметкам, спискам и напоминаниям —
+        искать, читать и создавать. Зашифрованный сейф недоступен всегда. Веб-поиск наружу не отдаётся:
+        внешний ассистент ищет своим и наши лимиты не тратит.
+      </div>
+      <div className="mb-2 rounded border border-warning/40 bg-warning/10 px-2 py-1.5 text-xs text-warning">
+        Содержимое заметок будет уходить тому сервису, которому вы дадите токен. Не выдавайте его тому,
+        кому не готовы показать базу целиком.
+      </div>
+
+      {freshToken && (
+        <div className="mb-3 rounded border border-strong bg-muted-hover p-2">
+          <div className="mb-1 text-xs font-medium text-primary">
+            Токен показан один раз — скопируйте сейчас
+          </div>
+          <div className="mb-2 flex items-center gap-2">
+            <code className="min-w-0 flex-1 truncate rounded bg-surface px-2 py-1 text-xs">{freshToken}</code>
+            <button
+              onClick={() => copy(freshToken, "token")}
+              title="Скопировать токен"
+              className="flex h-7 w-7 shrink-0 items-center justify-center rounded border text-subtle hover:bg-surface"
+            >
+              {copied === "token" ? <Check size={13} /> : <Copy size={13} />}
+            </button>
+          </div>
+          <div className="mb-1 text-xs text-subtle">Команда для Claude Code:</div>
+          <div className="flex items-start gap-2">
+            <pre className="min-w-0 flex-1 overflow-x-auto rounded bg-surface px-2 py-1 text-xs">{command}</pre>
+            <button
+              onClick={() => copy(command.replace(/\\\n\s*/g, " "), "command")}
+              title="Скопировать команду"
+              className="flex h-7 w-7 shrink-0 items-center justify-center rounded border text-subtle hover:bg-surface"
+            >
+              {copied === "command" ? <Check size={13} /> : <Copy size={13} />}
+            </button>
+          </div>
+          <button
+            onClick={() => setFreshToken(null)}
+            className="mt-2 text-xs text-subtle underline hover:text-primary"
+          >
+            Скопировал, скрыть
+          </button>
+        </div>
+      )}
+
+      {isLoading && <div className="text-sm text-subtle">Загрузка…</div>}
+      {!isLoading && (tokens ?? []).length === 0 && !freshToken && (
+        <div className="mb-2 text-sm text-subtle">Пока не подключено ни одного клиента</div>
+      )}
+
+      <ul className="space-y-1">
+        {(tokens ?? []).map((t) => (
+          <li key={t.id} className="flex items-center justify-between gap-2 rounded border px-2 py-1.5">
+            <div className="min-w-0">
+              <div className="truncate text-sm text-primary">{t.name || "Без названия"}</div>
+              <div className="text-xs text-subtle">
+                {/* Когда пользовались в последний раз — единственный способ
+                    заметить забытый токен и отозвать его. */}
+                {t.last_used_at
+                  ? `Последний раз: ${new Date(t.last_used_at).toLocaleString()}`
+                  : "Ещё не использовался"}
+              </div>
+            </div>
+            <button
+              onClick={() => revokeToken.mutate(t.id)}
+              disabled={revokeToken.isPending}
+              title="Отозвать"
+              className="flex h-6 w-6 shrink-0 items-center justify-center text-subtle hover:text-danger disabled:opacity-50"
+            >
+              <Trash2 size={13} />
+            </button>
+          </li>
+        ))}
+      </ul>
+
+      <div className="mt-2 flex gap-2">
+        <input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !createToken.isPending) handleCreate();
+          }}
+          placeholder="Название, например «ноутбук»"
+          className="min-w-0 flex-1 rounded border px-3 py-1.5 text-sm"
+        />
+        <button
+          onClick={handleCreate}
+          disabled={createToken.isPending}
+          className="flex shrink-0 items-center justify-center rounded bg-accent px-3 py-1.5 text-sm text-white disabled:opacity-50"
+        >
+          {createToken.isPending ? <Spinner size={14} className="text-white" /> : <Plus size={14} />}
+        </button>
+      </div>
+    </div>
+  );
+}

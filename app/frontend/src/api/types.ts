@@ -19,6 +19,18 @@ export interface InviteCode {
   used_at: string | null;
 }
 
+export interface MCPToken {
+  id: string;
+  name: string;
+  created_at: string;
+  last_used_at: string | null;
+}
+
+/** Ответ на создание — единственный раз, когда сервер отдаёт сам токен. */
+export interface MCPTokenCreated extends MCPToken {
+  token: string;
+}
+
 export interface Skill {
   name: string;
   label: string;

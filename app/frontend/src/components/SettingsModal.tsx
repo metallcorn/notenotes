@@ -25,6 +25,7 @@ import {
   useUpdateTtsVoice,
 } from "../api/hooks";
 import { DEFAULT_MEDIA_CACHE_LIMIT_MB, getMediaCacheLimitBytes, setMediaCacheLimitMb } from "../lib/offlineSettings";
+import McpSettings from "./McpSettings";
 import { isPushSupported, usePushSubscription } from "../lib/usePushSubscription";
 import Spinner from "./Spinner";
 
@@ -598,6 +599,8 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
               </button>
             </div>
           </div>
+
+          <McpSettings />
 
           <div>
             <div className="mb-1 text-sm font-medium text-primary">Память ассистента</div>

@@ -34,6 +34,7 @@ from app.routers import (
     lists,
     mail,
     mail_webhook,
+    mcp,
     memories,
     notifications,
     public,
@@ -174,6 +175,8 @@ app.include_router(debug_log.router)
 app.include_router(notifications.router)
 app.include_router(push.router)
 app.include_router(dialogs.router)
+# ДО catch-all SPA-роута ниже — иначе POST /api/mcp уедет в index.html.
+app.include_router(mcp.router)
 app.include_router(voice.router)
 app.include_router(lists.router)
 app.include_router(tables.router)
