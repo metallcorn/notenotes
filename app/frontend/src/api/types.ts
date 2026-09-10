@@ -31,6 +31,13 @@ export interface MCPTokenCreated extends MCPToken {
   token: string;
 }
 
+export interface OAuthConnection {
+  client_id: string;
+  client_name: string;
+  connected_at: string;
+  last_refreshed_at: string | null;
+}
+
 export interface Skill {
   name: string;
   label: string;

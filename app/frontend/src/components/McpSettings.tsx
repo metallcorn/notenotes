@@ -1,6 +1,12 @@
 import { useState } from "react";
 import { Check, Copy, Plus, Trash2 } from "lucide-react";
-import { useCreateMcpToken, useMcpTokens, useRevokeMcpToken } from "../api/hooks";
+import {
+  useCreateMcpToken,
+  useMcpTokens,
+  useOAuthConnections,
+  useRevokeMcpToken,
+  useRevokeOAuthConnection,
+} from "../api/hooks";
 import Spinner from "./Spinner";
 
 /**
@@ -18,6 +24,8 @@ export default function McpSettings() {
   const { data: tokens, isLoading } = useMcpTokens();
   const createToken = useCreateMcpToken();
   const revokeToken = useRevokeMcpToken();
+  const { data: connections } = useOAuthConnections();
+  const revokeConnection = useRevokeOAuthConnection();
 
   const [name, setName] = useState("");
   const [freshToken, setFreshToken] = useState<string | null>(null);
@@ -136,6 +144,70 @@ export default function McpSettings() {
           {createToken.isPending ? <Spinner size={14} className="text-white" /> : <Plus size={14} />}
         </button>
       </div>
+
+      {connections !== undefined && connections.length > 0 && (
+        <div className="mt-5">
+          <div className="mb-1 text-sm font-medium text-primary">Подключено через Claude</div>
+          <div className="mb-2 text-xs text-subtle">
+            Подключения с claude.ai — они не используют токен выше. Отключение действует сразу.
+          </div>
+          <ul className="space-y-1">
+            {connections.map((c) => (
+              <li key={c.client_id} className="flex items-center justify-between gap-2 rounded border px-2 py-1.5">
+                <div className="min-w-0">
+                  <div className="truncate text-sm text-primary">{c.client_name}</div>
+                  <div className="text-xs text-subtle">
+                    Подключено {new Date(c.connected_at).toLocaleDateString()}
+                  </div>
+                </div>
+                <button
+                  onClick={() => revokeConnection.mutate(c.client_id)}
+                  disabled={revokeConnection.isPending}
+                  title="Отключить"
+                  className="flex h-6 w-6 shrink-0 items-center justify-center text-subtle hover:text-danger disabled:opacity-50"
+                >
+                  <Trash2 size={13} />
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      <details className="mt-5 rounded border px-3 py-2">
+        <summary className="cursor-pointer text-sm text-secondary">Как подключить — по шагам</summary>
+        <div className="mt-3 space-y-3 text-xs text-secondary">
+          <div>
+            <div className="mb-1 font-medium text-primary">Claude Code (в терминале)</div>
+            <ol className="list-decimal space-y-0.5 pl-4">
+              <li>Создайте токен кнопкой ниже и скопируйте его.</li>
+              <li>Выполните готовую команду — она появится рядом с токеном.</li>
+              <li>Проверьте: <code className="rounded bg-muted-hover px-1">claude mcp list</code></li>
+            </ol>
+          </div>
+          <div>
+            <div className="mb-1 font-medium text-primary">claude.ai (веб и приложение)</div>
+            <ol className="list-decimal space-y-0.5 pl-4">
+              <li>Настройки → Коннекторы → добавить свой.</li>
+              <li>
+                Укажите адрес:{" "}
+                <code className="break-all rounded bg-muted-hover px-1">{mcpUrl}</code>
+              </li>
+              <li>Войдите и нажмите «Разрешить» на экране согласия.</li>
+            </ol>
+            {/* Токен здесь не нужен — там свой поток входа. Люди пробуют
+                вставить его туда и не понимают, почему не подходит. */}
+            <div className="mt-1 text-subtle">Токен для этого не нужен — claude.ai попросит войти сам.</div>
+          </div>
+          <div>
+            <div className="mb-1 font-medium text-primary">Что будет доступно</div>
+            <p>
+              Поиск и чтение заметок, списков, документов и напоминаний; создание и изменение.
+              Зашифрованный сейф — никогда. Веб-поиск наружу не отдаётся: внешний ассистент ищет своим.
+            </p>
+          </div>
+        </div>
+      </details>
     </div>
   );
 }

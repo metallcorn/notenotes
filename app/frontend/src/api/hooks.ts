@@ -25,6 +25,7 @@ import type {
   ListDetail,
   MCPToken,
   MCPTokenCreated,
+  OAuthConnection,
   Notification,
   ShareInfo,
   Skill,
@@ -114,6 +115,21 @@ export function useRevokeMcpToken() {
   return useMutation({
     mutationFn: (id: string) => api.delete<void>(`/mcp-tokens/${id}`),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["mcp-tokens"] }),
+  });
+}
+
+export function useOAuthConnections() {
+  return useQuery<OAuthConnection[]>({
+    queryKey: ["oauth-connections"],
+    queryFn: () => api.get<OAuthConnection[]>("/oauth/connections"),
+  });
+}
+
+export function useRevokeOAuthConnection() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (clientId: string) => api.delete<void>(`/oauth/connections/${clientId}`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["oauth-connections"] }),
   });
 }
 

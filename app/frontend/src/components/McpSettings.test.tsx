@@ -7,17 +7,26 @@ const hooks = vi.hoisted(() => ({
   useMcpTokens: vi.fn(),
   useCreateMcpToken: vi.fn(),
   useRevokeMcpToken: vi.fn(),
+  useOAuthConnections: vi.fn(),
+  useRevokeOAuthConnection: vi.fn(),
 }));
 vi.mock("../api/hooks", () => hooks);
 
-function setup(tokens: unknown[] = [], created = { token: "nn_секрет123", id: "t1", name: "" }) {
+function setup(
+  tokens: unknown[] = [],
+  created = { token: "nn_секрет123", id: "t1", name: "" },
+  connections: unknown[] = [],
+) {
   const mutateAsync = vi.fn().mockResolvedValue(created);
   const revoke = vi.fn();
+  const revokeConn = vi.fn();
   hooks.useMcpTokens.mockReturnValue({ data: tokens, isLoading: false });
   hooks.useCreateMcpToken.mockReturnValue({ mutateAsync, isPending: false });
   hooks.useRevokeMcpToken.mockReturnValue({ mutate: revoke, isPending: false });
+  hooks.useOAuthConnections.mockReturnValue({ data: connections });
+  hooks.useRevokeOAuthConnection.mockReturnValue({ mutate: revokeConn, isPending: false });
   render(<McpSettings />);
-  return { mutateAsync, revoke };
+  return { mutateAsync, revoke, revokeConn };
 }
 
 beforeEach(() => {
@@ -85,5 +94,40 @@ describe("список подключений", () => {
   it("пустой список не выглядит поломкой", () => {
     setup([]);
     expect(screen.getByText("Пока не подключено ни одного клиента")).toBeInTheDocument();
+  });
+});
+
+
+describe("подключения через claude.ai", () => {
+  it("показываются отдельно от токенов и отключаются", async () => {
+    // До этого отключить подключённый claude.ai было нельзя ВООБЩЕ:
+    // в настройках лежали только личные токены.
+    const { revokeConn } = setup([], undefined, [
+      { client_id: "c1", client_name: "Claude", connected_at: "2026-09-10T10:00:00Z", last_refreshed_at: null },
+    ]);
+
+    expect(screen.getByText("Подключено через Claude")).toBeInTheDocument();
+    expect(screen.getByText("Claude")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByTitle("Отключить"));
+    expect(revokeConn).toHaveBeenCalledWith("c1");
+  });
+
+  it("блок не показывается, когда подключений нет", () => {
+    setup();
+    expect(screen.queryByText("Подключено через Claude")).not.toBeInTheDocument();
+  });
+});
+
+describe("инструкция", () => {
+  it("объясняет оба способа и что токен для claude.ai не нужен", async () => {
+    // Люди пробуют вставить токен в claude.ai и не понимают, почему он
+    // не подходит: там свой поток входа.
+    setup();
+    await userEvent.click(screen.getByText("Как подключить — по шагам"));
+
+    expect(screen.getByText(/Claude Code \(в терминале\)/)).toBeInTheDocument();
+    expect(screen.getByText(/claude.ai \(веб и приложение\)/)).toBeInTheDocument();
+    expect(screen.getByText(/Токен для этого не нужен/)).toBeInTheDocument();
   });
 });

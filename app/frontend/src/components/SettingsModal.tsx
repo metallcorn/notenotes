@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Check, Copy, Plus, Send, Trash2, X } from "lucide-react";
+import { Bot, Check, Copy, Plug, Plus, Send, Settings2, Share2, Trash2, X } from "lucide-react";
 import {
   useAddMemory,
   useAddOwnMailAddress,
@@ -28,6 +28,15 @@ import { DEFAULT_MEDIA_CACHE_LIMIT_MB, getMediaCacheLimitBytes, setMediaCacheLim
 import McpSettings from "./McpSettings";
 import { isPushSupported, usePushSubscription } from "../lib/usePushSubscription";
 import Spinner from "./Spinner";
+
+const SECTIONS = [
+  { key: "assistant", label: "Ассистент", icon: Bot },
+  { key: "channels", label: "Каналы", icon: Share2 },
+  { key: "connect", label: "Подключения", icon: Plug },
+  { key: "app", label: "Приложение", icon: Settings2 },
+] as const;
+
+type SectionKey = (typeof SECTIONS)[number]["key"];
 
 const VOICE_PRESETS = [
   { value: "default_low", label: "Мужской" },
@@ -132,6 +141,8 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
     updateDisabledTools.mutate([...disabled]);
   }
 
+  const [active, setActive] = useState<SectionKey>("assistant");
+
   const toggleableSkills = (skills ?? []).filter((s) => s.toggleable);
   const coreSkills = (skills ?? []).filter((s) => !s.toggleable);
 
@@ -139,7 +150,7 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
       <div
         onClick={(e) => e.stopPropagation()}
-        className="flex max-h-[85vh] w-full max-w-lg flex-col rounded-lg bg-surface shadow-xl"
+        className="flex max-h-[88vh] w-full max-w-3xl flex-col overflow-hidden rounded-lg bg-surface shadow-xl"
       >
         <div className="flex items-center justify-between border-b px-4 py-3">
           <div className="text-sm font-medium text-primary">Настройки ассистента</div>
@@ -151,7 +162,29 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-4">
+        <div className="flex min-h-0 flex-1 flex-col sm:flex-row">
+          {/* Слева — переход по разделам. На узком экране превращается в
+              горизонтальную полосу: колонка там съела бы половину ширины. */}
+          <nav className="flex shrink-0 gap-1 overflow-x-auto border-b p-2 sm:w-48 sm:flex-col sm:overflow-x-visible sm:border-b-0 sm:border-r sm:p-3">
+            {SECTIONS.map((s) => (
+              <button
+                key={s.key}
+                onClick={() => setActive(s.key)}
+                className={`flex shrink-0 items-center gap-2 rounded px-2.5 py-1.5 text-left text-sm transition-colors ${
+                  active === s.key
+                    ? "bg-accent/10 font-medium text-accent"
+                    : "text-secondary hover:bg-muted-hover"
+                }`}
+              >
+                <s.icon size={15} className="shrink-0" aria-hidden />
+                {s.label}
+              </button>
+            ))}
+          </nav>
+
+          <div className="min-w-0 flex-1 overflow-y-auto p-4">
+          {active === "assistant" && (
+            <>
           <div className="mb-6">
             <div className="mb-1 text-sm font-medium text-primary">Дополнительные инструкции</div>
             <div className="mb-2 text-xs text-subtle">
@@ -236,129 +269,57 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
             </div>
           </div>
 
-          <div className="mb-6">
-            <div className="mb-1 text-sm font-medium text-primary">Домашний часовой пояс</div>
+          <div>
+            <div className="mb-1 text-sm font-medium text-primary">Память ассистента</div>
             <div className="mb-2 text-xs text-subtle">
-              Где вы обычно живёте — используется, чтобы верно понять время из писем и билетов (например
-              "встреча в 17:30"), даже если вы сейчас в поездке. Для "напомни в 9 утра" в чате ассистент
-              всегда ориентируется на часовой пояс браузера, эту настройку трогать не нужно.
+              Факты, которые ассистент помнит в каждом диалоге, не только когда сам что-то запомнил из
+              разговора — например, что означают твои личные обозначения папок, город, состав семьи,
+              устойчивые предпочтения. Чем больше здесь надёжных фактов, тем реже придётся объяснять
+              одно и то же заново. Не стоит добавлять сюда точный домашний адрес и подобное — это
+              заметки, а не факты для ассистента.
             </div>
-            <div className="flex items-center gap-2">
-              <input
-                value={timezoneInput}
-                onChange={(e) => setTimezoneInput(e.target.value)}
-                list="timezone-options"
-                placeholder="Europe/Warsaw"
-                className="w-full rounded border px-3 py-1.5 text-sm"
-              />
-              <datalist id="timezone-options">
-                {COMMON_TIMEZONES.map((tz) => (
-                  <option key={tz} value={tz} />
-                ))}
-              </datalist>
-              <button
-                onClick={() => timezoneInput.trim() && updateTimezone.mutate(timezoneInput.trim())}
-                disabled={updateTimezone.isPending || !timezoneInput.trim() || timezoneInput.trim() === me?.timezone}
-                className="shrink-0 rounded border border-default px-3 py-1.5 text-sm text-secondary hover:bg-muted-hover disabled:opacity-50"
-              >
-                Применить
-              </button>
-            </div>
-            {updateTimezone.isError && (
-              <div className="mt-1 text-xs text-danger">Не удалось сохранить — проверьте название пояса.</div>
+            {isLoading && <div className="text-sm text-subtle">Загрузка…</div>}
+            {!isLoading && (memories ?? []).length === 0 && (
+              <div className="text-sm text-subtle">Пока ничего не запомнено</div>
             )}
-          </div>
-
-          <div className="mb-6">
-            <div className="mb-1 text-sm font-medium text-primary">Голос озвучивания</div>
-            <div className="mb-2 text-xs text-subtle">
-              У Palabra нет «стилей» — только два готовых голоса и возможность указать свой voice_id с Palabra
-              Platform.
-            </div>
-            <div className="flex gap-1.5">
-              {VOICE_PRESETS.map((preset) => (
-                <button
-                  key={preset.value}
-                  onClick={() => updateTtsVoice.mutate(preset.value)}
-                  disabled={updateTtsVoice.isPending}
-                  className={`rounded border px-3 py-1.5 text-sm disabled:opacity-50 ${
-                    currentVoice === preset.value
-                      ? "border-strong bg-accent text-white"
-                      : "border-default text-secondary hover:bg-muted-hover"
-                  }`}
-                >
-                  {preset.label}
-                </button>
+            <ul className="space-y-1">
+              {(memories ?? []).map((m) => (
+                <li key={m.id} className="flex items-start justify-between gap-2 rounded border px-2 py-1.5 text-sm">
+                  <span className="flex-1">{m.content}</span>
+                  <button
+                    onClick={() => deleteMemory.mutate(m.id)}
+                    title="Удалить"
+                    className="flex h-6 w-6 shrink-0 items-center justify-center text-subtle hover:text-danger"
+                  >
+                    <Trash2 size={13} />
+                  </button>
+                </li>
               ))}
-            </div>
-            <div className="mt-2 flex items-center gap-2">
+            </ul>
+            <div className="mt-2 flex gap-2">
               <input
-                value={customVoiceId}
-                onChange={(e) => setCustomVoiceId(e.target.value)}
-                placeholder="Свой voice_id с Palabra Platform"
-                className="w-full rounded border px-3 py-1.5 text-sm"
+                value={newMemoryText}
+                onChange={(e) => setNewMemoryText(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") handleAddMemory();
+                }}
+                placeholder="Например: живу в Познани"
+                className="min-w-0 flex-1 rounded border px-3 py-1.5 text-sm"
               />
               <button
-                onClick={() => customVoiceId.trim() && updateTtsVoice.mutate(customVoiceId.trim())}
-                disabled={updateTtsVoice.isPending || !customVoiceId.trim()}
-                className="shrink-0 rounded border border-default px-3 py-1.5 text-sm text-secondary hover:bg-muted-hover disabled:opacity-50"
+                onClick={handleAddMemory}
+                disabled={addMemory.isPending || !newMemoryText.trim()}
+                className="flex shrink-0 items-center justify-center rounded bg-accent px-3 py-1.5 text-sm text-white disabled:opacity-50"
               >
-                Применить
-              </button>
-            </div>
-            {!isPresetVoice && (
-              <div className="mt-1 text-xs text-subtle">Сейчас используется свой голос: {currentVoice}</div>
-            )}
-          </div>
-
-          <div className="mb-6">
-            <div className="flex items-center justify-between gap-2 rounded border px-2 py-1.5">
-              <div className="min-w-0">
-                <div className="text-sm text-primary">Обработка загруженных файлов</div>
-                <div className="text-xs text-subtle">
-                  Автоматически распознавать текст в картинках, видео и PDF при загрузке — не только по кнопке
-                  «Распознать».
-                </div>
-              </div>
-              <button
-                role="switch"
-                aria-checked={me?.auto_process_uploads ?? true}
-                onClick={() => updateAutoProcessUploads.mutate(!(me?.auto_process_uploads ?? true))}
-                disabled={updateAutoProcessUploads.isPending}
-                className={`flex h-5 w-9 shrink-0 items-center rounded-full px-0.5 transition-colors disabled:opacity-50 ${
-                  me?.auto_process_uploads ?? true ? "justify-end bg-accent" : "justify-start bg-muted-active"
-                }`}
-              >
-                <span className="h-4 w-4 rounded-full bg-surface shadow" />
+                {addMemory.isPending ? <Spinner size={14} className="text-white" /> : <Plus size={14} />}
               </button>
             </div>
           </div>
-
-          {isPushSupported() && (
-            <div className="mb-6">
-              <div className="flex items-center justify-between gap-2 rounded border px-2 py-1.5">
-                <div className="min-w-0">
-                  <div className="text-sm text-primary">Уведомления в браузере</div>
-                  <div className="text-xs text-subtle">
-                    Напоминания придут даже если приложение закрыто. На iPhone работает только если приложение
-                    установлено на экран (не просто открыто в Safari).
-                  </div>
-                </div>
-                <button
-                  role="switch"
-                  aria-checked={pushSubscription.subscribed ?? false}
-                  onClick={() => (pushSubscription.subscribed ? pushSubscription.unsubscribe() : pushSubscription.subscribe())}
-                  disabled={pushSubscription.busy || pushSubscription.subscribed === null}
-                  className={`flex h-5 w-9 shrink-0 items-center rounded-full px-0.5 transition-colors disabled:opacity-50 ${
-                    pushSubscription.subscribed ? "justify-end bg-accent" : "justify-start bg-muted-active"
-                  }`}
-                >
-                  <span className="h-4 w-4 rounded-full bg-surface shadow" />
-                </button>
-              </div>
-            </div>
+            </>
           )}
 
+          {active === "channels" && (
+            <>
           <div className="mb-6">
             <div className="mb-1 text-sm font-medium text-primary">Telegram</div>
             <div className="mb-2 text-xs text-subtle">
@@ -518,6 +479,164 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
               </button>
             )}
           </div>
+            </>
+          )}
+
+          {active === "connect" && (
+            <>
+          <McpSettings />
+            </>
+          )}
+
+          {active === "app" && (
+            <>
+          <div className="mb-6">
+            <div className="mb-1 text-sm font-medium text-primary">Домашний часовой пояс</div>
+            <div className="mb-2 text-xs text-subtle">
+              Где вы обычно живёте — используется, чтобы верно понять время из писем и билетов (например
+              "встреча в 17:30"), даже если вы сейчас в поездке. Для "напомни в 9 утра" в чате ассистент
+              всегда ориентируется на часовой пояс браузера, эту настройку трогать не нужно.
+            </div>
+            <div className="flex items-center gap-2">
+              <input
+                value={timezoneInput}
+                onChange={(e) => setTimezoneInput(e.target.value)}
+                list="timezone-options"
+                placeholder="Europe/Warsaw"
+                className="w-full rounded border px-3 py-1.5 text-sm"
+              />
+              <datalist id="timezone-options">
+                {COMMON_TIMEZONES.map((tz) => (
+                  <option key={tz} value={tz} />
+                ))}
+              </datalist>
+              <button
+                onClick={() => timezoneInput.trim() && updateTimezone.mutate(timezoneInput.trim())}
+                disabled={updateTimezone.isPending || !timezoneInput.trim() || timezoneInput.trim() === me?.timezone}
+                className="shrink-0 rounded border border-default px-3 py-1.5 text-sm text-secondary hover:bg-muted-hover disabled:opacity-50"
+              >
+                Применить
+              </button>
+            </div>
+            {updateTimezone.isError && (
+              <div className="mt-1 text-xs text-danger">Не удалось сохранить — проверьте название пояса.</div>
+            )}
+          </div>
+
+          <div className="mb-6">
+            <div className="mb-1 text-sm font-medium text-primary">Голос озвучивания</div>
+            <div className="mb-2 text-xs text-subtle">
+              У Palabra нет «стилей» — только два готовых голоса и возможность указать свой voice_id с Palabra
+              Platform.
+            </div>
+            <div className="flex gap-1.5">
+              {VOICE_PRESETS.map((preset) => (
+                <button
+                  key={preset.value}
+                  onClick={() => updateTtsVoice.mutate(preset.value)}
+                  disabled={updateTtsVoice.isPending}
+                  className={`rounded border px-3 py-1.5 text-sm disabled:opacity-50 ${
+                    currentVoice === preset.value
+                      ? "border-strong bg-accent text-white"
+                      : "border-default text-secondary hover:bg-muted-hover"
+                  }`}
+                >
+                  {preset.label}
+                </button>
+              ))}
+            </div>
+            <div className="mt-2 flex items-center gap-2">
+              <input
+                value={customVoiceId}
+                onChange={(e) => setCustomVoiceId(e.target.value)}
+                placeholder="Свой voice_id с Palabra Platform"
+                className="w-full rounded border px-3 py-1.5 text-sm"
+              />
+              <button
+                onClick={() => customVoiceId.trim() && updateTtsVoice.mutate(customVoiceId.trim())}
+                disabled={updateTtsVoice.isPending || !customVoiceId.trim()}
+                className="shrink-0 rounded border border-default px-3 py-1.5 text-sm text-secondary hover:bg-muted-hover disabled:opacity-50"
+              >
+                Применить
+              </button>
+            </div>
+            {!isPresetVoice && (
+              <div className="mt-1 text-xs text-subtle">Сейчас используется свой голос: {currentVoice}</div>
+            )}
+          </div>
+
+          <div className="mb-6">
+            <div className="flex items-center justify-between gap-2 rounded border px-2 py-1.5">
+              <div className="min-w-0">
+                <div className="text-sm text-primary">Обработка загруженных файлов</div>
+                <div className="text-xs text-subtle">
+                  Автоматически распознавать текст в картинках, видео и PDF при загрузке — не только по кнопке
+                  «Распознать».
+                </div>
+              </div>
+              <button
+                role="switch"
+                aria-checked={me?.auto_process_uploads ?? true}
+                onClick={() => updateAutoProcessUploads.mutate(!(me?.auto_process_uploads ?? true))}
+                disabled={updateAutoProcessUploads.isPending}
+                className={`flex h-5 w-9 shrink-0 items-center rounded-full px-0.5 transition-colors disabled:opacity-50 ${
+                  me?.auto_process_uploads ?? true ? "justify-end bg-accent" : "justify-start bg-muted-active"
+                }`}
+              >
+                <span className="h-4 w-4 rounded-full bg-surface shadow" />
+              </button>
+            </div>
+          </div>
+
+          {isPushSupported() && (
+            <div className="mb-6">
+              <div className="flex items-center justify-between gap-2 rounded border px-2 py-1.5">
+                <div className="min-w-0">
+                  <div className="text-sm text-primary">Уведомления в браузере</div>
+                  <div className="text-xs text-subtle">
+                    Напоминания придут даже если приложение закрыто. На iPhone работает только если приложение
+                    установлено на экран (не просто открыто в Safari).
+                  </div>
+                </div>
+                <button
+                  role="switch"
+                  aria-checked={pushSubscription.subscribed ?? false}
+                  onClick={() => (pushSubscription.subscribed ? pushSubscription.unsubscribe() : pushSubscription.subscribe())}
+                  disabled={pushSubscription.busy || pushSubscription.subscribed === null}
+                  className={`flex h-5 w-9 shrink-0 items-center rounded-full px-0.5 transition-colors disabled:opacity-50 ${
+                    pushSubscription.subscribed ? "justify-end bg-accent" : "justify-start bg-muted-active"
+                  }`}
+                >
+                  <span className="h-4 w-4 rounded-full bg-surface shadow" />
+                </button>
+              </div>
+            </div>
+          )}
+
+          <div className="mb-6">
+            <div className="mb-1 text-sm font-medium text-primary">Офлайн</div>
+            <div className="mb-2 text-xs text-subtle">
+              Заметки, которые уже открывались, доступны без интернета всегда. Картинки и файлы — только если
+              меньше этого размера (действует на новые загрузки, не пересчитывает уже закэшированное).
+            </div>
+            <div className="flex items-center gap-2">
+              <input
+                type="number"
+                min={0}
+                step={1}
+                value={mediaCacheLimitMb}
+                onChange={(e) => setMediaCacheLimitMbState(Number(e.target.value))}
+                className="w-24 rounded border px-3 py-1.5 text-sm"
+              />
+              <span className="text-sm text-subtle">МБ</span>
+              <button
+                onClick={handleSaveMediaCacheLimit}
+                className="rounded border border-default px-3 py-1.5 text-sm text-secondary hover:bg-muted-hover"
+              >
+                {mediaCacheSaved ? "Сохранено" : "Сохранить"}
+              </button>
+            </div>
+          </div>
 
           <div className="mb-6">
             <div className="mb-1 text-sm font-medium text-primary">Инвайт-коды</div>
@@ -574,79 +693,8 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
               </div>
             )}
           </div>
-
-          <div className="mb-6">
-            <div className="mb-1 text-sm font-medium text-primary">Офлайн</div>
-            <div className="mb-2 text-xs text-subtle">
-              Заметки, которые уже открывались, доступны без интернета всегда. Картинки и файлы — только если
-              меньше этого размера (действует на новые загрузки, не пересчитывает уже закэшированное).
-            </div>
-            <div className="flex items-center gap-2">
-              <input
-                type="number"
-                min={0}
-                step={1}
-                value={mediaCacheLimitMb}
-                onChange={(e) => setMediaCacheLimitMbState(Number(e.target.value))}
-                className="w-24 rounded border px-3 py-1.5 text-sm"
-              />
-              <span className="text-sm text-subtle">МБ</span>
-              <button
-                onClick={handleSaveMediaCacheLimit}
-                className="rounded border border-default px-3 py-1.5 text-sm text-secondary hover:bg-muted-hover"
-              >
-                {mediaCacheSaved ? "Сохранено" : "Сохранить"}
-              </button>
-            </div>
-          </div>
-
-          <McpSettings />
-
-          <div>
-            <div className="mb-1 text-sm font-medium text-primary">Память ассистента</div>
-            <div className="mb-2 text-xs text-subtle">
-              Факты, которые ассистент помнит в каждом диалоге, не только когда сам что-то запомнил из
-              разговора — например, что означают твои личные обозначения папок, город, состав семьи,
-              устойчивые предпочтения. Чем больше здесь надёжных фактов, тем реже придётся объяснять
-              одно и то же заново. Не стоит добавлять сюда точный домашний адрес и подобное — это
-              заметки, а не факты для ассистента.
-            </div>
-            {isLoading && <div className="text-sm text-subtle">Загрузка…</div>}
-            {!isLoading && (memories ?? []).length === 0 && (
-              <div className="text-sm text-subtle">Пока ничего не запомнено</div>
-            )}
-            <ul className="space-y-1">
-              {(memories ?? []).map((m) => (
-                <li key={m.id} className="flex items-start justify-between gap-2 rounded border px-2 py-1.5 text-sm">
-                  <span className="flex-1">{m.content}</span>
-                  <button
-                    onClick={() => deleteMemory.mutate(m.id)}
-                    title="Удалить"
-                    className="flex h-6 w-6 shrink-0 items-center justify-center text-subtle hover:text-danger"
-                  >
-                    <Trash2 size={13} />
-                  </button>
-                </li>
-              ))}
-            </ul>
-            <div className="mt-2 flex gap-2">
-              <input
-                value={newMemoryText}
-                onChange={(e) => setNewMemoryText(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") handleAddMemory();
-                }}
-                placeholder="Например: живу в Познани"
-                className="min-w-0 flex-1 rounded border px-3 py-1.5 text-sm"
-              />
-              <button
-                onClick={handleAddMemory}
-                disabled={addMemory.isPending || !newMemoryText.trim()}
-                className="flex shrink-0 items-center justify-center rounded bg-accent px-3 py-1.5 text-sm text-white disabled:opacity-50"
-              >
-                {addMemory.isPending ? <Spinner size={14} className="text-white" /> : <Plus size={14} />}
-              </button>
-            </div>
+            </>
+          )}
           </div>
         </div>
       </div>
