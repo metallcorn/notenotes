@@ -3,6 +3,7 @@
 сообщения ассистенту (POST /{dialog_id}/messages -> run_dialog_turn) дёргает
 реальный LLM-провайдер (Mistral/Gemini/Groq) — платно и недетерминированно,
 сознательно не покрыта тестами (см. tests/README.md)."""
+import json
 import uuid
 
 
@@ -1006,3 +1007,149 @@ def test_clarify_limits_are_a_frame_not_a_single_shot():
     # только что спрашивал» ещё считалось, и мало, чтобы вопрос из начала
     # длинного разговора глушил подсказку до конца.
     assert 4 <= dialogs._CLARIFY_LOOKBACK_RECORDS <= 10
+
+
+# --- Подсказки, возвращающие ход, и бюджет веб-поиска ------------------
+
+
+def test_nudges_are_imperative_not_questions():
+    """Подсказка — повеление, а не вопрос.
+
+    Живой случай в проде 2026-09-10 (диалог «Замена прав»): подсказка про
+    уточняющий вопрос была задана ВОПРОСОМ («зависит ли этот ответ от моих
+    обстоятельств...?») и подмешивалась с ролью user. Модель ответила на
+    неё вслух — пользователь три раза подряд прочитал «Ответ не зависит от
+    твоих личных обстоятельств», реплику на вопрос, которого не задавал.
+
+    Остальные четыре подсказки написаны повелительно и не протекали ни
+    разу. Тест закрепляет разницу.
+    """
+    from app.routers.dialogs import _ALL_TRANSIENT_NUDGES
+
+    for nudge in _ALL_TRANSIENT_NUDGES:
+        assert "?" not in nudge, f"подсказка задана вопросом, модель ответит на неё вслух: {nudge!r}"
+
+
+def test_clarify_nudge_does_not_allow_verbatim_repeat():
+    """Подсказка не разрешает повторить прежний ответ дословно.
+
+    Второе последствие того же случая: «Если ответ от этого не зависит —
+    просто повтори его» заставляло повторить ответ ВМЕСТЕ С ОШИБКОЙ, на
+    которую человек только что указал («ul. Przykładowa 1 — это мой адрес,
+    а не ужонда» → тот же адрес снова).
+    """
+    from app.routers.dialogs import _NUDGE_CLARIFY
+
+    assert "повтори его" not in _NUDGE_CLARIFY
+    assert "поправ" in _NUDGE_CLARIFY  # наоборот, велит учесть поправку
+
+
+def test_repeated_web_search_returns_cached_result_with_hint():
+    """Дословный повтор запроса не идёт в Tavily второй раз.
+
+    magistral на замере 2026-09-09 послал три одинаковых web_search подряд
+    про дозировку парацетамола ребёнку, выжег лимит хода и не ответил
+    вовсе. Каждый повтор — платное обращение из месячной тысячи.
+    """
+    from app.routers.dialogs import _plan_web_search, _REPEATED_SEARCH_NOTE
+
+    seen: dict = {}
+    args = {"query": "парацетамол 4 года дозировка"}
+
+    key, short_circuit = _plan_web_search(args, 0, 5, seen)
+    assert short_circuit is None  # первый раз — искать по-настоящему
+    seen[key] = {"results": [{"url": "https://example.org"}]}
+
+    # Тот же запрос, регистр и пробелы не считаются.
+    _, short_circuit = _plan_web_search({"query": "  ПАРАЦЕТАМОЛ 4 ГОДА ДОЗИРОВКА "}, 1, 5, seen)
+    assert short_circuit is not None
+    assert short_circuit["results"] == [{"url": "https://example.org"}]
+    assert short_circuit["note"] == _REPEATED_SEARCH_NOTE
+
+
+def test_different_query_still_searches():
+    """Защита не должна глушить нормальную переформулировку."""
+    from app.routers.dialogs import _plan_web_search
+
+    seen: dict = {("парацетамол 4 года", "basic"): {"results": []}}
+    _, short_circuit = _plan_web_search({"query": "paracetamol dawkowanie dziecko"}, 1, 5, seen)
+    assert short_circuit is None
+
+    # depth — часть ключа: advanced-поиск по тому же тексту это другой запрос.
+    _, short_circuit = _plan_web_search({"query": "парацетамол 4 года", "depth": "advanced"}, 1, 5, seen)
+    assert short_circuit is None
+
+
+def test_exhausted_search_budget_tells_model_what_to_do():
+    """Отказ по лимиту несёт подсказку, а не голое «нельзя».
+
+    С голым отказом модель звала поиск снова до упора в лимит шагов, и
+    человек получал «не удалось завершить ответ» вместо ответа.
+    """
+    from app.routers.dialogs import _plan_web_search
+
+    _, short_circuit = _plan_web_search({"query": "что угодно"}, 5, 5, {})
+    assert short_circuit is not None
+    error = short_circuit["error"]
+    assert "выдумывать" in error and "первоисточник" in error
+
+
+def test_budget_counts_five_real_searches():
+    """Ровно пять настоящих поисков за ход, шестой — отказ."""
+    from app.routers.dialogs import _plan_web_search
+
+    for made in range(5):
+        _, short_circuit = _plan_web_search({"query": f"запрос {made}"}, made, 5, {})
+        assert short_circuit is None, f"поиск {made + 1} должен был пройти"
+    _, short_circuit = _plan_web_search({"query": "запрос 5"}, 5, 5, {})
+    assert short_circuit is not None and "error" in short_circuit
+
+
+def test_json_content_blocks_are_unwrapped_into_text_and_buttons():
+    """Ответ, написанный JSON-массивом блоков, доходит текстом, а не разметкой.
+
+    Живой случай в проде 2026-09-10: человек попросил черновик письма для
+    переводчика и получил в чат буквально
+    [{"type": "text", ...}, {"type": "suggest_replies", ...}] — сырым JSON.
+    _looks_like_leaked_tool_call это не ловил: он требует «}» в конце, а
+    массив кончается на «]».
+    """
+    from app.routers.dialogs import _unwrap_content_blocks
+
+    raw = json.dumps(
+        [
+            {"type": "text", "text": "**Шаблон письма**\n\nУважаемая Татьяна,"},
+            {"type": "suggest_replies", "options": ["Да, создать", "Нет, не нужно"]},
+        ],
+        ensure_ascii=False,
+    )
+    text, options = _unwrap_content_blocks(raw)
+
+    assert text == "**Шаблон письма**\n\nУважаемая Татьяна,"
+    assert options == ["Да, создать", "Нет, не нужно"]
+    assert "type" not in text  # разметка не просочилась
+
+
+def test_ordinary_answer_is_not_touched():
+    """Обычный ответ проходит насквозь, включая законный JSON в тексте."""
+    from app.routers.dialogs import _unwrap_content_blocks
+
+    for content in (
+        "Обычный ответ без всякого JSON.",
+        "Вот пример массива: [1, 2, 3]",
+        '["просто", "список", "строк"]',
+        "```json\n[{\"type\": \"text\"}]\n```",
+        "",
+    ):
+        text, options = _unwrap_content_blocks(content)
+        assert text == content, content
+        assert options == []
+
+
+def test_text_only_blocks_still_unwrap():
+    """Массив без кнопок — тоже разметка, её тоже надо развернуть."""
+    from app.routers.dialogs import _unwrap_content_blocks
+
+    text, options = _unwrap_content_blocks('[{"type": "text", "text": "Готово."}]')
+    assert text == "Готово."
+    assert options == []

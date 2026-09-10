@@ -1223,6 +1223,125 @@ def _asks_to_remember(text: str) -> bool:
     return bool(_REMEMBER_REQUEST_RE.search(text))
 
 
+_NUDGE_UNKEPT_PROMISE = (
+    "Ты сказал, что сейчас это сделаешь, но не вызвал ни одного "
+    "инструмента — значит не сделано ничего. Вызови нужный "
+    "инструмент прямо сейчас. Если чего-то не хватает, чтобы его "
+    "вызвать, спроси об этом через suggest_replies вместо обещания."
+)
+
+_NUDGE_CAPITULATION = (
+    "Я усомнился, но НОВЫХ ФАКТОВ не привёл. Не меняй ответ "
+    "только потому, что я надавил. Сделай одно из двух: "
+    "проверь инструментом и ответь по источнику — или прямо "
+    "скажи, что не уверен и что стоит проверить. Если твой "
+    "прежний ответ был верен, так и скажи, объяснив почему."
+)
+
+_NUDGE_MISSED_MEMORY = (
+    "Я просил запомнить это — вызови remember_fact, иначе в "
+    "следующем разговоре ты снова не будешь этого знать. "
+    "Сохрани одним коротким утверждением обо мне, потом отвечай."
+)
+
+_NUDGE_UNVERIFIED_NUMBER = (
+    "Ты назвал конкретное число (дозу, срок, сумму), но не "
+    "проверил его ни одним инструментом — значит взял по памяти. "
+    "В этой теме так нельзя. Сделай одно из двух: найди "
+    "подтверждение через web_search и ответь по источнику — или "
+    "перепиши ответ БЕЗ конкретных чисел, объяснив, от чего они "
+    "зависят и где их посмотреть. Помогать при этом не "
+    "переставай: что делать, куда обратиться, когда вызывать "
+    "скорую — говори как обычно."
+)
+
+# ПЕРЕПИСАНА 2026-09-10 по живому случаю в проде (диалог «Замена прав»).
+#
+# Прежняя версия была ВОПРОСОМ — «зависит ли этот ответ от моих
+# обстоятельств, которых ты не знаешь...?» — и заканчивалась разрешением
+# «просто повтори его». Подсказка подмешивается с ролью user, то есть
+# модель видит её как реплику человека. На вопрос она и ответила, вслух:
+# пользователь три раза подряд прочитал «Ответ не зависит от твоих личных
+# обстоятельств» — ответ на реплику, которой он не писал.
+#
+# Второе последствие хуже первого. «Просто повтори его» заставляло
+# повторять прежний ответ дословно ВМЕСТЕ С ОШИБКОЙ, на которую человек
+# только что указал: он написал «ul. Przykładowa 1 — это мой адрес, а не
+# ужонда» — и получил тот же адрес снова, в том же виде.
+#
+# Отсюда правило для всех подсказок: подсказка — это ПОВЕЛЕНИЕ, а не
+# вопрос, и она никогда не разрешает повторить ответ дословно. Четыре
+# остальные подсказки написаны так с самого начала и не протекали ни разу;
+# протекла ровно та единственная, что была задана вопросом. Правило
+# закреплено тестом test_nudges_are_imperative_not_questions.
+_NUDGE_CLARIFY = (
+    "Проверь, от чего зависит твой ответ: гражданство, статус документов, "
+    "возраст, место. Зависит от того, чего ты обо мне не знаешь — СПРОСИ "
+    "об этом через suggest_replies, а не отвечай как всем подряд. Не "
+    "зависит — отвечай по существу. Если я только что поправил тебя, учти "
+    "поправку, а не повторяй прежний ответ. Саму эту проверку не упоминай "
+    "и не отвечай на неё — я её не писал."
+)
+
+_ALL_TRANSIENT_NUDGES = (
+    _NUDGE_UNKEPT_PROMISE,
+    _NUDGE_CAPITULATION,
+    _NUDGE_MISSED_MEMORY,
+    _NUDGE_UNVERIFIED_NUMBER,
+    _NUDGE_CLARIFY,
+)
+
+
+_REPEATED_SEARCH_NOTE = (
+    "Этот запрос уже выполнялся в этом ходу, результат тот же. Повторять его "
+    "бесполезно: либо переформулируй запрос по-другому (другие слова, другой "
+    "язык, конкретный сайт), либо отвечай тем, что есть, честно назвав, чего "
+    "найти не удалось. Не выдумывай недостающее."
+)
+
+# Раньше здесь был голый отказ «Лимит веб-поиска на этот ход исчерпан».
+# Модель из него не понимала, что делать дальше, и звала поиск снова до
+# упора в лимит шагов — человек не получал ответа вовсе. Подсказка в
+# сообщении об ошибке по замерам исправляла модель во ВСЕХ прогонах, в
+# отличие от требований промптом.
+_SEARCH_BUDGET_ERROR = (
+    "Лимит веб-поиска на этот ход исчерпан. Больше искать нельзя. Ответь тем, "
+    "что уже нашёл, и прямо скажи, чего найти не удалось — выдумывать "
+    "недостающее нельзя. Если вопрос важный (здоровье, документы, деньги), "
+    "посоветуй проверить в первоисточнике."
+)
+
+
+def _plan_web_search(
+    arguments: dict,
+    calls_made: int,
+    max_calls: int,
+    seen: dict[tuple[str, str], dict],
+) -> tuple[tuple[str, str], dict | None]:
+    """Ключ запроса и готовый ответ, если реальный поиск делать не надо.
+
+    Второй элемент None означает «иди и ищи по-настоящему».
+
+    Повторный дословный запрос отдаётся из уже полученного результата:
+    интернет за секунду не изменился, а платное обращение к Tavily из
+    месячной тысячи тратится. Поймано на замере magistral 2026-09-09 —
+    три одинаковых web_search подряд про дозировку парацетамола ребёнку,
+    лимит хода выжжен, ответа человек не получил.
+
+    Вынесено из _run_dialog_turn_locked отдельной функцией ради
+    тестируемости: внутри цикла хода это место не достать.
+    """
+    key = (
+        str(arguments.get("query", "") or "").strip().lower(),
+        str(arguments.get("depth", "basic") or "basic").strip().lower(),
+    )
+    if key in seen:
+        return key, {**seen[key], "note": _REPEATED_SEARCH_NOTE}
+    if calls_made >= max_calls:
+        return key, {"error": _SEARCH_BUDGET_ERROR}
+    return key, None
+
+
 def _looks_like_unkept_promise(text: str) -> bool:
     """Ход закончился обещанием сделать, но инструмент не вызван.
 
@@ -1251,6 +1370,50 @@ def _known_tool_argument_names() -> frozenset[str]:
     for definition in get_tool_definitions():
         names.update((definition.parameters or {}).get("properties", {}))
     return frozenset(names)
+
+
+def _unwrap_content_blocks(content: str) -> tuple[str, list[str]]:
+    """Ответ, целиком написанный JSON-массивом блоков, — в текст и кнопки.
+
+    Живой случай в проде 2026-09-10: пользователь получил в чат буквально
+    это, сырым текстом:
+
+        [{"type": "text", "text": "**Шаблон письма...**"},
+         {"type": "suggest_replies", "options": ["Да, создать", ...]}]
+
+    Модель описала СТРУКТУРУ ответа вместо того, чтобы вызвать
+    suggest_replies. _looks_like_leaked_tool_call это не ловит: он требует,
+    чтобы ответ кончался на «}», а массив кончается на «]».
+
+    Разбираем, а не перезапрашиваем ход: ответ по существу уже написан и
+    он хороший — терять его и платить за второй вызов LLM незачем.
+    Возвращает (текст, варианты ответа); если это не такой массив —
+    исходную строку и пустой список.
+    """
+    stripped = (content or "").strip()
+    if not (stripped.startswith("[") and stripped.endswith("]")):
+        return content, []
+    try:
+        parsed = json.loads(stripped)
+    except ValueError:
+        return content, []
+    if not isinstance(parsed, list) or not parsed:
+        return content, []
+    if not all(isinstance(p, dict) and "type" in p for p in parsed):
+        # Обычный JSON-массив в ответе (пользователь мог сам попросить) —
+        # не трогаем.
+        return content, []
+
+    texts: list[str] = []
+    options: list[str] = []
+    for part in parsed:
+        if part.get("type") == "text" and isinstance(part.get("text"), str):
+            texts.append(part["text"])
+        elif part.get("type") == "suggest_replies":
+            options.extend(str(o).strip() for o in part.get("options", []) or [] if str(o).strip())
+    if not texts and not options:
+        return content, []
+    return "\n\n".join(t for t in texts if t.strip()), options
 
 
 def _looks_like_leaked_tool_call(content: str, tool_names: set[str]) -> bool:
@@ -1998,6 +2161,10 @@ async def _run_dialog_turn_locked(
     ctx = ToolContext(db=db, user_id=user.id, space_id=item.space_id, client_timezone=client_timezone)
     web_search_calls = 0
     max_web_search_calls = settings.web_search_max_calls_per_turn
+    # Результаты поиска за этот ход по нормализованному запросу — см.
+    # _plan_web_search: модель повторяет запрос дословно, когда выдача её
+    # не устроила, и каждый повтор стоит платного обращения к Tavily.
+    web_search_seen_this_turn: dict[tuple[str, str], dict] = {}
     # Не квота платного API (в отличие от web_search/Tavily) — просто
     # предохранитель от зацикливания на внешних запросах в один ход,
     # константа, не настройка.
@@ -2193,11 +2360,20 @@ async def _run_dialog_turn_locked(
         if any(tc.name.startswith(_MUTATING_TOOL_PREFIXES) for tc in real_tool_calls):
             mutating_tool_called_this_turn = True
 
+        # Ответ, написанный JSON-массивом блоков вместо текста и вызова
+        # suggest_replies — разбираем до всех остальных проверок, иначе они
+        # анализируют разметку, а не то, что модель хотела сказать.
+        unwrapped_content, unwrapped_options = _unwrap_content_blocks(assistant_msg.content)
+        if unwrapped_options or unwrapped_content != assistant_msg.content:
+            logger.warning(
+                "Ответ пришёл JSON-массивом блоков вместо текста (диалог %s): %r",
+                item.id, assistant_msg.content[:200],
+            )
         assistant_record: dict = {
             "id": str(uuid.uuid4()),
             "role": "assistant",
             "content": _append_missing_entry_links(
-                _strip_unverified_links(assistant_msg.content, verified_urls), linked_entries_seen_this_turn
+                _strip_unverified_links(unwrapped_content, verified_urls), linked_entries_seen_this_turn
             ),
             "created_at": _now_iso(),
         }
@@ -2287,12 +2463,7 @@ async def _run_dialog_turn_locked(
             transient_nudges.append(
                 Message(
                     role="user",
-                    content=(
-                        "Ты сказал, что сейчас это сделаешь, но не вызвал ни одного "
-                        "инструмента — значит не сделано ничего. Вызови нужный "
-                        "инструмент прямо сейчас. Если чего-то не хватает, чтобы его "
-                        "вызвать, спроси об этом через suggest_replies вместо обещания."
-                    ),
+                    content=_NUDGE_UNKEPT_PROMISE,
                 )
             )
             continue
@@ -2319,13 +2490,7 @@ async def _run_dialog_turn_locked(
             transient_nudges.append(
                 Message(
                     role="user",
-                    content=(
-                        "Я усомнился, но НОВЫХ ФАКТОВ не привёл. Не меняй ответ "
-                        "только потому, что я надавил. Сделай одно из двух: "
-                        "проверь инструментом и ответь по источнику — или прямо "
-                        "скажи, что не уверен и что стоит проверить. Если твой "
-                        "прежний ответ был верен, так и скажи, объяснив почему."
-                    ),
+                    content=_NUDGE_CAPITULATION,
                 )
             )
             continue
@@ -2354,11 +2519,7 @@ async def _run_dialog_turn_locked(
             transient_nudges.append(
                 Message(
                     role="user",
-                    content=(
-                        "Я просил запомнить это — вызови remember_fact, иначе в "
-                        "следующем разговоре ты снова не будешь этого знать. "
-                        "Сохрани одним коротким утверждением обо мне, потом отвечай."
-                    ),
+                    content=_NUDGE_MISSED_MEMORY,
                 )
             )
             continue
@@ -2419,13 +2580,7 @@ async def _run_dialog_turn_locked(
             transient_nudges.append(
                 Message(
                     role="user",
-                    content=(
-                        "Прежде чем отвечать: зависит ли этот ответ от моих "
-                        "обстоятельств, которых ты не знаешь — гражданства, статуса "
-                        "документов, возраста, места? Если да, СПРОСИ через "
-                        "suggest_replies, а не отвечай как всем подряд. Если ответ "
-                        "от этого не зависит — просто повтори его."
-                    ),
+                    content=_NUDGE_CLARIFY,
                 )
             )
             continue
@@ -2453,16 +2608,7 @@ async def _run_dialog_turn_locked(
             transient_nudges.append(
                 Message(
                     role="user",
-                    content=(
-                        "Ты назвал конкретное число (дозу, срок, сумму), но не "
-                        "проверил его ни одним инструментом — значит взял по памяти. "
-                        "В этой теме так нельзя. Сделай одно из двух: найди "
-                        "подтверждение через web_search и ответь по источнику — или "
-                        "перепиши ответ БЕЗ конкретных чисел, объяснив, от чего они "
-                        "зависят и где их посмотреть. Помогать при этом не "
-                        "переставай: что делать, куда обратиться, когда вызывать "
-                        "скорую — говори как обычно."
-                    ),
+                    content=_NUDGE_UNVERIFIED_NUMBER,
                 )
             )
             continue
@@ -2501,8 +2647,11 @@ async def _run_dialog_turn_locked(
                 + ". Проверьте, не нужно ли оформить заново."
             )
 
-        if suggest_calls:
-            options: list[str] = []
+        # unwrapped_options — кнопки из ответа, написанного JSON-массивом
+        # (см. _unwrap_content_blocks). Без них человек остался бы вообще
+        # без кнопок: настоящего вызова suggest_replies модель не сделала.
+        if suggest_calls or unwrapped_options:
+            options: list[str] = list(unwrapped_options)
             for tc in suggest_calls:
                 options.extend(str(o).strip() for o in tc.arguments.get("options", []) if str(o).strip())
             assistant_record["suggested_replies"] = options
@@ -2513,14 +2662,20 @@ async def _run_dialog_turn_locked(
 
         for tc in real_tool_calls:
             if tc.name == "web_search":
-                web_search_calls += 1
-                if web_search_calls > max_web_search_calls:
-                    result: dict = {"error": "Лимит веб-поиска на этот ход исчерпан"}
+                query_key, short_circuit = _plan_web_search(
+                    tc.arguments, web_search_calls, max_web_search_calls, web_search_seen_this_turn
+                )
+                if short_circuit is not None:
+                    result: dict = short_circuit
                 else:
+                    web_search_calls += 1
                     used_web_search = True
-                    if str(tc.arguments.get("depth", "basic")).strip().lower() == "advanced":
+                    if query_key[1] == "advanced":
                         used_advanced_web_search = True
                     result = await dispatch(tc.name, ctx, tc.arguments, disabled=disabled_tool_names)
+                    # Ошибку не запоминаем: следующая попытка может пройти.
+                    if not result.get("error"):
+                        web_search_seen_this_turn[query_key] = result
                     for search_result in result.get("results", []) or []:
                         url = search_result.get("url")
                         if url:
