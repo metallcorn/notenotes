@@ -215,3 +215,43 @@ class TestДоступностьВезде:
         from app.tools.registry import get_tool_definitions
 
         assert "list_agenda" in {t.name for t in get_tool_definitions(set(MCP_EXCLUDED_TOOLS))}
+
+
+class TestДубли:
+    async def test_одинаковое_событие_из_двух_заметок_схлопывается(self, base):
+        """Дубли берутся из ДАННЫХ, а не из ошибки инструмента.
+
+        Проверено на боевой базе: письмо «Налоги 08-2026» пришло дважды,
+        стало двумя заметками, и в каждой распозналось одно и то же
+        событие. Показывать обе честно, но человеку, спросившему «что
+        впереди», это шум.
+        """
+        at = _iso(3)
+        await base.note_with_events([{"at": at, "title": "Оплата налогов"}], title="Письмо копия 1")
+        await base.note_with_events([{"at": at, "title": "Оплата налогов"}], title="Письмо копия 2")
+
+        entries = (await agenda.handle(base.ctx, {}))["entries"]
+
+        assert len(entries) == 1
+
+    async def test_одно_название_в_разные_дни_остаётся_двумя(self, base):
+        """Фестиваль 12-го и 13-го — два разных дня, а не дубль."""
+        await base.note_with_events([
+            {"at": _iso(2), "title": "Фестиваль уличной еды"},
+            {"at": _iso(3), "title": "Фестиваль уличной еды"},
+        ])
+
+        entries = (await agenda.handle(base.ctx, {}))["entries"]
+
+        assert len(entries) == 2
+
+    async def test_напоминание_не_съедается_похожим_событием(self, base):
+        """У них разный kind и разное назначение: напоминание можно
+        закрыть, распознанное событие — нет."""
+        at = _iso(2)
+        await base.reminder("Оплатить налоги", at)
+        await base.note_with_events([{"at": at, "title": "Оплата налогов"}])
+
+        entries = (await agenda.handle(base.ctx, {}))["entries"]
+
+        assert len(entries) == 2

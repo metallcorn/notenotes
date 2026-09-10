@@ -157,6 +157,27 @@ async def handle(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
             })
 
     entries.sort(key=lambda e: e["at"])
+
+    # Схлопываем одинаковое: та же дата + то же название.
+    #
+    # Дубли берутся не из ошибки инструмента, а из данных. Проверено на
+    # боевой базе: письмо «Налоги 08-2026» пришло на почту дважды, стало
+    # двумя заметками, и в каждой распозналось одно и то же событие.
+    # Показывать их обе честно, но человеку, спросившему «что впереди»,
+    # это шум — а шум и есть главный способ обесценить такой ответ.
+    #
+    # Ключ намеренно СТРОГИЙ (дата плюс точное название): фестиваль
+    # 12-го и 13-го — два разных дня и должен остаться двумя записями.
+    seen: set[tuple[str, str]] = set()
+    unique: list[dict[str, Any]] = []
+    for entry in entries:
+        key = (entry["at"], entry["title"].strip().lower())
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(entry)
+    entries = unique
+
     return {
         "today": now_local_date(ctx.client_timezone).isoformat(),
         "horizon_days": days,
