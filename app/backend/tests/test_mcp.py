@@ -16,7 +16,7 @@ from sqlalchemy import select
 
 from app.models import Item, MCPToken, Space, SpaceMember, User
 from app.routers.mcp import MCP_EXCLUDED_TOOLS
-from app.security import hash_password
+from app.security import hash_password, hash_token
 
 
 async def _make_space(db, user: User, name: str, *, is_vault: bool = False) -> Space:
@@ -45,7 +45,7 @@ async def _make_note(db, space: Space, title: str, content: str = "") -> Item:
 
 
 async def _issue_token(db, user: User, raw: str = "nn_testtoken") -> MCPToken:
-    token = MCPToken(user_id=user.id, name="тест", token_hash=hash_password(raw))
+    token = MCPToken(user_id=user.id, name="тест", token_hash=hash_token(raw))
     db.add(token)
     await db.flush()
     await db.commit()

@@ -111,6 +111,81 @@ class MCPToken(Base):
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
+class OAuthClient(Base):
+    """Клиент, зарегистрировавшийся сам (RFC 7591).
+
+    claude.ai не знает про нас заранее и не может «завести приложение» в
+    админке — он регистрируется в момент подключения. Поэтому регистрация
+    открытая, и именно поэтому список redirect_uri фиксируется ЗДЕСЬ, при
+    регистрации, и дальше сверяется побуквенно: открытая регистрация без
+    этого превращается в открытый редиректор для фишинга.
+
+    Секрета у клиента нет: он публичный (браузер/десктоп, спрятать секрет
+    негде), и вместо секрета работает PKCE.
+    """
+
+    __tablename__ = "oauth_clients"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    client_name: Mapped[str] = mapped_column(String(255), default="", server_default="")
+    redirect_uris: Mapped[list[str]] = mapped_column(JSONB, default=list)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class OAuthCode(Base):
+    """Одноразовый код авторизации.
+
+    Живёт минуты и гибнет при первом обмене. Хранится хэш — код это
+    предъявительский секрет ровно как токен.
+
+    code_challenge обязателен: без PKCE перехваченный код можно обменять
+    на токен, а перехватить его проще, чем кажется (он проезжает через
+    адресную строку браузера и историю).
+    """
+
+    __tablename__ = "oauth_codes"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    code_hash: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    client_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("oauth_clients.id", ondelete="CASCADE"))
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    # Тот самый, что пришёл в /authorize: при обмене должен совпасть
+    # буквально. Иначе код, выданный для одного адреса, можно было бы
+    # обменять, подставив другой.
+    redirect_uri: Mapped[str] = mapped_column(Text)
+    code_challenge: Mapped[str] = mapped_column(String(255))
+    # Ресурс, для которого клиент просил токен (RFC 8707). Попадёт в aud.
+    resource: Mapped[str] = mapped_column(Text, default="", server_default="")
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class OAuthRefreshToken(Base):
+    """Refresh-токен. Ротируется при каждом обмене — этого требует спека
+    для публичных клиентов.
+
+    family_id связывает цепочку ротаций. Он нужен для обнаружения
+    ПОВТОРНОГО использования: если предъявлен уже потраченный refresh,
+    значит его кто-то скопировал, и правильная реакция — убить всю
+    цепочку, а не только предъявленный. Иначе укравший и настоящий
+    владелец продолжали бы ротировать по очереди, и кража осталась бы
+    незамеченной.
+    """
+
+    __tablename__ = "oauth_refresh_tokens"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    token_hash: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    family_id: Mapped[uuid.UUID] = mapped_column(index=True)
+    client_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("oauth_clients.id", ondelete="CASCADE"))
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    resource: Mapped[str] = mapped_column(Text, default="", server_default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
 class Space(Base):
     __tablename__ = "spaces"
 

@@ -37,7 +37,7 @@ from app.core.config import get_settings
 from app.db import get_db
 from app.deps import get_current_user
 from app.models import MCPToken, Space, SpaceMember, User
-from app.security import hash_password, verify_password
+from app.security import hash_token
 from app.tools.registry import ToolContext, dispatch, get_tool_definitions
 
 logger = logging.getLogger(__name__)
@@ -166,25 +166,52 @@ async def _authenticate(request: Request, db: AsyncSession) -> MCPPrincipal:
         raise _unauthorized(request)
     raw = raw.strip()
 
-    # Хэш неизвестен заранее, поэтому ищем перебором активных токенов и
-    # сверяем каждый — их единицы. Отозванные не проверяем вовсе.
-    rows = (await db.execute(select(MCPToken).where(MCPToken.revoked_at.is_(None)))).scalars().all()
-    token = next((t for t in rows if verify_password(raw, t.token_hash)), None)
-    if token is None:
-        raise _unauthorized(request)
+    # Два способа войти, оба живут здесь рядом.
+    #
+    # Личный токен «nn_...» — для Claude Code, где его вписывают
+    # заголовком руками. OAuth-токен — для claude.ai, который простой
+    # токен вписать не даёт и требует полноценный поток (routers/oauth.py).
+    #
+    # Разбирать их по префиксу нельзя: подделать префикс ничего не стоит.
+    # Поэтому проверяем оба пути честно, а решает подпись/хэш.
+    token: MCPToken | None = None
+    user: User | None = None
+    space_id: uuid.UUID | None = None
 
-    user = await db.get(User, token.user_id)
+    if raw.startswith(TOKEN_PREFIX):
+        # sha256 детерминирован, поэтому один индексированный запрос
+        # вместо перебора всех строк (см. security.hash_token — почему не
+        # bcrypt).
+        token = (
+            await db.execute(
+                select(MCPToken).where(MCPToken.token_hash == hash_token(raw), MCPToken.revoked_at.is_(None))
+            )
+        ).scalar_one_or_none()
+        if token is not None:
+            user = await db.get(User, token.user_id)
+            space_id = token.space_id
+    else:
+        # aud обязателен и сверяется с каноническим URI: спека требует
+        # принимать только токены, выписанные ИМЕННО ДЛЯ НАС. Заодно это
+        # отсекает сессионную куку — у неё aud нет вовсе.
+        from app.routers.oauth import canonical_mcp_uri
+        from app.security import decode_mcp_access_token
+
+        user_id = decode_mcp_access_token(raw, canonical_mcp_uri())
+        if user_id is not None:
+            user = await db.get(User, user_id)
+
     if user is None:
         raise _unauthorized(request)
 
-    space_id = token.space_id
     if space_id is None:
         space_id = await _home_space_id(db, user.id)
     if space_id is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "У пользователя нет ни одного спейса")
 
-    token.last_used_at = datetime.now(timezone.utc)
-    await db.commit()
+    if token is not None:
+        token.last_used_at = datetime.now(timezone.utc)
+        await db.commit()
 
     # Умения, выключенные пользователем в настройках, выключены и здесь:
     # одна настройка, а не две расходящиеся.
@@ -357,7 +384,7 @@ async def create_token(
     db: AsyncSession = Depends(get_db),
 ):
     raw = TOKEN_PREFIX + secrets.token_urlsafe(32)
-    token = MCPToken(user_id=user.id, name=payload.name.strip()[:255], token_hash=hash_password(raw))
+    token = MCPToken(user_id=user.id, name=payload.name.strip()[:255], token_hash=hash_token(raw))
     db.add(token)
     await db.commit()
     await db.refresh(token)

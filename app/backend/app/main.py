@@ -36,6 +36,7 @@ from app.routers import (
     mail_webhook,
     mcp,
     memories,
+    oauth,
     notifications,
     public,
     push,
@@ -177,6 +178,9 @@ app.include_router(push.router)
 app.include_router(dialogs.router)
 # ДО catch-all SPA-роута ниже — иначе POST /api/mcp уедет в index.html.
 app.include_router(mcp.router)
+# Тоже ДО catch-all: /.well-known/* обязан лежать в корне (так велит RFC),
+# и SPA-роут перехватил бы его первым.
+app.include_router(oauth.router)
 app.include_router(voice.router)
 app.include_router(lists.router)
 app.include_router(tables.router)
