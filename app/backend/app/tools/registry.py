@@ -75,6 +75,10 @@ SKILL_CATALOG: dict[str, dict[str, Any]] = {
     "create_maps_link": {"label": "Карты и навигация", "description": "Готовит ссылку на место в Google Maps", "toggleable": True},
     "create_reminder": {"label": "Напоминания", "description": "Создаёт напоминание в центре уведомлений на выбранное время", "toggleable": True},
     "list_reminders": {"label": "Просмотр напоминаний", "description": "Смотрит список активных напоминаний", "toggleable": False},
+    # toggleable=False по той же причине, что у list_reminders: без этого
+    # ассистент не может ответить на «что у меня на неделе», а это не
+    # дополнительное умение, а базовый вопрос.
+    "list_agenda": {"label": "Что впереди", "description": "Показывает напоминания и события, распознанные в заметках", "toggleable": False},
     "resolve_reminder": {"label": "Отметка напоминаний", "description": "Отмечает напоминание выполненным", "toggleable": False},
     "run_python": {"label": "Python-вычисления", "description": "Точные вычисления в изолированной песочнице", "toggleable": True},
     "read_website": {"label": "Чтение сайтов по ссылке", "description": "Скачивает и читает содержимое страницы по присланной ссылке", "toggleable": True},
@@ -123,7 +127,7 @@ def _expand_disabled(disabled: set[str]) -> set[str]:
 
 
 def _build_registry() -> dict[str, tuple[ToolDefinition, ToolHandler]]:
-    from app.tools import calendar_event, dialog_history, lists, maps, memory, notes, python_sandbox, read_website, reminders, search_base, tables, track_delivery, ui, url_check, web_search
+    from app.tools import agenda, calendar_event, dialog_history, lists, maps, memory, notes, python_sandbox, read_website, reminders, search_base, tables, track_delivery, ui, url_check, web_search
 
     registry: dict[str, tuple[ToolDefinition, ToolHandler]] = {
         search_base.DEFINITION.name: (search_base.DEFINITION, search_base.handle),
@@ -145,6 +149,7 @@ def _build_registry() -> dict[str, tuple[ToolDefinition, ToolHandler]]:
         url_check.INSERT_URL_CHECK_BLOCK.name: (url_check.INSERT_URL_CHECK_BLOCK, url_check.insert_url_check_block),
         reminders.CREATE_REMINDER.name: (reminders.CREATE_REMINDER, reminders.create_reminder),
         reminders.LIST_REMINDERS.name: (reminders.LIST_REMINDERS, reminders.list_reminders),
+        agenda.DEFINITION.name: (agenda.DEFINITION, agenda.handle),
         reminders.RESOLVE_REMINDER.name: (reminders.RESOLVE_REMINDER, reminders.resolve_reminder),
         notes.CREATE_NOTE.name: (notes.CREATE_NOTE, notes.create_note),
         notes.CREATE_FOLDER.name: (notes.CREATE_FOLDER, notes.create_folder),
