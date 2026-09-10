@@ -31,7 +31,7 @@ import logging
 import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
@@ -228,8 +228,12 @@ async def authorize_form(
     try:
         user = await get_current_user(request, db)
     except HTTPException:
-        target = f"/login?next={request.url.path}?{urlencode(dict(request.query_params))}"
-        return RedirectResponse(target, status_code=status.HTTP_302_FOUND)
+        # next целиком кодируем как ОДНО значение. Без quote всё, что после
+        # первого «&», отрывалось бы от next и становилось параметрами
+        # самого /login — после входа возвращаться было бы некуда, и поток
+        # подключения обрывался на пустом месте. Поймано живой проверкой.
+        back = f"{request.url.path}?{urlencode(dict(request.query_params))}"
+        return RedirectResponse(f"/login?next={quote(back, safe='')}", status_code=status.HTTP_302_FOUND)
 
     return HTMLResponse(_consent_page(client, user, dict(request.query_params)))
 

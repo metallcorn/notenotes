@@ -565,3 +565,37 @@ class TestХранение:
         from app import models
 
         assert not hasattr(models, "OAuthAccessToken")
+
+
+class TestВозвратПослеВхода:
+    async def test_next_закодирован_целиком(self, client, oauth):
+        """Поймано живой проверкой на проде.
+
+        Без quote всё, что после первого «&», отрывалось от next и
+        становилось параметрами самого /login. После входа возвращаться
+        было бы некуда: client_id, redirect_uri, code_challenge — всё
+        терялось, и подключение обрывалось на пустом месте.
+        """
+        from urllib.parse import parse_qs, urlparse
+
+        r = await client.get(
+            "/api/oauth/authorize",
+            params={
+                "client_id": oauth["client_id"],
+                "redirect_uri": REDIRECT,
+                "response_type": "code",
+                "code_challenge": CHALLENGE,
+                "code_challenge_method": "S256",
+                "state": "xyz",
+            },
+        )
+
+        assert r.status_code == 302
+        query = parse_qs(urlparse(r.headers["location"]).query)
+        # Ровно один параметр — next. Всё остальное внутри него.
+        assert list(query) == ["next"]
+        inner = parse_qs(urlparse(query["next"][0]).query)
+        assert inner["client_id"] == [oauth["client_id"]]
+        assert inner["redirect_uri"] == [REDIRECT]
+        assert inner["code_challenge"] == [CHALLENGE]
+        assert inner["state"] == ["xyz"]

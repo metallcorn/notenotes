@@ -1,9 +1,10 @@
 import { FormEvent, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { Eye, EyeOff } from "lucide-react";
 import { useLogin } from "../api/hooks";
 import { ApiError } from "../api/client";
 import Spinner from "../components/Spinner";
+import { safeNextPath } from "../lib/safeNext";
 
 export default function LoginPage() {
   const [username, setUsername] = useState("");
@@ -12,6 +13,7 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const login = useLogin();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
 
   async function onSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -26,7 +28,14 @@ export default function LoginPage() {
     const passwordValue = String(data.get("password") ?? "").trim();
     try {
       await login.mutateAsync({ username: usernameValue, password: passwordValue });
-      navigate("/");
+      // Вернуться туда, откуда прислали. Нужно для OAuth: не вошедшего
+      // отправляют сюда с /api/oauth/authorize, и без возврата поток
+      // подключения обрывался бы на пустом месте.
+      const next = safeNextPath(searchParams.get("next"));
+      // Наш собственный маршрутизатор не знает про /api/* — это бэкенд.
+      // Туда уходим полной перезагрузкой, внутрь приложения — навигацией.
+      if (next.startsWith("/api/")) window.location.href = next;
+      else navigate(next);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Не удалось войти");
     }
