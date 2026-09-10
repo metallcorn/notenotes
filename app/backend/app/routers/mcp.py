@@ -179,11 +179,26 @@ async def _authenticate(request: Request, db: AsyncSession) -> MCPPrincipal:
         # sha256 детерминирован, поэтому один индексированный запрос
         # вместо перебора всех строк (см. security.hash_token — почему не
         # bcrypt).
-        token = (
-            await db.execute(
-                select(MCPToken).where(MCPToken.token_hash == hash_token(raw), MCPToken.revoked_at.is_(None))
-            )
+        #
+        # Отозванные тоже ищем, а НЕ отсекаем условием в запросе. Раньше
+        # отсекали — и использование отозванного токена было неотличимо от
+        # случайного мусора. А это разные вещи: отозванный токен не может
+        # «случайно» оказаться у клиента, значит копию сохранили и пробуют.
+        # Единственный шанс это заметить.
+        found = (
+            await db.execute(select(MCPToken).where(MCPToken.token_hash == hash_token(raw)))
         ).scalar_one_or_none()
+        if found is not None and found.revoked_at is not None:
+            await audit.alert(
+                db,
+                event=audit.MCP_TOKEN_REVOKED_USED,
+                user_id=found.user_id,
+                subject=found.name or str(found.id),
+                source=client_subnet(request),
+            )
+            await db.commit()
+            raise _unauthorized(request)
+        token = found
         if token is not None:
             user = await db.get(User, token.user_id)
             space_id = token.space_id

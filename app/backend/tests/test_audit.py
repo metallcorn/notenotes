@@ -189,3 +189,114 @@ class TestСрокХранения:
         left = [e.subject for e in await _events(db_session)]
         assert "свежее" in left
         assert "древнее" not in left
+
+
+class TestПредупрежденияЧеловеку:
+    """Список событий, о которых уведомляем, короткий НАМЕРЕННО.
+
+    Уведомление о том, что обычно безобидно, учит смахивать не глядя — и
+    тогда смахнут настоящее. Поэтому половина тестов здесь про то, о чём
+    уведомлять НЕ надо.
+    """
+
+    async def test_отозванный_токен_отличается_от_мусора(self, client, db_session, test_user):
+        """Главная находка этого захода.
+
+        Раньше запрос отозванным токеном был неотличим от случайного
+        мусора: оба давали 401 и молчание. А это разные вещи — отозванный
+        токен не может «случайно» оказаться у клиента, значит копию
+        сохранили и пробуют.
+        """
+        from app.models import Notification
+
+        await _space(db_session, test_user)
+        db_session.add(MCPToken(
+            user_id=test_user.id, name="ноутбук", token_hash=hash_token("nn_revoked"),
+            revoked_at=datetime.now(timezone.utc),
+        ))
+        await db_session.commit()
+
+        r = await client.post(
+            "/api/mcp",
+            json={"jsonrpc": "2.0", "id": 1, "method": "ping"},
+            headers={"Authorization": "Bearer nn_revoked"},
+        )
+
+        assert r.status_code == 401
+        events = [e.event for e in await _events(db_session)]
+        assert audit.MCP_TOKEN_REVOKED_USED in events
+        notes = (await db_session.execute(select(Notification))).scalars().all()
+        assert notes and "Отозванным токеном" in notes[0].title
+
+    async def test_обычный_мусорный_токен_никого_не_будит(self, mcp, db_session):
+        """Иначе фоновый шум интернета будил бы семью каждый день."""
+        from app.models import Notification
+
+        await mcp("ping", token="nn_prosto_musor")
+
+        notes = (await db_session.execute(select(Notification))).scalars().all()
+        assert notes == []
+
+    async def test_вызовы_инструментов_не_уведомляют(self, mcp, db_session):
+        from app.models import Notification
+
+        for _ in range(5):
+            await mcp("tools/call", {"name": "search_base", "arguments": {"query": "что-то"}})
+
+        assert (await db_session.execute(select(Notification))).scalars().all() == []
+
+    async def test_создание_токена_не_уведомляет(self, auth_client, db_session):
+        """Человек только что сделал это сам, своей же сессией."""
+        from app.models import Notification
+
+        await auth_client.post("/api/mcp-tokens", json={"name": "x"})
+
+        assert (await db_session.execute(select(Notification))).scalars().all() == []
+
+    async def test_повтор_не_превращается_в_поток(self, client, db_session, test_user):
+        """Один инцидент — это десятки попыток подряд.
+
+        Без задержки человек получил бы вместо предупреждения ленту из
+        сорока одинаковых сообщений и перестал бы их читать.
+        """
+        from app.models import Notification
+
+        await _space(db_session, test_user)
+        db_session.add(MCPToken(
+            user_id=test_user.id, name="x", token_hash=hash_token("nn_revoked2"),
+            revoked_at=datetime.now(timezone.utc),
+        ))
+        await db_session.commit()
+
+        for _ in range(6):
+            await client.post(
+                "/api/mcp",
+                json={"jsonrpc": "2.0", "id": 1, "method": "ping"},
+                headers={"Authorization": "Bearer nn_revoked2"},
+            )
+
+        notes = (await db_session.execute(select(Notification))).scalars().all()
+        assert len(notes) == 1, "предупреждение должно быть одно, а не по одному на попытку"
+
+    async def test_след_остаётся_даже_если_уведомление_не_поставилось(self, client, db_session, test_user, monkeypatch):
+        """Сначала запись, потом уведомление — не наоборот."""
+        await _space(db_session, test_user)
+        db_session.add(MCPToken(
+            user_id=test_user.id, name="x", token_hash=hash_token("nn_revoked3"),
+            revoked_at=datetime.now(timezone.utc),
+        ))
+        await db_session.commit()
+
+        def explode(*args, **kwargs):
+            raise RuntimeError("не вышло")
+
+        monkeypatch.setattr("app.models.Notification", explode)
+
+        await client.post(
+            "/api/mcp",
+            json={"jsonrpc": "2.0", "id": 1, "method": "ping"},
+            headers={"Authorization": "Bearer nn_revoked3"},
+        )
+
+        events = [e.event for e in await _events(db_session)]
+        assert audit.MCP_TOKEN_REVOKED_USED in events

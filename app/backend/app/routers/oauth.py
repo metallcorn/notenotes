@@ -465,7 +465,7 @@ async def _grant_authorization_code(
         logger.warning("Повторное использование кода авторизации (клиент %s) — токены отозваны", entry.client_id)
         # Повтор означает, что код у кого-то ещё. Это ровно тот след,
         # ради которого аудит и заводился.
-        await audit.record(db, event=audit.OAUTH_CODE_REPLAY, user_id=entry.user_id, subject=str(entry.client_id))
+        await audit.alert(db, event=audit.OAUTH_CODE_REPLAY, user_id=entry.user_id, subject=str(entry.client_id))
         return _token_error("invalid_grant", "Код уже использован")
 
     if entry.expires_at <= _now():
@@ -507,7 +507,7 @@ async def _grant_refresh(db: AsyncSession, refresh_token: str, client_id: str) -
         )
         await db.commit()
         logger.warning("Повторное использование refresh-токена — цепочка %s отозвана", entry.family_id)
-        await audit.record(db, event=audit.OAUTH_REFRESH_REPLAY, user_id=entry.user_id, subject=str(entry.client_id))
+        await audit.alert(db, event=audit.OAUTH_REFRESH_REPLAY, user_id=entry.user_id, subject=str(entry.client_id))
         return _token_error("invalid_grant", "Refresh-токен уже использован")
 
     if entry.expires_at <= _now():
