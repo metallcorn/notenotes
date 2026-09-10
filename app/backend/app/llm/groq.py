@@ -5,6 +5,7 @@ import json
 import httpx
 
 from app.llm.base import LLMResponse, Message, ToolCall, ToolDefinition
+from app.llm.retry import post_with_retry
 
 GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
 
@@ -91,7 +92,8 @@ class GroqClient:
         # 180с, не 60 — см. mistral.py::chat, тот же реальный случай
         # (httpx.ReadTimeout на /ai/transform для большой заметки).
         async with httpx.AsyncClient(timeout=180) as client:
-            resp = await client.post(
+            resp = await post_with_retry(
+                client,
                 GROQ_API_URL,
                 headers={"Authorization": f"Bearer {self._api_key}", "Content-Type": "application/json"},
                 json=payload,

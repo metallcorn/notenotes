@@ -5,6 +5,7 @@ import json
 import httpx
 
 from app.llm.base import LLMResponse, Message, ToolCall, ToolDefinition
+from app.llm.retry import post_with_retry
 
 MISTRAL_API_URL = "https://api.mistral.ai/v1/chat/completions"
 
@@ -102,7 +103,8 @@ class MistralClient:
         # короткие ходы диалога-ассистента (dialogs.py), для них это просто
         # более щедрый потолок, не мешает быстрым ответам.
         async with httpx.AsyncClient(timeout=180) as client:
-            resp = await client.post(
+            resp = await post_with_retry(
+                client,
                 MISTRAL_API_URL,
                 headers={"Authorization": f"Bearer {self._api_key}", "Content-Type": "application/json"},
                 json=payload,
