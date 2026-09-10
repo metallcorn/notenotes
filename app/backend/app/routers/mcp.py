@@ -23,9 +23,7 @@ from __future__ import annotations
 
 import logging
 import secrets
-import time
 import uuid
-from collections import defaultdict
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
@@ -36,7 +34,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import get_settings
 from app.db import get_db
 from app.deps import get_current_user
-from app.models import MCPToken, Space, SpaceMember, User
+from app.models import MCPToken, OAuthRefreshToken, Space, SpaceMember, User
+from app.rate_limit import client_subnet, rate_limited
 from app.security import hash_token
 from app.tools.registry import ToolContext, dispatch, get_tool_definitions
 
@@ -76,19 +75,16 @@ MCP_EXCLUDED_TOOLS = frozenset({
     "get_compacted_history",
 })
 
-# Ограничение частоты — по образцу routers/debug_log.py. Счётчик модульный,
-# переживает запросы в пределах процесса.
-_RATE_WINDOW_SECONDS = 60
-_RATE_MAX_REQUESTS = 120
-_recent_requests: dict[str, list[float]] = defaultdict(list)
-
-
-def _rate_limited(key: str) -> bool:
-    now = time.monotonic()
-    hits = _recent_requests[key]
-    hits[:] = [t for t in hits if now - t < _RATE_WINDOW_SECONDS]
-    hits.append(now)
-    return len(hits) > _RATE_MAX_REQUESTS
+# Два разных лимита, и порядок между ними важен.
+#
+# По ПОДСЕТИ — до аутентификации: иначе каждый запрос с мусорным токеном
+# всё равно идёт в базу, и защита от перебора сама становится нагрузкой.
+# Строгий, потому что легальный клиент сюда без токена не ходит вовсе.
+#
+# По ПОЛЬЗОВАТЕЛЮ — после: у настоящего клиента один ход это несколько
+# вызовов подряд, и резать его на уровне подсети было бы неверно.
+ANON_MAX_PER_MINUTE = 30
+USER_MAX_PER_MINUTE = 120
 
 
 # --- аутентификация -----------------------------------------------------
@@ -195,11 +191,29 @@ async def _authenticate(request: Request, db: AsyncSession) -> MCPPrincipal:
         # принимать только токены, выписанные ИМЕННО ДЛЯ НАС. Заодно это
         # отсекает сессионную куку — у неё aud нет вовсе.
         from app.routers.oauth import canonical_mcp_uri
-        from app.security import decode_mcp_access_token
+        from app.security import decode_mcp_access_token, mcp_access_token_client
 
         user_id = decode_mcp_access_token(raw, canonical_mcp_uri())
         if user_id is not None:
-            user = await db.get(User, user_id)
+            # Отзыв подключения обязан действовать СРАЗУ. Сам access-токен
+            # отозвать нельзя — он не хранится, подпись самодостаточна, и
+            # без этой проверки отключённый claude.ai продолжал бы читать
+            # заметки ещё час. Для кнопки «отключить» это негодно.
+            #
+            # Поэтому смотрим, жива ли цепочка refresh у этого клиента:
+            # отзыв гасит её всю, и токен мгновенно перестаёт работать.
+            client_id = mcp_access_token_client(raw, canonical_mcp_uri())
+            alive = (
+                await db.execute(
+                    select(OAuthRefreshToken.id).where(
+                        OAuthRefreshToken.user_id == user_id,
+                        OAuthRefreshToken.client_id == client_id,
+                        OAuthRefreshToken.revoked_at.is_(None),
+                    ).limit(1)
+                )
+            ).scalar_one_or_none()
+            if alive is not None:
+                user = await db.get(User, user_id)
 
     if user is None:
         raise _unauthorized(request)
@@ -253,6 +267,11 @@ async def _call_tool(principal: MCPPrincipal, db: AsyncSession, params: dict) ->
         # делает Telegram-бот по той же причине (см. ToolContext).
         client_timezone=principal.user.timezone or None,
     )
+    # След в логах — обязателен именно здесь. Через MCP базой пользуется
+    # не человек, а внешняя модель, и по last_used_at видно только «кто-то
+    # ходил», а не ЧТО он делал. Аргументы не пишем: там содержимое
+    # заметок, и логи стали бы вторым местом, где лежат личные данные.
+    logger.info("MCP: %s (пользователь %s)", name, principal.user.id)
     result = await dispatch(name, ctx, arguments, disabled=principal.disabled)
 
     # MCP отдаёт результат блоками контента. Наши инструменты возвращают
@@ -286,8 +305,13 @@ async def mcp_endpoint(request: Request, db: AsyncSession = Depends(get_db)) -> 
     if version not in SUPPORTED_PROTOCOL_VERSIONS:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Версия протокола {version} не поддерживается")
 
+    # ДО аутентификации: иначе перебор токенов бесплатно нагружает базу.
+    if rate_limited(f"mcp-anon:{client_subnet(request)}", max_requests=ANON_MAX_PER_MINUTE, window_seconds=60):
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Слишком много запросов")
+
     principal = await _authenticate(request, db)
-    if _rate_limited(str(principal.user.id)):
+
+    if rate_limited(f"mcp-user:{principal.user.id}", max_requests=USER_MAX_PER_MINUTE, window_seconds=60):
         raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Слишком много запросов")
 
     try:

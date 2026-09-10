@@ -312,3 +312,26 @@ class TestПубличныйАдрес:
             assert "http://notenotes" not in header
         finally:
             get_settings.cache_clear()
+
+
+class TestОграничениеЧастоты:
+    async def test_перебор_токенов_режется_ДО_обращения_к_базе(self, client):
+        """Порядок здесь и есть смысл проверки.
+
+        Если лимит стоит после аутентификации, каждый запрос с мусорным
+        токеном всё равно идёт в базу — и защита от перебора сама
+        становится нагрузкой.
+        """
+        import app.rate_limit as rl
+        from app.routers.mcp import ANON_MAX_PER_MINUTE
+
+        codes = []
+        for _ in range(ANON_MAX_PER_MINUTE + 2):
+            r = await client.post(
+                "/api/mcp",
+                json={"jsonrpc": "2.0", "id": 1, "method": "ping"},
+                headers={"Authorization": "Bearer nn_perebor"},
+            )
+            codes.append(r.status_code)
+
+        assert 429 in codes

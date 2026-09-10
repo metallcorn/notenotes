@@ -132,3 +132,18 @@ def decode_mcp_access_token(token: str, audience: str) -> uuid.UUID | None:
         return uuid.UUID(payload["sub"])
     except (jwt.PyJWTError, KeyError, ValueError):
         return None
+
+
+def mcp_access_token_client(token: str, audience: str) -> uuid.UUID | None:
+    """client_id из access-токена — чтобы проверить, не отозвано ли
+    подключение (см. routers/mcp.py). Подпись и aud проверяются так же
+    строго, как в decode_mcp_access_token: читать что-либо из
+    непроверенного токена нельзя."""
+    settings = get_settings()
+    try:
+        payload = jwt.decode(token, settings.secret_key, algorithms=[ALGORITHM], audience=audience)
+        if payload.get("typ") != TOKEN_TYPE_MCP_ACCESS:
+            return None
+        return uuid.UUID(payload["client_id"])
+    except (jwt.PyJWTError, KeyError, ValueError):
+        return None

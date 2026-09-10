@@ -8,7 +8,7 @@ from sqlalchemy import delete, select
 from app import realtime
 from app.core.config import get_settings
 from app.db import async_session
-from app.models import Item, Notification, Upload
+from app.models import Item, Notification, OAuthClient, OAuthCode, OAuthRefreshToken, Upload
 
 logger = logging.getLogger(__name__)
 
@@ -80,6 +80,42 @@ async def _purge_trash_once() -> int:
         return len(candidates)
 
 
+async def _purge_oauth_once() -> int:
+    """Отработавшие коды, мёртвые refresh и клиенты, которыми не пользуются.
+
+    Регистрация OAuth-клиентов ОТКРЫТАЯ — иначе claude.ai не подключится,
+    он узнаёт про нас в момент подключения. Значит строки в этих таблицах
+    заводит кто угодно, и без уборки они копятся вечно: на 4 ГБ VPS это
+    не абстрактная опрятность, а вопрос места.
+
+    Коды живут пять минут, refresh — два месяца. Держим их ещё сутки
+    после смерти: по used_at видно ПОВТОРНУЮ попытку, а она означает
+    кражу, и такой след стоит того, чтобы он полежал в логах и в базе.
+
+    Клиента удаляем, только если он старше суток И у него не осталось ни
+    одного живого refresh: свежий трогать нельзя — человек мог начать
+    подключение и не дойти до конца, а вернуться через полчаса.
+    """
+    grace = datetime.now(timezone.utc) - timedelta(days=1)
+    async with async_session() as db:
+        codes = await db.execute(delete(OAuthCode).where(OAuthCode.expires_at < grace))
+        tokens = await db.execute(
+            delete(OAuthRefreshToken).where(
+                OAuthRefreshToken.expires_at < grace,
+            )
+        )
+        # Клиенты без единого refresh и старше суток.
+        live_clients = select(OAuthRefreshToken.client_id).where(OAuthRefreshToken.revoked_at.is_(None))
+        clients = await db.execute(
+            delete(OAuthClient).where(
+                OAuthClient.created_at < grace,
+                OAuthClient.id.not_in(live_clients),
+            )
+        )
+        await db.commit()
+        return (codes.rowcount or 0) + (tokens.rowcount or 0) + (clients.rowcount or 0)
+
+
 async def run_periodic_sweep() -> None:
     while True:
         try:
@@ -94,4 +130,10 @@ async def run_periodic_sweep() -> None:
                 logger.info("Автоочистка корзины (>30 дней): удалено %d", purged)
         except Exception:
             logger.exception("Ошибка при автоочистке корзины")
+        try:
+            purged = await _purge_oauth_once()
+            if purged:
+                logger.info("Очистка OAuth: удалено %d записей", purged)
+        except Exception:
+            logger.exception("Ошибка при очистке OAuth")
         await asyncio.sleep(_SWEEP_INTERVAL_SECONDS)

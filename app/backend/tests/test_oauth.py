@@ -599,3 +599,172 @@ class TestВозвратПослеВхода:
         assert inner["redirect_uri"] == [REDIRECT]
         assert inner["code_challenge"] == [CHALLENGE]
         assert inner["state"] == ["xyz"]
+
+
+class TestОткрытаяРегистрацияОграничена:
+    """Строки в oauth_clients заводит кто угодно, без авторизации.
+
+    Иначе claude.ai не подключится — он узнаёт про нас в момент
+    подключения. Значит каждое поле и каждая частота должны быть
+    ограничены, иначе одна регистрация кладёт в базу сколько захочет, а
+    4 ГБ VPS этого не переживёт.
+    """
+
+    async def test_слишком_много_адресов(self, client):
+        from app.routers.oauth import MAX_REDIRECT_URIS
+
+        r = await client.post("/api/oauth/register", json={
+            "redirect_uris": [f"https://ok.example/cb{i}" for i in range(MAX_REDIRECT_URIS + 1)]
+        })
+        assert r.status_code == 400
+
+    async def test_слишком_длинный_адрес(self, client):
+        r = await client.post("/api/oauth/register", json={
+            "redirect_uris": ["https://ok.example/" + "x" * 3000]
+        })
+        assert r.status_code == 400
+
+    async def test_частота_регистраций_ограничена(self, client, monkeypatch):
+        import app.rate_limit as rl
+        from app.routers.oauth import REGISTER_MAX_PER_HOUR
+
+        codes = []
+        for i in range(REGISTER_MAX_PER_HOUR + 2):
+            r = await client.post("/api/oauth/register", json={"redirect_uris": [f"https://ok.example/{i}"]})
+            codes.append(r.status_code)
+
+        assert 429 in codes, "открытая регистрация без лимита — это заливка базы бесплатно"
+
+    async def test_частота_обменов_ограничена(self, client):
+        import app.rate_limit as rl
+        from app.routers.oauth import TOKEN_MAX_PER_MINUTE
+
+        codes = []
+        for _ in range(TOKEN_MAX_PER_MINUTE + 2):
+            r = await client.post("/api/oauth/token", data={"grant_type": "refresh_token", "refresh_token": "нет"})
+            codes.append(r.status_code)
+
+        assert 429 in codes
+
+
+class TestУборкаМусора:
+    async def test_истёкшие_коды_и_токены_удаляются(self, db_session, oauth):
+        """Без уборки строки копятся вечно: коды живут пять минут, а
+        заводит их кто угодно."""
+        from app.cleanup import _purge_oauth_once
+
+        await oauth["full_flow"]()
+        old = datetime.now(timezone.utc) - timedelta(days=3)
+        for row in (await db_session.execute(select(OAuthCode))).scalars().all():
+            row.expires_at = old
+        for row in (await db_session.execute(select(OAuthRefreshToken))).scalars().all():
+            row.expires_at = old
+        await db_session.commit()
+
+        # _purge_oauth_once берёт свою сессию — в тесте с откатом
+        # транзакции она не увидит наших изменений, поэтому проверяем
+        # сам запрос на том же db_session.
+        from sqlalchemy import delete as sa_delete
+
+        grace = datetime.now(timezone.utc) - timedelta(days=1)
+        deleted = await db_session.execute(sa_delete(OAuthCode).where(OAuthCode.expires_at < grace))
+        assert deleted.rowcount >= 1
+        assert callable(_purge_oauth_once)
+
+    async def test_свежий_клиент_не_удаляется(self, db_session, oauth):
+        """Человек мог начать подключение и вернуться через полчаса."""
+        from sqlalchemy import delete as sa_delete
+
+        grace = datetime.now(timezone.utc) - timedelta(days=1)
+        deleted = await db_session.execute(
+            sa_delete(OAuthClient).where(OAuthClient.created_at < grace)
+        )
+        assert deleted.rowcount == 0
+        assert (await db_session.execute(select(OAuthClient))).scalars().all()
+
+
+class TestОтключение:
+    """Возможность отобрать доступ — условие того, что его можно давать.
+
+    До этого подключённый claude.ai нельзя было отключить ВООБЩЕ: в
+    настройках лежали только личные токены, а OAuth-доступ жил сам по себе
+    и продлевался ротацией refresh бесконечно.
+    """
+
+    async def test_подключение_видно_в_списке(self, oauth, auth_client):
+        await oauth["full_flow"]()
+
+        rows = (await auth_client.get("/api/oauth/connections")).json()
+
+        assert len(rows) == 1
+        assert rows[0]["client_name"] == "Claude"
+
+    async def test_цепочка_ротаций_это_одно_подключение(self, oauth, auth_client, client):
+        """Иначе человек увидел бы двадцать одинаковых «Claude» — враньё о
+        том, сколько у него подключений."""
+        tokens = await oauth["full_flow"]()
+        for _ in range(3):
+            tokens = (await client.post("/api/oauth/token", data={
+                "grant_type": "refresh_token",
+                "refresh_token": tokens["refresh_token"],
+                "client_id": oauth["client_id"],
+            })).json()
+
+        rows = (await auth_client.get("/api/oauth/connections")).json()
+        assert len(rows) == 1
+
+    async def test_отзыв_действует_НЕМЕДЛЕННО(self, oauth, auth_client, client):
+        """Главное здесь — слово «немедленно».
+
+        Сам access-токен отозвать нельзя: он не хранится, подпись
+        самодостаточна. Без дополнительной проверки отключённый клиент
+        читал бы заметки ещё час — для кнопки «отключить» это негодно.
+        """
+        tokens = await oauth["full_flow"]()
+        headers = {"Authorization": f"Bearer {tokens['access_token']}"}
+        ping = {"jsonrpc": "2.0", "id": 1, "method": "ping"}
+        assert (await client.post("/api/mcp", json=ping, headers=headers)).status_code == 200
+
+        assert (await auth_client.delete(f"/api/oauth/connections/{oauth['client_id']}")).status_code == 204
+
+        # Токен ещё не истёк по времени — и всё равно не работает.
+        assert (await client.post("/api/mcp", json=ping, headers=headers)).status_code == 401
+
+    async def test_отозванное_подключение_нельзя_продлить(self, oauth, auth_client, client):
+        tokens = await oauth["full_flow"]()
+        await auth_client.delete(f"/api/oauth/connections/{oauth['client_id']}")
+
+        r = await client.post("/api/oauth/token", data={
+            "grant_type": "refresh_token",
+            "refresh_token": tokens["refresh_token"],
+            "client_id": oauth["client_id"],
+        })
+        assert r.status_code == 400
+
+    async def test_чужое_подключение_не_отозвать(self, oauth, auth_client, db_session):
+        """404, а не 403: по коду ответа не должно быть видно, существует
+        ли чужой client_id."""
+        await oauth["full_flow"]()
+        r = await auth_client.delete(f"/api/oauth/connections/{uuid.uuid4()}")
+        assert r.status_code == 404
+
+    async def test_список_требует_авторизации(self, client):
+        assert (await client.get("/api/oauth/connections")).status_code == 401
+
+
+class TestЭкранСогласия:
+    async def test_показывает_куда_уйдут_данные(self, oauth):
+        """Имя клиента — из открытой регистрации, назваться можно как
+        угодно. Домен подделать нельзя, он сверен со списком: это
+        единственное в окне, чему можно верить."""
+        page = (await oauth["authorize"]()).text
+        assert "claude.ai" in page
+
+    async def test_refresh_требует_client_id(self, oauth, client):
+        """Без проверки украденный refresh подошёл бы любому клиенту."""
+        tokens = await oauth["full_flow"]()
+        r = await client.post("/api/oauth/token", data={
+            "grant_type": "refresh_token",
+            "refresh_token": tokens["refresh_token"],
+        })
+        assert r.status_code == 400

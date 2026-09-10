@@ -173,3 +173,53 @@ def test_наши_модули_логируют_на_info():
     # Именно «app.*», не корневой: корневой поднял бы и httpx, который на
     # INFO печатает каждый исходящий запрос — в агентном цикле это шум.
     assert logging.getLogger("httpx").getEffectiveLevel() > logging.INFO
+
+
+class TestОграничениеЧастотыПоПодсети:
+    """IPv6 обходит ограничение по одному адресу за один шаг."""
+
+    def _request(self, forwarded: str):
+        from types import SimpleNamespace
+
+        return SimpleNamespace(headers={"x-forwarded-for": forwarded}, client=None)
+
+    def test_подделанный_первый_адрес_не_учитывается(self):
+        """Caddy дописывает свой адрес В КОНЕЦ, не перезаписывает заголовок.
+
+        Брать первый значит брать то, что клиент написал сам, — тогда
+        ограничение обходится сменой заголовка, то есть не существует.
+        """
+        from app.rate_limit import client_ip
+
+        assert client_ip(self._request("1.2.3.4, 203.0.113.9")) == "203.0.113.9"
+
+    def test_ipv6_режется_до_подсети(self):
+        """Провайдер выдаёт /64 целиком: «новый адрес» стоит нисколько."""
+        from app.rate_limit import client_subnet
+
+        a = client_subnet(self._request("2001:db8:abcd:1234::1"))
+        b = client_subnet(self._request("2001:db8:abcd:1234::ffff"))
+        assert a == b, "иначе лимит обходится сменой последнего сегмента адреса"
+
+    def test_разные_подсети_не_путаются(self):
+        from app.rate_limit import client_subnet
+
+        a = client_subnet(self._request("2001:db8:abcd:1111::1"))
+        b = client_subnet(self._request("2001:db8:abcd:2222::1"))
+        assert a != b
+
+    def test_ipv4_считается_по_адресу(self):
+        from app.rate_limit import client_subnet
+
+        assert client_subnet(self._request("203.0.113.9")) == "203.0.113.9"
+
+    def test_словарь_счётчиков_не_растёт_бесконечно(self):
+        """Ключи приходят от кого угодно — без уборки это утечка памяти."""
+        import app.rate_limit as rl
+
+        rl._hits.clear()
+        rl.rate_limited("разовый", max_requests=5, window_seconds=0)
+        # Окно нулевое: запись протухает сразу же и не должна оставаться.
+        rl.rate_limited("разовый", max_requests=5, window_seconds=0)
+        assert len(rl._hits) <= 1
+        rl._hits.clear()

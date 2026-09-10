@@ -42,6 +42,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import get_settings
 from app.db import get_db
 from app.deps import get_current_user
+from app.rate_limit import client_subnet, rate_limited
 from app.models import OAuthClient, OAuthCode, OAuthRefreshToken, User
 from app.security import create_mcp_access_token, hash_token
 
@@ -60,6 +61,19 @@ REFRESH_TTL_DAYS = 60
 # Единственный поддерживаемый способ. «plain» спека 2.1 запрещает, и
 # принимать его «на всякий случай» значило бы оставить обход PKCE.
 CODE_CHALLENGE_METHOD = "S256"
+
+# Потолки на ОТКРЫТУЮ регистрацию. Строки в oauth_clients заводит кто
+# угодно, без всякой авторизации — иначе claude.ai не подключится. Значит
+# каждое поле должно быть ограничено, иначе одна регистрация кладёт в базу
+# сколько захочет, а 4 ГБ VPS этого не переживёт (CLAUDE.md).
+MAX_REDIRECT_URIS = 5
+MAX_REDIRECT_URI_LENGTH = 2000
+# Двадцать регистраций в час с подсети. Живому клиенту хватает ОДНОЙ:
+# claude.ai регистрируется один раз при подключении коннектора.
+REGISTER_MAX_PER_HOUR = 20
+# Обмен токенов: перебирать 256-битные значения бессмысленно, но лимит
+# отсекает и шум, и попытку залить базу мусорными запросами.
+TOKEN_MAX_PER_MINUTE = 60
 
 
 def public_base_url() -> str:
@@ -138,10 +152,17 @@ class ClientRegistration(BaseModel):
 
 
 @router.post("/api/oauth/register", status_code=status.HTTP_201_CREATED)
-async def register_client(payload: ClientRegistration, db: AsyncSession = Depends(get_db)) -> JSONResponse:
+async def register_client(
+    request: Request, payload: ClientRegistration, db: AsyncSession = Depends(get_db)
+) -> JSONResponse:
+    if rate_limited(f"oauth-register:{client_subnet(request)}", max_requests=REGISTER_MAX_PER_HOUR, window_seconds=3600):
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Слишком много регистраций")
+
     uris = [u.strip() for u in payload.redirect_uris if u.strip()]
     if not uris:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Нужен хотя бы один redirect_uri")
+    if len(uris) > MAX_REDIRECT_URIS:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Не больше {MAX_REDIRECT_URIS} адресов")
     for uri in uris:
         # Спека: только HTTPS или localhost. http://куда-угодно означал бы,
         # что код авторизации уедет по незащищённому каналу.
@@ -149,6 +170,8 @@ async def register_client(payload: ClientRegistration, db: AsyncSession = Depend
             raise HTTPException(status.HTTP_400_BAD_REQUEST, f"redirect_uri должен быть https или localhost: {uri}")
         if "#" in uri:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "redirect_uri не может содержать фрагмент")
+        if len(uri) > MAX_REDIRECT_URI_LENGTH:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "redirect_uri слишком длинный")
 
     client = OAuthClient(client_name=payload.client_name.strip()[:255], redirect_uris=uris)
     db.add(client)
@@ -240,11 +263,17 @@ async def authorize_form(
 
 def _consent_page(client: OAuthClient, user: User, params: dict) -> str:
     import html
+    from urllib.parse import urlparse
 
     hidden = "".join(
         f'<input type="hidden" name="{html.escape(k)}" value="{html.escape(v)}">' for k, v in params.items()
     )
     name = html.escape(client.client_name or "Внешнее приложение")
+    # Имя приходит из ОТКРЫТОЙ регистрации, то есть от кого угодно, и
+    # назваться можно как угодно. Домен подделать нельзя — он проверен по
+    # списку из регистрации, — поэтому показываем именно его: это
+    # единственное в этом окне, чему можно верить.
+    host = html.escape(urlparse(params.get("redirect_uri", "")).netloc or "неизвестно куда")
     return f"""<!doctype html>
 <html lang="ru"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -271,6 +300,7 @@ def _consent_page(client: OAuthClient, user: User, params: dict) -> str:
 </style></head><body>
 <h1>{name} просит доступ к вашим заметкам</h1>
 <div class="who">Вы вошли как {html.escape(user.name or user.username)}</div>
+<div class="who">Данные уйдут на <b>{host}</b></div>
 <p>Приложение сможет:</p>
 <ul>
   <li>искать и читать заметки, списки, документы и напоминания</li>
@@ -386,6 +416,7 @@ async def _issue_tokens(
 
 @router.post("/api/oauth/token")
 async def token_endpoint(
+    request: Request,
     grant_type: str = Form(""),
     code: str = Form(""),
     redirect_uri: str = Form(""),
@@ -395,6 +426,8 @@ async def token_endpoint(
     resource: str = Form(""),
     db: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
+    if rate_limited(f"oauth-token:{client_subnet(request)}", max_requests=TOKEN_MAX_PER_MINUTE, window_seconds=60):
+        return _token_error("invalid_request", "Слишком много запросов", status.HTTP_429_TOO_MANY_REQUESTS)
     if grant_type == "authorization_code":
         return await _grant_authorization_code(db, code, redirect_uri, client_id, code_verifier)
     if grant_type == "refresh_token":
@@ -469,7 +502,9 @@ async def _grant_refresh(db: AsyncSession, refresh_token: str, client_id: str) -
 
     if entry.expires_at <= _now():
         return _token_error("invalid_grant", "Refresh-токен истёк")
-    if client_id and str(entry.client_id) != client_id:
+    # client_id обязателен: публичный клиент обязан себя называть, и без
+    # проверки украденный refresh подошёл бы любому клиенту.
+    if not client_id or str(entry.client_id) != client_id:
         return _token_error("invalid_grant", "Токен выдан другому клиенту")
 
     entry.used_at = _now()
@@ -479,3 +514,73 @@ async def _grant_refresh(db: AsyncSession, refresh_token: str, client_id: str) -
         db, user_id=entry.user_id, client_id=entry.client_id, resource=entry.resource, family_id=entry.family_id
     )
     return JSONResponse(tokens)
+
+
+# --- управление подключениями из настроек -------------------------------
+#
+# Без этого подключённый claude.ai нельзя было бы отключить ВООБЩЕ: в
+# настройках лежали только личные токены, а OAuth-доступ жил сам по себе
+# и продлевался ротацией refresh бесконечно. Возможность отобрать доступ
+# — не удобство, а условие того, что доступ вообще можно давать.
+
+
+class OAuthConnectionOut(BaseModel):
+    client_id: uuid.UUID
+    client_name: str
+    connected_at: datetime
+    last_refreshed_at: datetime | None
+
+
+@router.get("/api/oauth/connections", response_model=list[OAuthConnectionOut])
+async def list_connections(
+    user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+) -> list[OAuthConnectionOut]:
+    rows = (
+        await db.execute(
+            select(OAuthRefreshToken, OAuthClient)
+            .join(OAuthClient, OAuthClient.id == OAuthRefreshToken.client_id)
+            .where(OAuthRefreshToken.user_id == user.id, OAuthRefreshToken.revoked_at.is_(None))
+            .order_by(OAuthRefreshToken.created_at)
+        )
+    ).all()
+
+    # Одно подключение — это цепочка ротаций, а не строка. Показывать
+    # человеку двадцать одинаковых «Claude» вместо одного было бы враньём
+    # о том, сколько у него подключений.
+    by_client: dict[uuid.UUID, OAuthConnectionOut] = {}
+    for token, client in rows:
+        existing = by_client.get(client.id)
+        if existing is None:
+            by_client[client.id] = OAuthConnectionOut(
+                client_id=client.id,
+                client_name=client.client_name or "Внешнее приложение",
+                connected_at=token.created_at,
+                last_refreshed_at=token.created_at,
+            )
+        else:
+            existing.connected_at = min(existing.connected_at, token.created_at)
+            existing.last_refreshed_at = max(existing.last_refreshed_at or token.created_at, token.created_at)
+    return list(by_client.values())
+
+
+@router.delete("/api/oauth/connections/{client_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def revoke_connection(
+    client_id: uuid.UUID,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        update(OAuthRefreshToken)
+        .where(
+            OAuthRefreshToken.user_id == user.id,
+            OAuthRefreshToken.client_id == client_id,
+            OAuthRefreshToken.revoked_at.is_(None),
+        )
+        .values(revoked_at=_now())
+    )
+    if not result.rowcount:
+        # Чужое подключение неотличимо от несуществующего — иначе по коду
+        # ответа можно было бы проверять чужие client_id.
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Подключение не найдено")
+    await db.commit()
+    logger.info("Отозвано OAuth-подключение %s пользователем %s", client_id, user.id)
