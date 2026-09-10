@@ -148,3 +148,28 @@ class TestПовтор:
         await post_with_retry(client, "https://x")
         assert len(no_sleep) == 2
         assert no_sleep[1] > no_sleep[0]  # 1с, потом 2с (с разбросом)
+
+
+def test_наши_модули_логируют_на_info():
+    """Уровень «app.*» должен быть INFO, иначе учёт токенов — мёртвый код.
+
+    Логирование не настраивалось вовсе: в логах видно «INFO: GET /api/...»,
+    но это собственный логгер uvicorn, а корневой оставался на WARNING.
+    Из-за этого строка про попадания в кэш промпта не печаталась месяц, и
+    на вопрос «работает ли кэш» ответа не было.
+    """
+    import logging
+
+    import app.main  # noqa: F401  — настройка уровня происходит при импорте
+    from app.core.config import get_settings
+
+    assert get_settings().log_level.upper() == "INFO"
+    # Проверяем УРОВЕНЬ логгера, а не isEnabledFor: последний учитывает
+    # глобальный logging.disable, а его внутри прогона двигает сам pytest
+    # (_pytest.logging). В нашем коде logging.disable не вызывается нигде,
+    # так что в проде это различие не проявляется — но тест на isEnabledFor
+    # падал бы всегда, проверяя чужой плагин вместо нашей настройки.
+    assert logging.getLogger("app").level == logging.INFO
+    # Именно «app.*», не корневой: корневой поднял бы и httpx, который на
+    # INFO печатает каждый исходящий запрос — в агентном цикле это шум.
+    assert logging.getLogger("httpx").getEffectiveLevel() > logging.INFO

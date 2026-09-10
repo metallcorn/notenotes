@@ -8,6 +8,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.responses import FileResponse
 from starlette.requests import Request
 
+from app.core.config import get_settings
 from app.autotag import run_worker as run_autotag_worker
 from app.embeddings import run_backfill as run_embedding_backfill, run_worker as run_embedding_worker
 from app.cleanup import run_periodic_sweep
@@ -48,6 +49,22 @@ from app.routers import (
     url_checks,
     voice,
 )
+
+# Логирование не настраивалось вовсе, и это молча стоило нам наблюдаемости.
+# В логах видно «INFO: GET /api/...» — но это СОБСТВЕННЫЙ логгер uvicorn,
+# который он поднимает сам. Корневой оставался на WARNING, поэтому каждый
+# logger.info из наших модулей был мёртвым кодом.
+#
+# Как это вскрылось: учёт токенов и попаданий в кэш промпта (см.
+# _run_dialog_turn_locked) писался через logger.info — то есть месяц
+# работал вхолостую, и на вопрос «работает ли кэш» ответа не было вовсе.
+# Тот же случай уже ловили с сигналом о сломанном кэше (коммит cbd0211) и
+# тогда починили точечно, подняв ОДНУ строку до WARNING. Причина осталась.
+#
+# Уровень именно для «app.*», не корневой: корневой поднял бы заодно
+# httpx, который на INFO печатает каждый исходящий запрос — в агентном
+# цикле это шум, за которым не видно своего.
+logging.getLogger("app").setLevel(get_settings().log_level.upper())
 
 logger = logging.getLogger(__name__)
 
