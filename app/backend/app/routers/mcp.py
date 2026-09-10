@@ -33,6 +33,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import get_settings
 from app.db import get_db
 from app.deps import get_current_user
 from app.models import MCPToken, Space, SpaceMember, User
@@ -123,6 +124,22 @@ async def _home_space_id(db: AsyncSession, user_id: uuid.UUID) -> uuid.UUID | No
     ).scalar_one_or_none()
 
 
+def _public_base_url() -> str:
+    """Публичный адрес, а не то, что видит приложение.
+
+    request.base_url брать НЕЛЬЗЯ: приложение стоит за Caddy и получает
+    запрос по http внутри docker-сети — в заголовке оказывался бы
+    «http://notenotes.metallcorn.online», проверено живьём после первого
+    деплоя. Для OAuth это не косметика: спека требует HTTPS у всех
+    эндпоинтов авторизации, и клиент по http-ссылке либо откажется, либо
+    уйдёт по незащищённому каналу.
+
+    settings.public_base_url для этого в проекте и заведён — им же
+    Telegram-бот строит ссылки на заметки.
+    """
+    return get_settings().public_base_url.rstrip("/")
+
+
 def _unauthorized(request: Request) -> HTTPException:
     """401 с WWW-Authenticate, как требует спека.
 
@@ -130,7 +147,7 @@ def _unauthorized(request: Request) -> HTTPException:
     начать OAuth-поток. Пока OAuth не сделан, значение всё равно
     осмысленно: клиент увидит, что сервер защищён, а не сломан.
     """
-    base = str(request.base_url).rstrip("/")
+    base = _public_base_url()
     return HTTPException(
         status.HTTP_401_UNAUTHORIZED,
         "Нужен токен доступа",
@@ -235,7 +252,7 @@ async def mcp_endpoint(request: Request, db: AsyncSession = Depends(get_db)) -> 
     # браузеры и заголовка не шлют; запрещаем только чужой сайт, который
     # пытался бы ходить сюда из браузера пользователя.
     origin = request.headers.get("origin")
-    if origin and not origin.startswith(str(request.base_url).rstrip("/")):
+    if origin and origin.rstrip("/") != _public_base_url():
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Недопустимый Origin")
 
     version = request.headers.get("mcp-protocol-version", DEFAULT_PROTOCOL_VERSION)

@@ -289,3 +289,26 @@ class TestУправлениеТокенами:
 
     async def test_без_авторизации_список_недоступен(self, client):
         assert (await client.get("/api/mcp-tokens")).status_code == 401
+
+
+class TestПубличныйАдрес:
+    async def test_www_authenticate_указывает_https_а_не_внутреннюю_схему(self, mcp, monkeypatch):
+        """Поймано живьём после первого деплоя.
+
+        Приложение стоит за Caddy и получает запрос по http внутри
+        docker-сети, поэтому request.base_url давал
+        «http://notenotes.metallcorn.online». Для OAuth это не косметика:
+        спека требует HTTPS у всех эндпоинтов авторизации, и клиент по
+        http-ссылке либо откажется, либо уйдёт по незащищённому каналу.
+        """
+        from app.core.config import get_settings
+
+        get_settings.cache_clear()
+        monkeypatch.setenv("PUBLIC_BASE_URL", "https://notenotes.metallcorn.online")
+        try:
+            r = await mcp("ping", token=None)
+            header = r.headers["www-authenticate"]
+            assert "https://notenotes.metallcorn.online" in header
+            assert "http://notenotes" not in header
+        finally:
+            get_settings.cache_clear()
