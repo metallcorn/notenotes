@@ -74,30 +74,73 @@
 
 # --- Своп ------------------------------------------------------------------
 #
-# zram здесь НЕ используется, хотя изначально планировался. Причина: в ядре
-# linux-image-virtual модуля zram нет — он лежит в linux-modules-extra,
-# это 113 МБ, которые пришлось бы тянуть за каждым обновлением ядра.
+# zram ПЕРВЫМ, swapfile в LUKS — последним рубежом. Сначала было наоборот:
+# zram выкинули (модуля нет в ядре, тянуть linux-modules-extra на 113 МБ за
+# каждым обновлением не хотелось), а своп оставили только дисковый, внутри
+# шифрованного тома.
 #
-# Отказ безболезненный: до разблокировки шифрованного тома сервер практически
-# ничего не делает и своп ему не нужен, а после разблокировки своп есть —
-# swapfile внутри тома (роль luks_data). То есть zram закрывал промежуток,
-# в котором нагрузки всё равно нет.
+# Это стоило двух зависаний по шесть часов (19.08 и 11.09.2026). Механизм
+# с консоли хостера: шифрованный том — это ФАЙЛ на корневом диске через
+# loop0, а своп лежит внутри него. Под сборкой образа диск занят, память
+# под давлением, kswapd выгружает страницы -> своп идёт через dm-crypt и
+# loop -> loop сам требует page cache, то есть ту память, которую kswapd
+# освобождает -> jbd2 ждёт диск, dmcrypt ждёт jbd2, kswapd ждёт dmcrypt.
+# OOM-killer молчит: памяти хватает, все ждут I/O, которого не будет.
 #
-# Важное следствие: весь своп теперь дисковый, поэтому vm.swappiness ниже
-# выставлен агрессивно низким. Единственный swapfile лежит внутри LUKS,
-# так что расшифрованные страницы Postgres на открытый диск не попадают.
+# zram в эту цепочку не входит вовсе — сжатый своп в памяти, диск не
+# участвует. С приоритетом 100 он забирает давление первым; swapfile в
+# LUKS (приоритет 10, роль luks_data) остаётся как страховка от OOM,
+# когда и zram полон. Расшифрованные страницы на открытый диск по-прежнему
+# не попадают: zram живёт в RAM, дисковый своп — внутри тома.
+#
+# 113 МБ модулей за обновление ядра — принимаем: Remove-Unused-Kernel-Packages
+# выше подчищает старые версии.
 
-- name: Remove zram configuration if it was set up earlier
+- name: Remove zram configuration from the old generator, if any
   ansible.builtin.file:
     path: /etc/systemd/zram-generator.conf
     state: absent
   notify: Reload systemd
 
-- name: Remove the zram generator package
+- name: Remove the old zram generator package
+  # Заменён на zram-tools: у того проще конфиг и он не конфликтует с
+  # swapfile, который подключает encrypted-unlock.
   ansible.builtin.apt:
     name: systemd-zram-generator
     state: absent
     purge: true
+
+- name: Install kernel extra modules (zram lives there) and zram-tools
+  ansible.builtin.apt:
+    name:
+      - "linux-modules-extra-{{ ansible_kernel }}"
+      - zram-tools
+    state: present
+    update_cache: true
+
+- name: Configure zram swap
+  ansible.builtin.copy:
+    dest: /etc/default/zramswap
+    content: |
+      # Управляется Ansible (роль baseline). Причина и приоритеты — в
+      # комментарии к блоку «Своп» в roles/baseline/tasks/main.yml.
+      ALGO=zstd
+      # Половина RAM как НЕСЖАТАЯ ёмкость устройства. Реально занято в
+      # памяти — сжатое: zstd на страницах Postgres/Python даёт ~3:1,
+      # то есть до ~700 МБ при полном заполнении.
+      PERCENT=50
+      # Выше, чем у swapfile в LUKS (10): zram забирает давление первым.
+      PRIORITY=100
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart zramswap
+
+- name: Enable zram swap
+  ansible.builtin.systemd:
+    name: zramswap
+    enabled: true
+    state: started
 
 - name: Tune kernel parameters
   ansible.posix.sysctl:
@@ -107,10 +150,18 @@
     state: present
     reload: true
   loop:
-    # 10, а не дефолтные 60: своп здесь только дисковый (swapfile внутри
-    # LUKS-тома), и для машины с Postgres выгоднее держать страницы в памяти,
-    # а своп использовать как страховку от OOM, а не как штатный механизм.
+    # 10, а не дефолтные 60: для машины с Postgres выгоднее держать страницы
+    # в памяти. Своп теперь zram + дисковый в LUKS (см. блок «Своп»), но
+    # низкий swappiness всё равно верен — zram страховка, не штатный путь.
     - {name: vm.swappiness, value: "10"}
+    # Зависшая задача ядра -> panic -> ребут через 10 с. Без этого сервер
+    # висел по шесть часов (инциденты 19.08 и 11.09.2026): kswapd, jbd2 и
+    # dmcrypt ждали друг друга, а журнал даже не писался. Ребут не поднимет
+    # приложение сам (том закрыт до unlock), но SSH будет жив и о проблеме
+    # станет известно через две минуты, а не через шесть часов.
+    - {name: kernel.hung_task_panic, value: "1"}
+    - {name: kernel.hung_task_timeout_secs, value: "120"}
+    - {name: kernel.panic, value: "10"}
     - {name: vm.vfs_cache_pressure, value: "50"}
     - {name: fs.inotify.max_user_watches, value: "262144"}
     # Сетевая гигиена. net.ipv4.ip_forward НЕ трогаем — он нужен Docker.
