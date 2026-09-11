@@ -16,12 +16,20 @@ name: notenotes
 services:
   postgres:
     image: {{ postgres_image }}
-    # Политика on-failure, а НЕ unless-stopped. При unless-stopped Docker
-    # поднял бы контейнер при загрузке хоста, до разблокировки шифрованного
-    # тома: Postgres увидел бы пустой каталог и проинициализировал новый
-    # кластер поверх точки монтирования, а реальные данные оказались бы
-    # скрыты под томом после unlock.
-    restart: on-failure:3
+    # restart: "no" — жизненным циклом управляет ТОЛЬКО notenotes.service
+    # (RequiresMountsFor + preflight), не Docker.
+    #
+    # Раньше стояло on-failure:3 с расчётом «при загрузке хоста Docker не
+    # поднимет контейнеры до unlock». Расчёт неполный: on-failure поднимает
+    # их при загрузке, если перед ребутом они завершились НЕ чисто — то есть
+    # ровно после зависания. Инцидент 2026-09-11: сервер завис, после ребута
+    # Docker счёл контейнеры упавшими и перезапустил их на ЗАКРЫТОМ томе.
+    # Postgres увидел пустой каталог и молча создал в нём новый кластер;
+    # приложение отдавало пустую базу, пока том не открыли руками.
+    #
+    # Цена: упавший в работе контейнер сам не перезапустится. Это меньшее
+    # зло — пустой кластер поверх данных страшнее, чем ручной перезапуск.
+    restart: "no"
     env_file:
       - {{ notenotes_secrets_dir }}/postgres.env
     command:
@@ -80,7 +88,7 @@ services:
 
   redis:
     image: {{ redis_image }}
-    restart: on-failure:3
+    restart: "no"  # см. комментарий у postgres
     command: ["redis-server", "/usr/local/etc/redis/redis.conf"]
     volumes:
       - {{ notenotes_secrets_dir }}/redis.conf:/usr/local/etc/redis/redis.conf:ro
@@ -121,7 +129,7 @@ services:
     build:
       context: {{ notenotes_root }}
       dockerfile: app/backend/Dockerfile
-    restart: on-failure:3
+    restart: "no"  # см. комментарий у postgres
     env_file:
       - {{ notenotes_secrets_dir }}/app.env
     volumes:
