@@ -305,9 +305,21 @@ async def _call_tool(principal: MCPPrincipal, db: AsyncSession, params: dict) ->
     # MCP отдаёт результат блоками контента. Наши инструменты возвращают
     # dict — кладём его JSON'ом в текстовый блок: модель на том конце
     # разберёт, а протокол не требует структуры.
-    text = json.dumps(result, ensure_ascii=False, indent=None)
+    #
+    # Исключение — картинка. Класть её base64 в текст бессмысленно: модель
+    # увидит простыню символов вместо изображения. Протокол для этого и
+    # держит отдельный тип блока, а инструмент помечает такой результат
+    # ключом _mcp_image (см. tools/files.py).
+    image = result.pop("_mcp_image", None)
+    content: list[dict] = [{"type": "text", "text": json.dumps(result, ensure_ascii=False, indent=None)}]
+    if isinstance(image, dict) and image.get("data"):
+        content.append({
+            "type": "image",
+            "data": image["data"],
+            "mimeType": image.get("mime_type") or "application/octet-stream",
+        })
     return {
-        "content": [{"type": "text", "text": text}],
+        "content": content,
         # Ошибку инструмента помечаем как ошибку ВЫЗОВА, а не протокола:
         # клиент должен показать её модели, чтобы та исправилась, а не
         # считать сервер сломанным. Это тот же приём, что внутри нашего

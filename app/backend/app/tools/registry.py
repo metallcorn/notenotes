@@ -78,6 +78,9 @@ SKILL_CATALOG: dict[str, dict[str, Any]] = {
     # toggleable=False по той же причине, что у list_reminders: без этого
     # ассистент не может ответить на «что у меня на неделе», а это не
     # дополнительное умение, а базовый вопрос.
+    "list_files": {"label": "Просмотр файлов", "description": "Видит вложенные файлы и извлечённый из них текст", "toggleable": False},
+    "get_file": {"label": "Чтение файлов", "description": "Читает содержимое файла — текст или саму картинку", "toggleable": False},
+    "upload_file": {"label": "Загрузка файлов", "description": "Кладёт файл в базу и вставляет в заметку", "toggleable": True},
     "list_agenda": {"label": "Что впереди", "description": "Показывает напоминания и события, распознанные в заметках", "toggleable": False},
     "resolve_reminder": {"label": "Отметка напоминаний", "description": "Отмечает напоминание выполненным", "toggleable": False},
     "run_python": {"label": "Python-вычисления", "description": "Точные вычисления в изолированной песочнице", "toggleable": True},
@@ -127,7 +130,7 @@ def _expand_disabled(disabled: set[str]) -> set[str]:
 
 
 def _build_registry() -> dict[str, tuple[ToolDefinition, ToolHandler]]:
-    from app.tools import agenda, calendar_event, dialog_history, lists, maps, memory, notes, python_sandbox, read_website, reminders, search_base, tables, track_delivery, ui, url_check, web_search
+    from app.tools import agenda, calendar_event, files as files_tool, dialog_history, lists, maps, memory, notes, python_sandbox, read_website, reminders, search_base, tables, track_delivery, ui, url_check, web_search
 
     registry: dict[str, tuple[ToolDefinition, ToolHandler]] = {
         search_base.DEFINITION.name: (search_base.DEFINITION, search_base.handle),
@@ -150,6 +153,9 @@ def _build_registry() -> dict[str, tuple[ToolDefinition, ToolHandler]]:
         reminders.CREATE_REMINDER.name: (reminders.CREATE_REMINDER, reminders.create_reminder),
         reminders.LIST_REMINDERS.name: (reminders.LIST_REMINDERS, reminders.list_reminders),
         agenda.DEFINITION.name: (agenda.DEFINITION, agenda.handle),
+        files_tool.LIST_FILES.name: (files_tool.LIST_FILES, files_tool.list_files),
+        files_tool.GET_FILE.name: (files_tool.GET_FILE, files_tool.get_file),
+        files_tool.UPLOAD_FILE.name: (files_tool.UPLOAD_FILE, files_tool.upload_file),
         reminders.RESOLVE_REMINDER.name: (reminders.RESOLVE_REMINDER, reminders.resolve_reminder),
         notes.CREATE_NOTE.name: (notes.CREATE_NOTE, notes.create_note),
         notes.CREATE_FOLDER.name: (notes.CREATE_FOLDER, notes.create_folder),
