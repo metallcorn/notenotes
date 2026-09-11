@@ -399,3 +399,51 @@ class TestПередачаФайлов:
         assert b64.b64decode(res["blob"]) == pdf
         assert res["mimeType"] == "application/pdf"
         assert res["uri"].endswith(str(upload.id))
+
+
+class TestВерсияПротокола:
+    """Живой claude.ai шлёт server/discover с версией новее, чем мы знаем.
+
+    Отвергать её по заголовку — лишний 400 на каждом подключении, который
+    держится только на том, что клиент откатывается сам. Договор о версии
+    — в initialize.
+    """
+
+    async def test_более_новая_версия_проходит(self, client, db_session, test_user):
+        await _make_space(db_session, test_user, "Личное")
+        await _issue_token(db_session, test_user)
+        r = await client.post(
+            "/api/mcp",
+            json={"jsonrpc": "2.0", "id": 1, "method": "ping"},
+            headers={"Authorization": "Bearer nn_testtoken", "MCP-Protocol-Version": "2026-07-28"},
+        )
+        assert r.status_code == 200
+
+    async def test_initialize_с_новой_версией_договаривается_вниз(self, mcp, client, db_session):
+        r = await client.post(
+            "/api/mcp",
+            json={"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2026-07-28"}},
+            headers={"Authorization": "Bearer nn_testtoken", "MCP-Protocol-Version": "2026-07-28"},
+        )
+        assert r.status_code == 200
+        # Отвечаем той, что поддерживаем, — дальше клиент обязан слать её.
+        assert r.json()["result"]["protocolVersion"] == "2025-06-18"
+
+    async def test_старше_самой_старой_и_мусор_отвергаются(self, client, db_session, test_user):
+        await _make_space(db_session, test_user, "Личное")
+        await _issue_token(db_session, test_user)
+        for bad in ("2020-01-01", "latest", "1.0", "2026-7-28"):
+            r = await client.post(
+                "/api/mcp",
+                json={"jsonrpc": "2.0", "id": 1, "method": "ping"},
+                headers={"Authorization": "Bearer nn_testtoken", "MCP-Protocol-Version": bad},
+            )
+            assert r.status_code == 400, bad
+
+    async def test_неизвестный_метод_это_ошибка_jsonrpc_а_не_http(self, mcp):
+        """server/discover мы не знаем — но это -32601 со статусом 200,
+        клиент такое обрабатывает штатно. HTTP 400 он читает как «сервер
+        сломан»."""
+        r = await mcp("server/discover")
+        assert r.status_code == 200
+        assert r.json()["error"]["code"] == -32601

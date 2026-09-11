@@ -22,6 +22,7 @@ JSON-RPC разобран руками, без SDK — тем же выборо�
 from __future__ import annotations
 
 import logging
+import re
 import secrets
 import uuid
 from datetime import datetime, timezone
@@ -51,6 +52,31 @@ DEFAULT_PROTOCOL_VERSION = "2025-03-26"
 PREFERRED_PROTOCOL_VERSION = "2025-06-18"
 
 TOKEN_PREFIX = "nn_"
+
+_VERSION_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+def _acceptable_protocol_version(version: str) -> bool:
+    """Заголовок MCP-Protocol-Version: отвергать ли запрос по нему.
+
+    Первая версия отвергала всё, чего нет в SUPPORTED_PROTOCOL_VERSIONS.
+    Живой claude.ai шлёт server/discover с версией 2026-07-28 — новее, чем
+    мы знаем, — получает 400 и откатывается на 2025-06-18. Работает, но
+    это отказ на каждом подключении, и держится только на том, что клиент
+    откатывается сам.
+
+    Настоящее место для договора о версии — initialize: там клиент
+    называет свою, а мы отвечаем той, что поддерживаем, и дальше он
+    обязан слать её. Заголовок же до initialize — только проба. Поэтому
+    отвергаем лишь то, что заведомо мусор или СТАРШЕ самого старого из
+    поддерживаемых; новее — пропускаем, договоримся в initialize.
+    """
+    if version in SUPPORTED_PROTOCOL_VERSIONS:
+        return True
+    if not _VERSION_RE.match(version):
+        return False
+    # Даты в ISO сравниваются как строки.
+    return version > min(SUPPORTED_PROTOCOL_VERSIONS)
 
 # Инструменты, которые наружу не отдаём.
 #
@@ -355,7 +381,7 @@ async def mcp_endpoint(request: Request, db: AsyncSession = Depends(get_db)) -> 
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Недопустимый Origin")
 
     version = request.headers.get("mcp-protocol-version", DEFAULT_PROTOCOL_VERSION)
-    if version not in SUPPORTED_PROTOCOL_VERSIONS:
+    if not _acceptable_protocol_version(version):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Версия протокола {version} не поддерживается")
 
     # ДО аутентификации: иначе перебор токенов бесплатно нагружает базу.
