@@ -3,12 +3,12 @@ import logging
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 
 from app import realtime
 from app.core.config import get_settings
 from app.db import async_session
-from app.models import AuditLog, Item, Notification, OAuthClient, OAuthCode, OAuthRefreshToken, Upload
+from app.models import AuditLog, Item, ItemVersion, Notification, OAuthClient, OAuthCode, OAuthRefreshToken, Upload
 
 logger = logging.getLogger(__name__)
 
@@ -131,6 +131,44 @@ async def _purge_oauth_once() -> int:
         return (codes.rowcount or 0) + (tokens.rowcount or 0) + (clients.rowcount or 0)
 
 
+# Окно, в котором обнуление считаем СВЕЖИМ. Старые (до починок 2026-09-08)
+# уже найдены и восстановлены руками 2026-09-11; предупреждать о них
+# каждые шесть часов — шум, за которым не заметишь новое.
+_WIPE_LOOKBACK = timedelta(days=7)
+
+
+async def _find_recently_wiped() -> list[tuple[str, str, datetime]]:
+    """Заметки, у которых content пуст, а в истории есть непустая версия.
+
+    Урок инцидента 2026-09-11: потерю данных чинили ТРИЖДЫ (Yjs 19.08,
+    Yjs 02.09, гонка автосохранения 08.09), и каждый раз — сам баг. Но
+    его жертв никто не собирал: четыре заметки простояли пустыми от двух
+    до пяти недель, пока владелец не наткнулся сам. История версий их
+    хранила всё это время.
+
+    Это не восстановление, а сигнал: восстанавливать должен человек,
+    потому что пустая заметка может быть и намеренно пустой. Но узнать
+    о ней он должен от нас, а не случайно.
+    """
+    since = datetime.now(timezone.utc) - _WIPE_LOOKBACK
+    async with async_session() as db:
+        rows = (
+            await db.execute(
+                select(Item.id, Item.title, Item.updated_at)
+                .where(
+                    Item.deleted_at.is_(None),
+                    Item.material_type == "note",
+                    Item.updated_at >= since,
+                    func.length(func.trim(func.coalesce(Item.content, ""))) < 5,
+                    select(ItemVersion.id)
+                    .where(ItemVersion.item_id == Item.id, func.length(ItemVersion.content) > 20)
+                    .exists(),
+                )
+            )
+        ).all()
+    return [(str(r[0]), r[1] or "без названия", r[2]) for r in rows]
+
+
 async def run_periodic_sweep() -> None:
     while True:
         try:
@@ -151,6 +189,17 @@ async def run_periodic_sweep() -> None:
                 logger.info("Очистка OAuth: удалено %d записей", purged)
         except Exception:
             logger.exception("Ошибка при очистке OAuth")
+        try:
+            wiped = await _find_recently_wiped()
+            for item_id, title, when in wiped:
+                # WARNING, не INFO: это не рутина, а именно то, что надо
+                # заметить в общем потоке логов.
+                logger.warning(
+                    "Заметка пуста, но в истории есть содержимое — возможная потеря данных: "
+                    "«%s» (%s), последняя правка %s", title, item_id, when
+                )
+        except Exception:
+            logger.exception("Ошибка при поиске обнулённых заметок")
         try:
             purged = await _purge_audit_once()
             if purged:
