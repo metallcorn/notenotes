@@ -311,12 +311,25 @@ async def _call_tool(principal: MCPPrincipal, db: AsyncSession, params: dict) ->
     # держит отдельный тип блока, а инструмент помечает такой результат
     # ключом _mcp_image (см. tools/files.py).
     image = result.pop("_mcp_image", None)
+    resource = result.pop("_mcp_resource", None)
     content: list[dict] = [{"type": "text", "text": json.dumps(result, ensure_ascii=False, indent=None)}]
     if isinstance(image, dict) and image.get("data"):
         content.append({
             "type": "image",
             "data": image["data"],
             "mimeType": image.get("mime_type") or "application/octet-stream",
+        })
+    if isinstance(resource, dict) and resource.get("data"):
+        # Блок resource — протокольный способ передать двоичный файл:
+        # клиент может сохранить его или предложить человеку скачать, а
+        # модель не пытается «прочитать» байты как текст.
+        content.append({
+            "type": "resource",
+            "resource": {
+                "uri": resource.get("uri") or f"file:///{resource.get('filename', 'file')}",
+                "mimeType": resource.get("mime_type") or "application/octet-stream",
+                "blob": resource["data"],
+            },
         })
     return {
         "content": content,

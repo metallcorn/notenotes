@@ -335,3 +335,67 @@ class TestОграничениеЧастоты:
             codes.append(r.status_code)
 
         assert 429 in codes
+
+
+class TestПередачаФайлов:
+    async def test_картинка_уходит_блоком_image(self, mcp, db_session, test_user):
+        """base64 в тексте модель увидит простынёй символов, а не картинкой."""
+        import base64 as b64
+        from pathlib import Path
+
+        from sqlalchemy import select as sa_select
+
+        from app.core.config import get_settings
+        from app.models import Space as Sp, Upload
+
+        space = (await db_session.execute(sa_select(Sp).where(Sp.name == "Личное"))).scalar_one()
+        png = b64.b64decode(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+        )
+        upload = Upload(space_id=space.id, author_id=test_user.id, filename="ф.png", content_type="image/png")
+        db_session.add(upload)
+        await db_session.flush()
+        await db_session.commit()
+        d = Path(get_settings().upload_dir)
+        d.mkdir(parents=True, exist_ok=True)
+        (d / str(upload.id)).write_bytes(png)
+
+        r = await mcp("tools/call", {"name": "get_file", "arguments": {"file_id": str(upload.id)}})
+
+        blocks = r.json()["result"]["content"]
+        image = next(b for b in blocks if b["type"] == "image")
+        assert b64.b64decode(image["data"]) == png
+        assert image["mimeType"] == "image/png"
+
+    async def test_документ_уходит_блоком_resource(self, mcp, db_session, test_user):
+        """Тот самый случай: «нет инструмента для передачи вложений».
+
+        Блок resource — протокольный способ отдать двоичный файл, чтобы
+        клиент мог его сохранить.
+        """
+        import base64 as b64
+        from pathlib import Path
+
+        from sqlalchemy import select as sa_select
+
+        from app.core.config import get_settings
+        from app.models import Space as Sp, Upload
+
+        space = (await db_session.execute(sa_select(Sp).where(Sp.name == "Личное"))).scalar_one()
+        pdf = b"%PDF-1.4 paszport"
+        upload = Upload(space_id=space.id, author_id=test_user.id,
+                        filename="паспорт.pdf", content_type="application/pdf")
+        db_session.add(upload)
+        await db_session.flush()
+        await db_session.commit()
+        d = Path(get_settings().upload_dir)
+        d.mkdir(parents=True, exist_ok=True)
+        (d / str(upload.id)).write_bytes(pdf)
+
+        r = await mcp("tools/call", {"name": "get_file", "arguments": {"file_id": str(upload.id)}})
+
+        blocks = r.json()["result"]["content"]
+        res = next(b for b in blocks if b["type"] == "resource")["resource"]
+        assert b64.b64decode(res["blob"]) == pdf
+        assert res["mimeType"] == "application/pdf"
+        assert res["uri"].endswith(str(upload.id))

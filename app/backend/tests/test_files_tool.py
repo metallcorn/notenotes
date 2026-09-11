@@ -133,15 +133,47 @@ class TestЧтение:
         assert out["_mcp_image"]["mime_type"] == "image/png"
         assert base64.b64decode(out["_mcp_image"]["data"]) == PNG
 
-    async def test_большая_картинка_не_лезет_в_ответ(self, base):
+    async def test_pdf_отдаётся_самим_файлом(self, base):
+        """Живой случай: человек попросил Клода прислать скан паспорта, и
+        тот ответил «нет инструмента для передачи вложений».
+
+        Причина была здесь: первая версия отдавала байты ТОЛЬКО для
+        картинок, а у PDF возвращался текст и ссылка — то есть сохранить
+        файл клиент не мог физически.
+        """
+        pdf = b"%PDF-1.4 passport-scan"
+        upload = await base.add_file(filename="паспорт.pdf", content_type="application/pdf",
+                                     data=pdf, transcript="Паспорт")
+
+        out = await files_tool.get_file(base.ctx, {"file_id": str(upload.id)})
+
+        assert base64.b64decode(out["_mcp_resource"]["data"]) == pdf
+        assert out["_mcp_resource"]["mime_type"] == "application/pdf"
+        assert out["_mcp_resource"]["filename"] == "паспорт.pdf"
+        # Картинкой PDF не притворяется: модель не должна пытаться его
+        # «рассмотреть».
+        assert "_mcp_image" not in out
+
+    async def test_картинка_идёт_картинкой_а_не_resource(self, base):
+        """Разные блоки не формальность: картинку модель рассматривает,
+        двоичный файл — сохраняет."""
+        upload = await base.add_file(filename="фото.png")
+
+        out = await files_tool.get_file(base.ctx, {"file_id": str(upload.id)})
+
+        assert "_mcp_image" in out
+        assert "_mcp_resource" not in out
+
+    async def test_большой_файл_не_лезет_в_ответ(self, base):
         huge = b"\x89PNG" + b"\0" * (files_tool.MAX_INLINE_BYTES + 10)
         upload = await base.add_file(filename="огромная.png", data=huge)
 
         out = await files_tool.get_file(base.ctx, {"file_id": str(upload.id)})
 
-        assert "_mcp_image" not in out
-        assert "ссылке" in out["note"]
-        assert out["url"]
+        assert "_mcp_image" not in out and "_mcp_resource" not in out
+        # Ссылка должна быть прямо в подсказке: иначе модель предложит
+        # «откройте заметку» вместо того, чтобы дать сам файл.
+        assert out["url"] in out["note"]
 
     async def test_длинная_расшифровка_режется(self, base):
         """Расшифровка часового видео — десятки тысяч слов."""
