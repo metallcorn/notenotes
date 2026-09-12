@@ -484,3 +484,38 @@
   background-color: rgba(155, 89, 182, 0.25);
   color: #d2a6e0;
 }
+
+
+/* Чек-листы (TaskList/TaskItem). Без стилей TipTap рисует <li> с
+   маркером И чекбоксом рядом — маркер убираем, чекбокс и текст в одну
+   строку, выполненный пункт приглушаем. */
+.tiptap ul[data-type="taskList"] {
+  list-style: none;
+  padding-left: 0.25rem;
+}
+.tiptap ul[data-type="taskList"] li {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+}
+.tiptap ul[data-type="taskList"] li > label {
+  flex: 0 0 auto;
+  margin-top: 0.2rem;
+  user-select: none;
+}
+.tiptap ul[data-type="taskList"] li > label input[type="checkbox"] {
+  cursor: pointer;
+  accent-color: rgb(var(--color-bg-accent));
+}
+.tiptap ul[data-type="taskList"] li > div {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.tiptap ul[data-type="taskList"] li[data-checked="true"] > div {
+  color: rgb(var(--color-text-muted));
+  text-decoration: line-through;
+}
+.tiptap ul[data-type="taskList"] ul[data-type="taskList"] {
+  margin-top: 0.25rem;
+  padding-left: 1.5rem;
+}

@@ -1,6 +1,8 @@
 import { useEditor, EditorContent, BubbleMenu } from "@tiptap/react";
 import type { EditorView } from "@tiptap/pm/view";
 import StarterKit from "@tiptap/starter-kit";
+import TaskItem from "@tiptap/extension-task-item";
+import TaskList from "@tiptap/extension-task-list";
 import LinkExtension from "@tiptap/extension-link";
 import CodeBlockLowlight from "@tiptap/extension-code-block-lowlight";
 import Table from "@tiptap/extension-table";
@@ -454,6 +456,13 @@ export default function NoteEditor({
   const editorExtensions = useMemo(
     () => [
       StarterKit.configure({ codeBlock: false }),
+      // Чек-листы «- [ ] пункт». Живой случай: внешний ассистент через
+      // MCP создал заметку с 14 пунктами в стандартном Markdown, а
+      // редактор показал их обычным списком с «[ ]» в тексте. Сериализатор
+      // tiptap-markdown task list умел с самого начала — не хватало
+      // только самих узлов. nested: вложенные подпункты тоже чекбоксами.
+      TaskList,
+      TaskItem.configure({ nested: true }),
       CodeBlockLowlight.configure({ lowlight }),
       ResizableImage,
       Video,
