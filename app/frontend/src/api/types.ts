@@ -9,6 +9,8 @@ export interface User {
   auto_process_uploads: boolean;
   llm_provider: string;
   timezone: string;
+  /** «HH:MM» локального времени утренней сводки, null — выключена. */
+  digest_time: string | null;
 }
 
 export interface InviteCode {

@@ -14,6 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import realtime
+from app import daily_digest
 from app.asr.factory import get_asr_client
 from app.core.config import get_settings
 from app.db import async_session
@@ -966,6 +967,22 @@ async def _handle_callback_query(callback: dict) -> None:
     await answer_callback_query(callback["id"])
 
     data = callback.get("data", "")
+
+    # Кнопки утренней сводки («сделано» / «не актуально») — свой префикс,
+    # чтобы не пересечься с вариантами ответа ассистента ниже.
+    if data.startswith(daily_digest.CALLBACK_PREFIX):
+        chat_id = ((callback.get("message") or {}).get("chat") or {}).get("id")
+        if chat_id is None:
+            return
+        async with async_session() as db:
+            link = (await db.execute(select(TelegramLink).where(TelegramLink.chat_id == chat_id))).scalar_one_or_none()
+            if link is None:
+                return
+            reply = await daily_digest.handle_callback(db, link.user_id, data)
+        if reply:
+            await send_message(chat_id, reply)
+        return
+
     if not data.startswith("sr:"):
         return
     try:

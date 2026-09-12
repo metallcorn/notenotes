@@ -12,6 +12,7 @@ from app.core.config import get_settings
 from app.autotag import run_worker as run_autotag_worker
 from app.embeddings import run_backfill as run_embedding_backfill, run_worker as run_embedding_worker
 from app.cleanup import run_periodic_sweep
+from app.daily_digest import run_worker as run_digest_worker
 from app.note_recording import resume_pending as resume_note_recording, run_worker as run_note_recording_worker
 from app.notification_dispatch import run_dispatch_worker as run_notification_dispatch_worker
 from app.pdf_processing import resume_pending as resume_pdf_ocr, run_worker as run_pdf_worker
@@ -133,6 +134,7 @@ async def lifespan(app: FastAPI):
     ticket_task = asyncio.create_task(_supervised("tickets", run_ticket_worker))
     notification_dispatch_task = asyncio.create_task(_supervised("notification_dispatch", run_notification_dispatch_worker))
     note_recording_task = asyncio.create_task(_supervised("note_recording", run_note_recording_worker))
+    digest_task = asyncio.create_task(_supervised("daily_digest", run_digest_worker))
     await resume_transcription()
     await resume_vision()
     await resume_stuck_replacements()
@@ -159,6 +161,7 @@ async def lifespan(app: FastAPI):
         ticket_task.cancel()
         notification_dispatch_task.cancel()
         note_recording_task.cancel()
+        digest_task.cancel()
 
 
 # docs_url/redoc_url/openapi_url отключены — реальный найденный баг

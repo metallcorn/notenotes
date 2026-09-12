@@ -463,3 +463,53 @@ class TestАудитЧитающихВызовов:
 
         rows = (await db_session.execute(select(AuditLog).where(AuditLog.event == audit.MCP_TOOL))).scalars().all()
         assert [r.subject for r in rows] == ["search_base"]
+
+
+class TestИнструкцииКлиенту:
+    async def test_память_о_пользователе_в_инструкциях(self, mcp, db_session, test_user):
+        """Прямо в промпт, а не «вызови list_memories».
+
+        У нашего ассистента ровно эта дыра стоила плохих ответов:
+        гражданство лежало в памяти, а он советовал процедуру только для
+        граждан ЕС. Факты о человеке нужны ДО первого ответа.
+        """
+        from app.models import AssistantMemory
+
+        db_session.add(AssistantMemory(user_id=test_user.id, content="Гражданин РФ, живёт в Польше по карте побыту"))
+        await db_session.commit()
+
+        r = await mcp("initialize", {"protocolVersion": "2025-06-18"})
+
+        text = r.json()["result"]["instructions"]
+        assert "карте побыту" in text
+
+    async def test_дополнительные_инструкции_из_настроек(self, mcp, db_session, test_user):
+        """Одна настройка действует везде — и в нашем ассистенте, и снаружи."""
+        test_user.custom_instructions = "Обращайся на «ты», отвечай коротко"
+        await db_session.commit()
+
+        r = await mcp("initialize", {"protocolVersion": "2025-06-18"})
+
+        assert "отвечай коротко" in r.json()["result"]["instructions"]
+
+    async def test_ключевые_правила_на_месте(self, mcp):
+        r = await mcp("initialize", {"protocolVersion": "2025-06-18"})
+        text = r.json()["result"]["instructions"]
+        # То, без чего ответы были плохими: факты только из базы, сейф,
+        # обстоятельства человека, поиск файлов по содержимому.
+        for must in ("ТОЛЬКО ИЗ БАЗЫ", "СЕЙФ", "ОБСТОЯТЕЛЬСТВ", "query="):
+            assert must in text, must
+
+    async def test_чужая_память_не_попадает(self, mcp, db_session):
+        """Факты одного пользователя — не в промпт другому."""
+        from app.models import AssistantMemory
+
+        other = User(username=f"o_{uuid.uuid4().hex[:8]}", password_hash=hash_password("x"), name="Чужой")
+        db_session.add(other)
+        await db_session.flush()
+        db_session.add(AssistantMemory(user_id=other.id, content="СЕКРЕТ_СОСЕДА"))
+        await db_session.commit()
+
+        r = await mcp("initialize", {"protocolVersion": "2025-06-18"})
+
+        assert "СЕКРЕТ_СОСЕДА" not in r.json()["result"]["instructions"]

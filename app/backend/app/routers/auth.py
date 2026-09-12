@@ -1,6 +1,7 @@
 import secrets
 import time
 from collections import defaultdict
+import re
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
@@ -208,6 +209,20 @@ async def update_me(
         if value not in VALID_TIMEZONE_NAMES:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Неизвестный часовой пояс: {value}")
         user.timezone = value
+    if payload.digest_time is not None:
+        value = payload.digest_time.strip()
+        if value == "":
+            # Пустая строка — выключить. None в payload значит «не трогать»,
+            # поэтому выключение передаётся именно пустой строкой.
+            user.digest_time = None
+        else:
+            if not re.fullmatch(r"([01]\d|2[0-3]):[0-5]\d", value):
+                raise HTTPException(status.HTTP_400_BAD_REQUEST, "Время сводки — в виде HH:MM, например 09:00")
+            user.digest_time = value
+            # Сменил время на более позднее сегодня — пусть придёт сегодня,
+            # а не завтра; отметка «уже отправлено» для нового времени не
+            # в счёт.
+            user.digest_sent_on = None
     await db.commit()
     await db.refresh(user)
     return user

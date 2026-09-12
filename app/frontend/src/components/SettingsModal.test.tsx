@@ -17,7 +17,7 @@ const hooks = vi.hoisted(() => {
   const idle = { mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false };
   const empty = { data: [], isLoading: false };
   return {
-    useMe: vi.fn(() => ({ data: { llm_provider: "", timezone: "Europe/Warsaw" } })),
+    useMe: vi.fn(() => ({ data: { llm_provider: "", timezone: "Europe/Warsaw", digest_time: "09:00" } })),
     useMemories: vi.fn(() => empty),
     useAddMemory: vi.fn(() => idle),
     useDeleteMemory: vi.fn(() => idle),
@@ -26,6 +26,7 @@ const hooks = vi.hoisted(() => {
     useUpdateCustomInstructions: vi.fn(() => idle),
     useUpdateLlmProvider: vi.fn(() => idle),
     useUpdateTimezone: vi.fn(() => idle),
+    useUpdateDigestTime: vi.fn(() => idle),
     useUpdateTtsVoice: vi.fn(() => idle),
     useUpdateAutoProcessUploads: vi.fn(() => idle),
     useInviteCodes: vi.fn(() => empty),

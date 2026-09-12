@@ -26,6 +26,7 @@
 
 from __future__ import annotations
 
+import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -69,13 +70,17 @@ DEFINITION = ToolDefinition(
 )
 
 
-async def handle(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
-    raw_days = args.get("days")
-    try:
-        days = int(raw_days) if raw_days is not None else DEFAULT_HORIZON_DAYS
-    except (TypeError, ValueError):
-        days = DEFAULT_HORIZON_DAYS
-    days = max(1, min(days, MAX_HORIZON_DAYS))
+async def collect_agenda(
+    db, user_id: uuid.UUID, *, days: int = DEFAULT_HORIZON_DAYS, tz_name: str | None = None
+) -> dict[str, Any]:
+    """Что впереди — общая часть для инструмента и утренней сводки.
+
+    Вынесено из handle(), чтобы сводка в Telegram (app/daily_digest.py) и
+    ответ ассистенту собирались ОДНИМ кодом: иначе они разошлись бы в
+    том, что считать «сегодняшним» или «активным», и человек получал бы
+    утром одно, а на вопрос «что у меня сегодня» — другое.
+    """
+    days = max(1, min(int(days), MAX_HORIZON_DAYS))
 
     now = datetime.now(timezone.utc)
     # Нижняя граница — начало СЕГОДНЯШНЕГО дня, а не текущий момент:
@@ -90,10 +95,10 @@ async def handle(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
     # (неразрешённые), — чтобы два инструмента не расходились в том, что
     # считать активным.
     reminders = (
-        await ctx.db.execute(
+        await db.execute(
             select(Notification)
             .where(
-                Notification.user_id == ctx.user_id,
+                Notification.user_id == user_id,
                 Notification.resolved_at.is_(None),
                 Notification.trigger_at.isnot(None),
                 Notification.trigger_at >= since,
@@ -117,12 +122,12 @@ async def handle(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
     # routers/items.py::list_detected_events буквально — расхождение
     # означало бы утечку чужих записей или содержимого сейфа.
     items = (
-        await ctx.db.execute(
+        await db.execute(
             select(Item)
             .join(SpaceMember, SpaceMember.space_id == Item.space_id)
             .join(Space, Space.id == Item.space_id)
             .where(
-                SpaceMember.user_id == ctx.user_id,
+                SpaceMember.user_id == user_id,
                 Item.deleted_at.is_(None),
                 Space.is_vault.is_(False),
                 Item.properties.has_key("detected_events"),
@@ -153,6 +158,7 @@ async def handle(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
                 # и человек имеет право проверить источник, а ассистент —
                 # сослаться на него вместо утверждения от себя.
                 "source_note": item.title or "Без названия",
+                "item_id": str(item.id),
                 "url": item_url(item.id),
             })
 
@@ -176,10 +182,18 @@ async def handle(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
             continue
         seen.add(key)
         unique.append(entry)
-    entries = unique
 
     return {
-        "today": now_local_date(ctx.client_timezone).isoformat(),
+        "today": now_local_date(tz_name).isoformat(),
         "horizon_days": days,
-        "entries": entries,
+        "entries": unique,
     }
+
+
+async def handle(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
+    raw_days = args.get("days")
+    try:
+        days = int(raw_days) if raw_days is not None else DEFAULT_HORIZON_DAYS
+    except (TypeError, ValueError):
+        days = DEFAULT_HORIZON_DAYS
+    return await collect_agenda(ctx.db, ctx.user_id, days=days, tz_name=ctx.client_timezone)

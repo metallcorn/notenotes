@@ -45,6 +45,15 @@ class User(Base):
     # запроса, из которого можно взять текущий пояс браузера — см.
     # app/user_timezone.py.
     timezone: Mapped[str] = mapped_column(String(64), default="Europe/Warsaw", server_default="Europe/Warsaw")
+    # Утренняя сводка «что сегодня» — в Telegram и push, с кнопками. Время
+    # ЛОКАЛЬНОЕ (в поясе timezone выше), строкой «HH:MM». Пусто — выключено.
+    # Не bool + time, а одно поле: «включено, но без времени» состояния не
+    # имеет смысла, а два поля дали бы ровно его.
+    digest_time: Mapped[str | None] = mapped_column(String(5), nullable=True, default="09:00", server_default="09:00")
+    # Дата (локальная), за которую сводка уже ушла. Защита от повтора:
+    # воркер проверяет каждую минуту, и без этой отметки слал бы в 09:00,
+    # 09:01, 09:02... а после перезапуска — ещё раз.
+    digest_sent_on: Mapped[str | None] = mapped_column(String(10), nullable=True)
 
 
 class InviteCode(Base):

@@ -53,6 +53,7 @@ class UserOut(BaseModel):
     auto_process_uploads: bool = True
     llm_provider: str = ""
     timezone: str = "Europe/Warsaw"
+    digest_time: str | None = "09:00"
 
 
 class InviteCodeOut(BaseModel):
@@ -74,3 +75,5 @@ class UserUpdate(BaseModel):
     auto_process_uploads: bool | None = None
     llm_provider: str | None = None
     timezone: str | None = Field(default=None, min_length=1, max_length=64)
+    # «HH:MM» локального времени или "" — выключить. Валидируется в роутере.
+    digest_time: str | None = Field(default=None, max_length=5)

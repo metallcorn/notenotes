@@ -35,7 +35,10 @@ async def _dispatch_one(notification: Notification, db) -> None:
     link = (
         await db.execute(select(TelegramLink.chat_id).where(TelegramLink.user_id == notification.user_id))
     ).scalar_one_or_none()
-    if link is not None:
+    # Утренняя сводка в Telegram уходит отдельно и с кнопками
+    # (daily_digest.py); здесь она только для push и колокольчика — иначе
+    # человек получал бы её дважды, второй раз без кнопок.
+    if link is not None and notification.type != "digest":
         # Та же кнопка "Открыть", что веб рисует у себя в центре уведомлений
         # (клик — чисто клиентская навигация, AppShell.tsx::openReminder) —
         # тут ссылка холодная (?item=), без подсветки конкретного пункта

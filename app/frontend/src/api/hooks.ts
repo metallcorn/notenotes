@@ -178,6 +178,15 @@ export function useUpdateTimezone() {
   });
 }
 
+export function useUpdateDigestTime() {
+  const qc = useQueryClient();
+  return useMutation({
+    // "" — выключить: null в теле значит «не трогать».
+    mutationFn: (digest_time: string) => api.patch<User>("/auth/me", { digest_time }),
+    onSuccess: (user) => qc.setQueryData(["me"], user),
+  });
+}
+
 export function useUpdateAutoProcessUploads() {
   const qc = useQueryClient();
   return useMutation({
