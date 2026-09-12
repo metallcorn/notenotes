@@ -233,3 +233,32 @@ class TestНастройка:
 
     async def test_по_умолчанию_девять_утра(self, auth_client):
         assert (await auth_client.get("/api/auth/me")).json()["digest_time"] == "09:00"
+
+
+class TestПерерисовкаПослеКнопки:
+    async def test_закрытый_пункт_пропадает_из_сводки(self, base, db_session, test_user):
+        """Не «ответ „убрано“ под сообщением», а то же сообщение без пункта.
+
+        Бот после нажатия собирает сводку заново из базы и редактирует
+        исходное сообщение — здесь проверяется, что заново собранная
+        действительно короче на закрытое.
+        """
+        n = await base.reminder("Позвонить")
+        await base.event_note("Фестиваль")
+
+        before, kb_before = await daily_digest.build_digest(db_session, test_user)
+        await daily_digest.handle_callback(db_session, test_user.id, f"dg:r:{n.id}")
+        after, kb_after = await daily_digest.build_digest(db_session, test_user)
+
+        assert "Позвонить" in before and "Позвонить" not in after
+        assert len(kb_before) == 2 and len(kb_after) == 1
+
+    async def test_когда_всё_закрыто_сводки_нет(self, base, db_session, test_user):
+        """Бот в этом случае УДАЛЯЕТ сообщение из чата: неактуальное
+        удаляется, актуальное остаётся, а когда актуального не осталось —
+        не остаётся и сообщения."""
+        n = await base.reminder("Единственное")
+
+        await daily_digest.handle_callback(db_session, test_user.id, f"dg:r:{n.id}")
+
+        assert await daily_digest.build_digest(db_session, test_user) is None

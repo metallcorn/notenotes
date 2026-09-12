@@ -212,6 +212,40 @@ async def send_message(chat_id: int, text: str, reply_markup: dict | None = None
             logger.exception("Не удалось отправить сообщение в Telegram chat_id=%s", chat_id)
 
 
+async def edit_message(chat_id: int, message_id: int, text: str, reply_markup: dict | None = None) -> None:
+    """Перерисовать уже отправленное сообщение — текст и кнопки разом.
+
+    Нужно утренней сводке: нажал «сделано» — пункт и его кнопка исчезают
+    из ТОГО ЖЕ сообщения, а не копятся ответами «убрано» под ним.
+    """
+    settings = get_settings()
+    if not settings.telegram_bot_token:
+        return
+    payload: dict = {"chat_id": chat_id, "message_id": message_id, "text": text}
+    # Пустая клавиатура — явно: без reply_markup Telegram оставит старые
+    # кнопки, и закрытый пункт можно было бы «закрыть» ещё раз.
+    payload["reply_markup"] = reply_markup or {"inline_keyboard": []}
+    async with httpx.AsyncClient(timeout=30) as client:
+        try:
+            await client.post(_api_url("editMessageText"), json=payload)
+        except Exception:
+            logger.exception("Не удалось отредактировать сообщение в Telegram chat_id=%s", chat_id)
+
+
+async def delete_message(chat_id: int, message_id: int) -> None:
+    """Убрать сообщение из чата. Сводка, в которой закрыли всё, не должна
+    висеть — по просьбе владельца: неактуальное удаляется, актуальное
+    остаётся."""
+    settings = get_settings()
+    if not settings.telegram_bot_token:
+        return
+    async with httpx.AsyncClient(timeout=30) as client:
+        try:
+            await client.post(_api_url("deleteMessage"), json={"chat_id": chat_id, "message_id": message_id})
+        except Exception:
+            logger.exception("Не удалось удалить сообщение в Telegram chat_id=%s", chat_id)
+
+
 async def send_photo(chat_id: int, photo_url: str) -> None:
     # photo — обычная URL-строка, Telegram сам её скачивает на своей
     # стороне (тот же приём, что для link-preview у обычных ссылок) — не
@@ -974,12 +1008,29 @@ async def _handle_callback_query(callback: dict) -> None:
         chat_id = ((callback.get("message") or {}).get("chat") or {}).get("id")
         if chat_id is None:
             return
+        message_id = ((callback.get("message") or {}).get("message_id"))
         async with async_session() as db:
             link = (await db.execute(select(TelegramLink).where(TelegramLink.chat_id == chat_id))).scalar_one_or_none()
             if link is None:
                 return
             reply = await daily_digest.handle_callback(db, link.user_id, data)
-        if reply:
+            if reply is None:
+                return
+            # Перерисовываем сводку из текущего состояния базы: закрытый
+            # пункт пропадает вместе с кнопкой. Когда всё закрыто — одна
+            # строка без кнопок.
+            user = await db.get(User, link.user_id)
+            built = await daily_digest.build_digest(db, user) if user else None
+        if message_id is not None:
+            if built is None:
+                # Закрыто всё — сводке в чате делать нечего. Неактуальное
+                # удаляется, актуальное остаётся; когда актуального не
+                # осталось, не остаётся и сообщения.
+                await delete_message(chat_id, message_id)
+            else:
+                text, keyboard = built
+                await edit_message(chat_id, message_id, text, {"inline_keyboard": keyboard})
+        else:
             await send_message(chat_id, reply)
         return
 
