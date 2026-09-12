@@ -77,6 +77,44 @@ async def _accessible(ctx: ToolContext, upload: Upload) -> bool:
     return not await is_vault_space(ctx.db, upload.space_id)
 
 
+async def _files_from_semantic_hits(ctx: ToolContext, needle: str, *, exclude: set) -> list[Upload]:
+    """Вложения заметок, которые смысловой поиск счёл подходящими.
+
+    Порог и потолок — те же, что у веб-поиска и search_base: число
+    измерено на боевой базе, дублировать его нельзя. Падение эмбеддера не
+    роняет list_files: подстрочная выдача уже собрана, это дополнение.
+    """
+    from app.embeddings import search_semantic
+    from app.routers.search import _MAX_SEMANTIC_HITS, _MIN_SEMANTIC_SCORE
+
+    try:
+        hits = await search_semantic(ctx.db, ctx.user_id, needle)
+    except Exception:
+        return []
+
+    found: list[Upload] = []
+    seen = set(exclude)
+    for note, score, _chunk in hits[: _MAX_SEMANTIC_HITS * 2]:
+        if score < _MIN_SEMANTIC_SCORE:
+            continue
+        content = note.content or ""
+        if "/api/uploads/" not in content:
+            continue
+        attached = (
+            await ctx.db.execute(
+                select(Upload)
+                .join(Space, Space.id == Upload.space_id)
+                .where(Upload.space_id == note.space_id, Space.is_vault.is_(False))
+            )
+        ).scalars().all()
+        for upload in attached:
+            if upload.id in seen or str(upload.id) not in content:
+                continue
+            seen.add(upload.id)
+            found.append(upload)
+    return found
+
+
 LIST_FILES = ToolDefinition(
     name="list_files",
     description=(
@@ -155,13 +193,22 @@ async def list_files(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
         )
         # needle и limit применяются ниже, после отбора по тексту заметки.
 
-    uploads = (await ctx.db.execute(query)).scalars().all()
+    uploads = list((await ctx.db.execute(query)).scalars().all())
     if item is not None:
         content = item.content or ""
         uploads = [u for u in uploads if str(u.id) in content]
         if needle:
             low = needle.lower()
             uploads = [u for u in uploads if low in (u.transcript or "").lower() or low in u.filename.lower()]
+        uploads = uploads[:limit]
+    elif needle:
+        # Подстроки мало. Живая база: на «жаба» подстрока нашла ОДИН файл
+        # из четырёх — остальные описаны как «лягушка», «лягушонок»,
+        # «лягушки». Синонимы подстрокой не взять, а смысловой поиск у нас
+        # уже есть и описания картинок в заметки попадают (vision.py).
+        # Берём заметки, найденные по смыслу, и добавляем их вложения.
+        # Подстрочные совпадения идут первыми: они точнее.
+        uploads.extend(await _files_from_semantic_hits(ctx, needle, exclude={u.id for u in uploads}))
         uploads = uploads[:limit]
 
     files = []

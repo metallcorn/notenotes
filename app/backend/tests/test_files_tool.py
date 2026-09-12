@@ -367,6 +367,49 @@ class TestПоискФайловПоСодержимому:
 
         assert [f["id"] for f in files] == [str(frog.id)]
 
+    async def test_синонимы_через_смысловой_поиск(self, base, monkeypatch):
+        """Живая база: на «жаба» подстрока нашла один файл из четырёх —
+        остальные описаны как «лягушка», «лягушонок». Синонимы подстрокой
+        не взять; смысловой поиск у нас есть, и описания картинок в
+        заметки попадают."""
+        frog = await base.add_file(filename="file_22.jpg", transcript="Лягушонок сидит на кувшинке")
+        note = await base.add_note(content=f"Фото\n\n![](/api/uploads/{frog.id})\n\nЛягушонок сидит на кувшинке")
+
+        async def fake_semantic(db, user_id, query, **kw):
+            return [(note, 0.77, "Лягушонок")]
+
+        monkeypatch.setattr("app.embeddings.search_semantic", fake_semantic)
+
+        files = (await files_tool.list_files(base.ctx, {"query": "жаба"}))["files"]
+
+        assert [f["filename"] for f in files] == ["file_22.jpg"]
+
+    async def test_подстрочные_совпадения_идут_первыми(self, base, monkeypatch):
+        exact = await base.add_file(filename="a.jpg", transcript="жаба")
+        fuzzy = await base.add_file(filename="b.jpg", transcript="лягушка")
+        note = await base.add_note(content=f"![](/api/uploads/{fuzzy.id})")
+
+        async def fake_semantic(db, user_id, query, **kw):
+            return [(note, 0.8, "")]
+
+        monkeypatch.setattr("app.embeddings.search_semantic", fake_semantic)
+
+        files = (await files_tool.list_files(base.ctx, {"query": "жаба"}))["files"]
+
+        assert [f["id"] for f in files] == [str(exact.id), str(fuzzy.id)]
+
+    async def test_падение_эмбеддера_не_роняет_поиск(self, base, monkeypatch):
+        await base.add_file(filename="a.jpg", transcript="жаба")
+
+        async def explode(*a, **kw):
+            raise RuntimeError("эмбеддер недоступен")
+
+        monkeypatch.setattr("app.embeddings.search_semantic", explode)
+
+        files = (await files_tool.list_files(base.ctx, {"query": "жаба"}))["files"]
+
+        assert [f["filename"] for f in files] == ["a.jpg"]
+
     def test_описание_велит_искать_а_не_листать(self):
         d = files_tool.LIST_FILES.description
         assert "query" in d and "жаб" in d
