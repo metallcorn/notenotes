@@ -66,7 +66,20 @@ from app.routers import (
 # Уровень именно для «app.*», не корневой: корневой поднял бы заодно
 # httpx, который на INFO печатает каждый исходящий запрос — в агентном
 # цикле это шум, за которым не видно своего.
-logging.getLogger("app").setLevel(get_settings().log_level.upper())
+_app_logger = logging.getLogger("app")
+_app_logger.setLevel(get_settings().log_level.upper())
+# ВТОРАЯ половина настройки, без которой первая не работала. Уровень
+# выставили 10.09, а handler'а у корневого логгера нет — uvicorn заводит
+# свои и только для себя. Записи INFO от app.* поднимались к корню и
+# падали в logging.lastResort, а тот печатает ТОЛЬКО WARNING и выше.
+# Поэтому WARNING'и были видны, а весь INFO (учёт токенов, вызовы MCP)
+# по-прежнему уходил в никуда. Поймано 12.09 по пустому логу при живых
+# вызовах get_file. Тест проверял уровень — ровно та ловушка, которую он
+# сам и описывал.
+if not _app_logger.handlers:
+    _handler = logging.StreamHandler()
+    _handler.setFormatter(logging.Formatter("%(levelname)s:     %(name)s: %(message)s"))
+    _app_logger.addHandler(_handler)
 
 logger = logging.getLogger(__name__)
 

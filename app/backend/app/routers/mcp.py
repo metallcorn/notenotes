@@ -434,6 +434,11 @@ async def mcp_endpoint(request: Request, db: AsyncSession = Depends(get_db)) -> 
         body = _result(request_id, {"tools": _tool_list(principal.disabled)})
     elif method == "tools/call":
         body = _result(request_id, await _call_tool(principal, db, params))
+        # Коммит здесь, а не только внутри инструментов: пишущие коммитят
+        # сами, а get_file/list_files/search_base — нет, и строка аудита,
+        # добавленная в ту же сессию, терялась вместе с ней. Поймано 12.09:
+        # восемь живых get_file — и ни одной записи в audit_log.
+        await db.commit()
     elif method == "ping":
         body = _result(request_id, {})
     else:

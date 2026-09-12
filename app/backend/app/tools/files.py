@@ -80,14 +80,20 @@ async def _accessible(ctx: ToolContext, upload: Upload) -> bool:
 LIST_FILES = ToolDefinition(
     name="list_files",
     description=(
-        "Файлы пользователя: картинки, PDF, документы, аудио, видео. Без аргументов — "
-        "последние загруженные; с item_id — только вложенные в эту заметку. У каждого видно, "
-        "извлечён ли из него текст (OCR картинок, расшифровка речи, текстовый слой PDF): если "
-        "да, читать его через get_file дёшево и быстро."
+        "Файлы пользователя: картинки, PDF, документы, аудио, видео. Ищи по СОДЕРЖИМОМУ "
+        "через query: у картинок есть автоматическое описание того, что на них, у PDF и "
+        "видео — извлечённый текст, и query ищет по всему этому плюс по имени файла. Просят "
+        "«фото с жабой» — query=\"жаба\", а не листать всё подряд: файлов сотни, а без query "
+        "отдаются только последние. С item_id — только вложения этой заметки. У каждого файла "
+        "видно, извлечён ли текст: если да, читать его через get_file дёшево и быстро."
     ),
     parameters={
         "type": "object",
         "properties": {
+            "query": {
+                "type": "string",
+                "description": "Что искать: слово из описания картинки, из текста документа или из имени файла",
+            },
             "item_id": {"type": "string", "description": "id заметки — показать только её вложения"},
             "limit": {"type": "integer", "description": "Сколько показать, по умолчанию 20"},
         },
@@ -108,8 +114,22 @@ async def list_files(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
         .join(Space, Space.id == Upload.space_id)
         .where(SpaceMember.user_id == ctx.user_id, Space.is_vault.is_(False))
         .order_by(Upload.created_at.desc())
-        .limit(limit)
     )
+
+    # Поиск по содержимому. Живой случай 12.09: «покажи фото с жабой» —
+    # Клод взял list_files без запроса, получил 20 последних файлов,
+    # просмотрел 8 картинок среди них и заключил, что жаб нет. А их четыре,
+    # от 8 августа, с описанием «жаба» в transcript — в двадцатку они не
+    # попали. Инструмент подталкивал к перебору вместо поиска.
+    #
+    # ILIKE, а не полнотекст: описания картинок короткие, слов там единицы,
+    # и подстрока здесь точнее словаря — «жаб» найдёт и «жаба», и «жабы»,
+    # а to_tsvector('simple') без морфологии не нашёл бы.
+    needle = str(args.get("query") or "").strip()
+    if needle:
+        pattern = f"%{needle}%"
+        query = query.where(Upload.transcript.ilike(pattern) | Upload.filename.ilike(pattern))
+    query = query.limit(limit)
 
     raw_item_id = str(args.get("item_id") or "").strip()
     item: Item | None = None
@@ -133,11 +153,16 @@ async def list_files(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
             .where(Upload.space_id == item.space_id)
             .order_by(Upload.created_at.desc())
         )
+        # needle и limit применяются ниже, после отбора по тексту заметки.
 
     uploads = (await ctx.db.execute(query)).scalars().all()
     if item is not None:
         content = item.content or ""
-        uploads = [u for u in uploads if str(u.id) in content][:limit]
+        uploads = [u for u in uploads if str(u.id) in content]
+        if needle:
+            low = needle.lower()
+            uploads = [u for u in uploads if low in (u.transcript or "").lower() or low in u.filename.lower()]
+        uploads = uploads[:limit]
 
     files = []
     for upload in uploads:

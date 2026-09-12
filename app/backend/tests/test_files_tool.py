@@ -304,3 +304,69 @@ class TestДоступностьВезде:
         for name in ("list_files", "get_file", "upload_file"):
             assert name in everywhere
             assert name in via_mcp
+
+
+class TestПоискФайловПоСодержимому:
+    async def test_по_описанию_картинки(self, base):
+        """Живой случай 12.09: «покажи фото с жабой».
+
+        Клод взял list_files без запроса, получил 20 последних, просмотрел
+        8 картинок и заключил, что жаб нет. А их четыре, от 8 августа, с
+        «жаба» в описании — в двадцатку не попали. Инструмент подталкивал
+        к перебору вместо поиска.
+        """
+        await base.add_file(filename="file_22.jpg", transcript="Зелёная жаба сидит на листе кувшинки")
+        await base.add_file(filename="file_1.jpg", transcript="Инфографика про urząd и wezwanie")
+
+        files = (await files_tool.list_files(base.ctx, {"query": "жаба"}))["files"]
+
+        assert [f["filename"] for f in files] == ["file_22.jpg"]
+
+    async def test_подстрока_ловит_словоформы(self, base):
+        """ILIKE, не полнотекст: «жаб» найдёт и «жабы», и «жабой» — у
+        to_tsvector('simple') морфологии нет."""
+        await base.add_file(filename="a.jpg", transcript="Две жабы у пруда")
+        await base.add_file(filename="b.jpg", transcript="Кот")
+
+        files = (await files_tool.list_files(base.ctx, {"query": "жаб"}))["files"]
+
+        assert [f["filename"] for f in files] == ["a.jpg"]
+
+    async def test_по_имени_файла(self, base):
+        await base.add_file(filename="polisa_AXA.pdf", content_type="application/pdf", data=b"%PDF")
+        await base.add_file(filename="file_3.jpg")
+
+        files = (await files_tool.list_files(base.ctx, {"query": "axa"}))["files"]
+
+        assert [f["filename"] for f in files] == ["polisa_AXA.pdf"]
+
+    async def test_старый_файл_находится_поверх_лимита(self, base):
+        """Ради этого поиск и нужен: без него старое вытесняется свежим."""
+        old = await base.add_file(filename="жаба_старая.jpg", transcript="жаба")
+        # Явно в прошлое: иначе все 26 файлов создаются в одну секунду, и
+        # ORDER BY created_at между ними — лотерея (тест так и упал).
+        from datetime import datetime, timedelta, timezone
+
+        old.created_at = datetime.now(timezone.utc) - timedelta(days=30)
+        await base.ctx.db.commit()
+        for i in range(25):
+            await base.add_file(filename=f"свежий_{i}.jpg")
+
+        without = (await files_tool.list_files(base.ctx, {}))["files"]
+        with_query = (await files_tool.list_files(base.ctx, {"query": "жаба"}))["files"]
+
+        assert str(old.id) not in {f["id"] for f in without}
+        assert [f["id"] for f in with_query] == [str(old.id)]
+
+    async def test_внутри_заметки_тоже_фильтрует(self, base):
+        frog = await base.add_file(filename="f1.jpg", transcript="жаба")
+        cat = await base.add_file(filename="f2.jpg", transcript="кот")
+        note = await base.add_note(content=f"![a](/api/uploads/{frog.id}) ![b](/api/uploads/{cat.id})")
+
+        files = (await files_tool.list_files(base.ctx, {"item_id": str(note.id), "query": "жаба"}))["files"]
+
+        assert [f["id"] for f in files] == [str(frog.id)]
+
+    def test_описание_велит_искать_а_не_листать(self):
+        d = files_tool.LIST_FILES.description
+        assert "query" in d and "жаб" in d

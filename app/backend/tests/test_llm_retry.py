@@ -170,6 +170,11 @@ def test_наши_модули_логируют_на_info():
     # так что в проде это различие не проявляется — но тест на isEnabledFor
     # падал бы всегда, проверяя чужой плагин вместо нашей настройки.
     assert logging.getLogger("app").level == logging.INFO
+    # И handler. Уровень без handler'а — мёртвая настройка: записи INFO
+    # уходят в logging.lastResort, а тот печатает только WARNING и выше.
+    # Поймано 12.09 по пустому логу при живых вызовах MCP — этот самый
+    # тест тогда был зелёным, потому что проверял только уровень.
+    assert logging.getLogger("app").handlers, "уровень INFO без handler'а ничего не печатает"
     # Именно «app.*», не корневой: корневой поднял бы и httpx, который на
     # INFO печатает каждый исходящий запрос — в агентном цикле это шум.
     assert logging.getLogger("httpx").getEffectiveLevel() > logging.INFO

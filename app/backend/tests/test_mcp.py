@@ -447,3 +447,19 @@ class TestВерсияПротокола:
         r = await mcp("server/discover")
         assert r.status_code == 200
         assert r.json()["error"]["code"] == -32601
+
+
+class TestАудитЧитающихВызовов:
+    async def test_get_file_попадает_в_аудит(self, mcp, db_session, test_user):
+        """Поймано 12.09: восемь живых get_file — и ни одной записи.
+
+        Пишущие инструменты коммитят сами, читающие — нет, и строка аудита,
+        добавленная в ту же сессию, терялась вместе с ней.
+        """
+        from app import audit
+        from app.models import AuditLog
+
+        await mcp("tools/call", {"name": "search_base", "arguments": {"query": "что угодно"}})
+
+        rows = (await db_session.execute(select(AuditLog).where(AuditLog.event == audit.MCP_TOOL))).scalars().all()
+        assert [r.subject for r in rows] == ["search_base"]
