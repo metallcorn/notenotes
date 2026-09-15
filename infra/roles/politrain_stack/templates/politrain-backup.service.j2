@@ -1,0 +1,14 @@
+# {{ ansible_managed }}
+#
+# Онлайн-бэкап SQLite politrain (sqlite3 backup API, безопасно во время
+# записи). После=politrain.service, но не Requires= — сбой бэкапа не должен
+# валить приложение.
+
+[Unit]
+Description=Politrain SQLite backup (online, gzip, rotation)
+After=politrain.service
+
+[Service]
+Type=oneshot
+WorkingDirectory={{ politrain_compose_dir }}
+ExecStart=/usr/bin/docker compose exec -T backend python scripts/backup_db.py

@@ -111,6 +111,25 @@ redis_port: 6379
 redis_maxmemory: 256mb
 redis_mem_limit: 384m
 
+# --- Приложение: politrain ---------------------------------------------------
+# Второе приложение хоста. В отличие от notenotes — БЕЗ подкаталога в
+# /srv/encrypted: не хранит PII (самоучитель польского), поэтому данные лежат
+# на незашифрованном диске и стек поднимается сам при загрузке (см. README).
+politrain_domain: politrain.metallcorn.online
+# Рабочая копия отдельного git-репозитория (github.com/metallcorn/politrain),
+# СИБЛИНГ этого infra-репозитория, а не подкаталог — синкается в политрейна
+# корень на сервере ролью politrain_stack.
+politrain_repo_dir: "/home/metallcorn/politrain"
+politrain_root: /srv/politrain
+politrain_compose_dir: "{{ politrain_root }}/compose"
+politrain_data_dir: "{{ politrain_root }}/data"
+politrain_secrets_dir: "{{ politrain_root }}/secrets"
+politrain_mistral_model: mistral-large-latest
+politrain_mem_limit: 256m
+# none — HTTP по IP, пока A-запись не переведена и старая AAAA (mikrus/Hetzner)
+# не удалена; acme — Let's Encrypt, включать только после переключения DNS.
+politrain_tls_mode: none
+
 # --- Бэкапы -----------------------------------------------------------------
 # s4    — MEGA S4 (S3-совместимый), включён в планы MEGA Pro
 # local — репозиторий на самом VPS (не защищает от отказа сервера)
@@ -170,3 +189,15 @@ mail_domain: "mail.notenotes.metallcorn.online"
 vapid_private_key: "{{ vault_vapid_private_key | default('') }}"
 vapid_public_key: "{{ vault_vapid_public_key | default('') }}"
 vapid_subject: "{{ vault_vapid_subject | default('mailto:admin@example.com') }}"
+
+# Politrain. Нет default(''): без ключей Mistral/Deepgram приложение не
+# сможет генерировать упражнения/распознавать речь — деплой должен явно
+# упасть, а не тихо подняться нерабочим.
+politrain_secret_key: "{{ vault_politrain_secret_key }}"
+politrain_mistral_api_key: "{{ vault_politrain_mistral_api_key }}"
+politrain_deepgram_api_key: "{{ vault_politrain_deepgram_api_key }}"
+# Не секрет по смыслу (это просто username существующего пользователя в БД,
+# сравнивается со строкой при проверке прав админа — см. routers/auth.py и
+# routers/admin.py), но лежит в vault вместе с остальными настройками
+# politrain ради единообразия и чтобы не плодить открытые vars-файлы.
+politrain_admin_username: "{{ vault_politrain_admin_username }}"

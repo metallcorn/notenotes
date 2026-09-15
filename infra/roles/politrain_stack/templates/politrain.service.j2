@@ -1,0 +1,23 @@
+# {{ ansible_managed }}
+#
+# Единственный владелец жизненного цикла стека politrain. В отличие от
+# notenotes.service — без RequiresMountsFor/preflight: нет шифрованного тома,
+# который нужно было бы ждать, поэтому multi-user.target и обычный unless-stopped
+# в compose безопасны (см. docker-compose.yml.j2).
+
+[Unit]
+Description=Politrain application stack (backend + static frontend)
+After=docker.service network-online.target
+Requires=docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory={{ politrain_compose_dir }}
+ExecStart=/usr/bin/docker compose up -d --remove-orphans --wait
+ExecStop=/usr/bin/docker compose down
+TimeoutStartSec=600
+
+[Install]
+WantedBy=multi-user.target

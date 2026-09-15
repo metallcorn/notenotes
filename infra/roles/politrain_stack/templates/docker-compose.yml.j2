@@ -1,0 +1,52 @@
+# {{ ansible_managed }}
+#
+# Стек приложения politrain. Caddy здесь нет — общий reverse proxy для всех
+# приложений хоста живёт в {{ edge_root }} (роль edge_proxy).
+#
+# Файл лежит на незашифрованном диске — секретов здесь быть не должно, они
+# приходят из {{ politrain_secrets_dir }}/app.env.
+#
+# Один контейнер отдаёт и API, и собранную статику фронтенда (backend/Dockerfile
+# сам собирает фронт отдельной stage и копирует её в свою статику) — второго
+# контейнера под фронтенд в бюджете памяти хоста нет (см. README). Отдельная
+# приватная docker-сеть не нужна: нет отдельного DB/кэш-сервиса, SQLite —
+# просто файл в volume внутри этого же контейнера.
+#
+# Жизненным циклом управляет politrain.service, а не docker restart policy
+# напрямую — restart: unless-stopped здесь безопасен (в отличие от notenotes):
+# нет шифрованного тома и гонки «Docker поднял контейнер раньше unlock».
+
+name: politrain
+
+services:
+  backend:
+    build:
+      # Контекст — синканная рабочая копия репозитория ({{ politrain_root }}/app,
+      # см. "Sync application source code" в politrain_stack), а не сам
+      # {{ politrain_root }} (там же лежат compose/secrets/data — лишнее в
+      # контексте сборки). backend/Dockerfile внутри репозитория уже сам
+      # ссылается на пути без префикса app/ (backend/..., frontend/...),
+      # поэтому контекст = корень репозитория, не его родитель.
+      context: {{ politrain_root }}/app
+      dockerfile: backend/Dockerfile
+    restart: unless-stopped
+    env_file:
+      - {{ politrain_secrets_dir }}/app.env
+    volumes:
+      - {{ politrain_data_dir }}:/data
+    networks:
+      # Alias с префиксом приложения: сеть edge общая для всех приложений
+      # хоста, и просто "backend" столкнулось бы по DNS с notenotes-backend.
+      {{ edge_network }}:
+        aliases:
+          - politrain-backend
+    mem_limit: {{ politrain_mem_limit }}
+    logging:
+      driver: json-file
+      options:
+        max-size: "{{ docker_log_max_size }}"
+        max-file: "{{ docker_log_max_file }}"
+
+networks:
+  {{ edge_network }}:
+    external: true

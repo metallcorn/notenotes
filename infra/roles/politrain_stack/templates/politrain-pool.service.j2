@@ -1,0 +1,15 @@
+# {{ ansible_managed }}
+#
+# Ночная дозаправка общего пула AI-упражнений (Mistral) — см. CLAUDE.md
+# репозитория politrain, раздел "21в". TimeoutStartSec длинный: несколько
+# батчей генерации на пользователя×уровень могут занять минуты.
+
+[Unit]
+Description=Politrain nightly exercise-pool replenishment
+After=politrain.service
+
+[Service]
+Type=oneshot
+WorkingDirectory={{ politrain_compose_dir }}
+ExecStart=/usr/bin/docker compose exec -T backend python scripts/replenish_pool.py
+TimeoutStartSec=900

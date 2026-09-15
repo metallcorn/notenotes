@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import re
 import json
 import logging
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import zxingcpp
@@ -53,6 +54,8 @@ _PROMPT = (
     'мероприятие обычно без этого поля)", '
     '"seat": "место/вагон/посадочная группа текстом, null если не '
     'указано", '
+    '"flight_number": "номер рейса как на билете, например \'W6 1234\' или '
+    '\'LO 123\' — только для авиабилетов, иначе null", '
     '"title": "короткое (до 60 символов) название для заметки, например '
     "'Билет Москва — Тула, 15.08'\"}\n"
     "Если что-то не удаётся определить — используй null, не выдумывай "
@@ -131,6 +134,7 @@ def _build_properties(upload_id: uuid.UUID, data: dict, code: str | None) -> dic
         "location_from": data.get("location_from") or None,
         "location_to": data.get("location_to") or None,
         "seat": data.get("seat") or None,
+        "flight_number": data.get("flight_number") or None,
         "code": code,
         "upload_id": str(upload_id),
     }
@@ -164,6 +168,50 @@ _SEARCH_SYNONYMS: dict[str, str] = {
 # Те же подписи, что TICKET_LABELS в TicketAttachmentCard.tsx (кнопка
 # "Напомнить") — автоматическое уведомление ниже должно звучать так же,
 # как уже сделанное вручную.
+# За сколько до начала напоминать. Живой случай 15.09.2026: напоминание
+# об авиарейсе пришло РОВНО в момент вылета — когда человек уже сидел в
+# самолёте. Ноль опережения бессмыслен для всего, куда надо приехать
+# заранее.
+#
+# Самолёт — три часа: регистрация, досмотр, дорога в аэропорт. Поезд и
+# автобус — час: вокзал ближе и без досмотра. Мероприятие — два часа:
+# собраться и доехать. «Другое» — час, как самое частое.
+_LEAD_TIME: dict[str, timedelta] = {
+    "flight": timedelta(hours=3),
+    "train": timedelta(hours=1),
+    "bus": timedelta(hours=1),
+    "event": timedelta(hours=2),
+    "other": timedelta(hours=1),
+}
+
+_FLIGHT_NUMBER_RE = re.compile(r"\b([A-Z][A-Z0-9]|[0-9][A-Z])\s?(\d{1,4})\b")
+
+
+def extract_flight_number(*sources: str | None) -> str | None:
+    """Номер рейса — из поля распознавания или, для старых билетов, из
+    заголовка («Рейс W6 1234 Познань — Рим»). IATA-код авиакомпании —
+    две буквы/цифры, дальше 1–4 цифры."""
+    for src in sources:
+        if not src:
+            continue
+        cleaned = src.strip().upper()
+        found = _FLIGHT_NUMBER_RE.search(cleaned)
+        if found:
+            return f"{found.group(1)}{found.group(2)}"
+    return None
+
+
+def flight_tracking_url(flight_number: str) -> str:
+    """Где смотреть статус рейса — задержан, отменён, с какого гейта.
+
+    Flightradar24 понимает код рейса в адресе напрямую и показывает и
+    сегодняшний вылет, и историю задержек этого рейса. Запрос владельца:
+    если рейс отменяется, узнать об этом хочется из того же уведомления,
+    а не искать сайт.
+    """
+    return f"https://www.flightradar24.com/data/flights/{flight_number.lower()}"
+
+
 _TICKET_LABELS: dict[str, str] = {
     "train": "ЖД-билет",
     "flight": "Авиабилет",
@@ -235,6 +283,11 @@ async def _add_event_notification(db: AsyncSession, item: Item, properties: dict
     # мероприятии, не зависящий от того, где автор сейчас физически
     # находится), не UTC (app/user_timezone.py).
     trigger_at = assume_default_timezone(trigger_at, author.timezone if author else None)
+    ticket_type = properties.get("ticket_type") or "other"
+    # Напоминание — ЗАРАНЕЕ, не в момент начала. Если билет распознан уже
+    # после этого момента (загрузили посадочный в аэропорту), шлём сразу:
+    # trigger_at в прошлом диспетчер отправляет немедленно.
+    trigger_at = trigger_at - _LEAD_TIME.get(ticket_type, _LEAD_TIME["other"])
 
     # Защита от дубля при повторном распознавании (кнопка "Распознать
     # снова" на карточке билета) — без неё пользователь получил бы второе
@@ -248,11 +301,19 @@ async def _add_event_notification(db: AsyncSession, item: Item, properties: dict
     if existing.first() is not None:
         return
 
-    ticket_type = properties.get("ticket_type") or "other"
     label = _TICKET_LABELS.get(ticket_type, _TICKET_LABELS["other"])
     location_from = properties.get("location_from") or ""
     location_to = properties.get("location_to") or ""
     body = f"{location_from}{' → ' if location_from and location_to else ''}{location_to}"
+    lead = _LEAD_TIME.get(ticket_type, _LEAD_TIME["other"])
+    hours = int(lead.total_seconds() // 3600)
+    body = f"{body}\nЧерез {hours} ч" if body else f"Через {hours} ч"
+    if ticket_type == "flight":
+        flight = extract_flight_number(properties.get("flight_number"), title, item.title)
+        if flight:
+            # Ссылка — в тексте уведомления: Telegram и push покажут её
+            # кликабельной, и статус рейса в одном касании от напоминания.
+            body = f"{body}\nСтатус рейса: {flight_tracking_url(flight)}"
 
     db.add(
         Notification(

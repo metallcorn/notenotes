@@ -1,0 +1,39 @@
+---
+# Раскладка каталогов и секреты приложения politrain.
+#
+# В отличие от notenotes — НЕ внутри /srv/encrypted: politrain не хранит PII,
+# поэтому по решению из infra/README.md живёт на незашифрованном диске и
+# поднимается сам при загрузке хоста (WantedBy=multi-user.target в
+# politrain.service, без unlock). Секреты всё равно лежат в отдельном
+# каталоге 0700, а не прямо в compose — привычка, не требование шифрования.
+
+- name: Create plaintext directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  loop:
+    - "{{ politrain_root }}"
+    - "{{ politrain_compose_dir }}"
+    - "{{ politrain_data_dir }}"
+    - "{{ politrain_data_dir }}/backups"
+
+- name: Create secrets directory
+  ansible.builtin.file:
+    path: "{{ politrain_secrets_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+
+- name: Write application environment
+  ansible.builtin.template:
+    src: app.env.j2
+    dest: "{{ politrain_secrets_dir }}/app.env"
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+  notify: Restart politrain stack

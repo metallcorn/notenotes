@@ -7,9 +7,11 @@
 #   notenotes_tls_mode: acme  в inventory/group_vars/all/main.yml
 #   make platform && make stack     (первое обновляет общий Caddyfile)
 #
-# Второе приложение (например politrain) добавляется по этому же образцу:
-# отдельный playbook 31-politrain.yml с ролями politrain_layout/politrain_stack,
-# своим подкаталогом в {{ '/srv/encrypted' }} и своим фрагментом в conf.d.
+# Второе приложение (politrain) добавлено по этому же образцу: отдельный
+# playbook 31-politrain.yml с ролями politrain_layout/politrain_stack и своим
+# фрагментом в conf.d. В отличие от notenotes — БЕЗ подкаталога в
+# /srv/encrypted: politrain не хранит PII, поэтому живёт на незашифрованном
+# диске и поднимается сам при загрузке (см. infra/README.md).
 
 - name: Deploy the notenotes application
   hosts: vps

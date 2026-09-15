@@ -1,0 +1,18 @@
+---
+# Приложение politrain: каталоги, секреты, compose-стек, фрагмент Caddy.
+#
+#   make politrain
+#
+# Переключение на HTTPS после перевода A-записи на этот сервер (и удаления
+# старой AAAA — см. infra/README.md, "При переносе politrain"):
+#   politrain_tls_mode: acme  в inventory/group_vars/all/main.yml
+#   make platform && make politrain
+
+- name: Deploy the politrain application
+  hosts: vps
+  become: true
+  gather_facts: true
+
+  roles:
+    - role: politrain_layout
+    - role: politrain_stack

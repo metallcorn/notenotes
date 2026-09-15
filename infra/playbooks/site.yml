@@ -13,5 +13,8 @@
 - name: Import infrastructure stack
   ansible.builtin.import_playbook: 30-stack.yml
 
+- name: Import politrain application
+  ansible.builtin.import_playbook: 31-politrain.yml
+
 - name: Import backups
   ansible.builtin.import_playbook: 40-backup.yml

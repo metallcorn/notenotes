@@ -2,7 +2,7 @@ SHELL := /bin/bash
 ANSIBLE_PLAYBOOK := ansible-playbook --ask-vault-pass
 INV := inventory/hosts.ini
 
-.PHONY: help deps bootstrap harden platform stack backup site check lint unlock ping
+.PHONY: help deps bootstrap harden platform stack politrain backup site check lint unlock ping
 
 help:
 	@echo "Порядок первого запуска:"
@@ -11,6 +11,7 @@ help:
 	@echo "  make harden      — sshd, ufw, fail2ban, обновления безопасности"
 	@echo "  make platform    — docker + шифрованный том + edge-прокси"
 	@echo "  make stack       — приложение notenotes: postgres+pgvector, redis"
+	@echo "  make politrain   — приложение politrain: backend+статика, таймеры"
 	@echo "  make backup      — restic в MEGA S4 + таймеры"
 	@echo ""
 	@echo "Прочее:"
@@ -40,6 +41,9 @@ platform:
 
 stack:
 	$(ANSIBLE_PLAYBOOK) -i $(INV) playbooks/30-stack.yml
+
+politrain:
+	$(ANSIBLE_PLAYBOOK) -i $(INV) playbooks/31-politrain.yml
 
 backup:
 	$(ANSIBLE_PLAYBOOK) -i $(INV) playbooks/40-backup.yml

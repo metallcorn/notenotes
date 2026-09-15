@@ -1,0 +1,34 @@
+# {{ ansible_managed }}
+#
+# Фрагмент сайта politrain для общего edge-прокси. Подключается через
+# `import conf.d/*.caddy` в {{ edge_caddy_dir }}/Caddyfile.
+#
+# Один backend отдаёт и /api/*, и статику SPA — path-split не нужен,
+# в отличие от схемы с отдельным контейнером под фронтенд.
+
+{% if politrain_tls_mode == 'acme' %}
+{{ politrain_domain }} {
+{% else %}
+# Схема указана явно: при auto_https off сайт с одним лишь именем всё равно
+# пытался бы слушать 443 без сертификата.
+http://{{ politrain_domain }} {
+{% endif %}
+	encode zstd gzip
+
+	header {
+{% if politrain_tls_mode == 'acme' %}
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+{% endif %}
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "SAMEORIGIN"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+
+	reverse_proxy politrain-backend:8000
+
+	log {
+		output stderr
+		format console
+	}
+}

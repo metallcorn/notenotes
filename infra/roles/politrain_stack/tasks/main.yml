@@ -1,0 +1,149 @@
+---
+- name: Render compose file
+  ansible.builtin.template:
+    src: docker-compose.yml.j2
+    dest: "{{ politrain_compose_dir }}/docker-compose.yml"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart politrain stack
+
+- name: Validate the compose file
+  ansible.builtin.command:
+    cmd: docker compose config --quiet
+    chdir: "{{ politrain_compose_dir }}"
+  changed_when: false
+
+- name: Sync application source code to the server
+  # politrain — отдельный git-репозиторий (github.com/metallcorn/politrain),
+  # не подкаталог этого infra-репозитория, поэтому источник — абсолютный путь
+  # к его рабочей копии, а не playbook_dir-относительный (как у notenotes).
+  ansible.posix.synchronize:
+    src: "{{ politrain_repo_dir }}/"
+    dest: "{{ politrain_root }}/app/"
+    delete: true
+    rsync_path: "sudo rsync"
+    rsync_opts:
+      - "--exclude=node_modules"
+      - "--exclude=dist"
+      - "--exclude=__pycache__"
+      - "--exclude=.pytest_cache"
+      - "--exclude=venv"
+      - "--exclude=.venv"
+      - "--exclude=*.pyc"
+      - "--exclude=.git"
+      - "--exclude=backend/*.db"
+      - "--exclude=backend/*.db-shm"
+      - "--exclude=backend/*.db-wal"
+      - "--exclude=.env"
+  notify: Restart politrain stack
+
+- name: Build application image
+  ansible.builtin.command:
+    cmd: docker compose build
+    chdir: "{{ politrain_compose_dir }}"
+  changed_when: true
+
+- name: Publish the Caddy site fragment to the shared edge proxy
+  ansible.builtin.template:
+    src: politrain.caddy.j2
+    dest: "{{ edge_conf_dir }}/politrain.caddy"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reload edge proxy
+
+- name: Install the stack systemd unit
+  ansible.builtin.template:
+    src: politrain.service.j2
+    dest: /etc/systemd/system/politrain.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify:
+    - Reload systemd
+    - Restart politrain stack
+
+- name: Install backup timer unit files
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "/etc/systemd/system/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - politrain-backup.service
+    - politrain-backup.timer
+    - politrain-pool.service
+    - politrain-pool.timer
+  notify: Reload systemd
+
+- name: Apply pending unit and proxy changes
+  ansible.builtin.meta: flush_handlers
+
+- name: Enable and start the application stack
+  ansible.builtin.systemd_service:
+    name: politrain.service
+    enabled: true
+    state: started
+    daemon_reload: true
+
+- name: Enable and start the maintenance timers
+  ansible.builtin.systemd_service:
+    name: "{{ item }}"
+    enabled: true
+    state: started
+    daemon_reload: true
+  loop:
+    - politrain-backup.timer
+    - politrain-pool.timer
+
+# --- Проверки ---------------------------------------------------------------
+
+- name: Wait for the backend to report healthy
+  ansible.builtin.command:
+    cmd: docker compose exec -T backend python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=5)"
+    chdir: "{{ politrain_compose_dir }}"
+  register: health_check
+  until: health_check.rc == 0
+  retries: 20
+  delay: 3
+  changed_when: false
+
+- name: Probe whether the running proxy already serves this site
+  ansible.builtin.uri:
+    url: "http://127.0.0.1/"
+    headers:
+      Host: "{{ politrain_domain }}"
+    status_code: [200, 301, 302, 308, 404, 502]
+    validate_certs: false
+  register: route_probe
+  changed_when: false
+
+- name: Reload the proxy when its running config lags behind the files on disk
+  ansible.builtin.systemd_service:
+    name: edge.service
+    state: reloaded
+  when: route_probe.status == 404
+
+- name: Verify the edge proxy routes the politrain hostname
+  ansible.builtin.uri:
+    url: "http://127.0.0.1/"
+    headers:
+      Host: "{{ politrain_domain }}"
+    status_code: [200, 301, 302, 308, 502]
+    validate_certs: false
+  register: route_check
+  retries: 5
+  delay: 3
+  until: route_check is succeeded
+
+- name: Report stack state
+  ansible.builtin.debug:
+    msg:
+      - "Backend: healthy"
+      - >-
+        Маршрут {{ politrain_domain }} через edge-прокси: HTTP {{ route_check.status }}
+      - >-
+        TLS: {{ "Let's Encrypt для " ~ politrain_domain if politrain_tls_mode == 'acme'
+        else 'выключен — смок-тест по IP с Host-заголовком, затем A-запись и politrain_tls_mode: acme' }}

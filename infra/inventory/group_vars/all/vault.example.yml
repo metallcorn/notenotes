@@ -68,3 +68,12 @@ vault_mailgun_webhook_signing_key: "ЗАМЕНИ"
 vault_vapid_private_key: "ЗАМЕНИ"
 vault_vapid_public_key: "ЗАМЕНИ"
 vault_vapid_subject: "mailto:ЗАМЕНИ@example.com"
+
+# Politrain (самоучитель польского, второе приложение хоста). secret_key —
+# как vault_app_secret_key у notenotes: подписывает JWT, смена разлогинит
+# всех. admin_username — не секрет по смыслу (см. main.yml), но здесь же
+# ради единообразия.
+vault_politrain_secret_key: "ЗАМЕНИ"       # openssl rand -base64 32
+vault_politrain_mistral_api_key: "ЗАМЕНИ"  # console.mistral.ai
+vault_politrain_deepgram_api_key: "ЗАМЕНИ" # console.deepgram.com
+vault_politrain_admin_username: "ЗАМЕНИ"   # username существующего юзера в БД
