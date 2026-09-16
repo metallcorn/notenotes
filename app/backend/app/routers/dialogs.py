@@ -1258,6 +1258,33 @@ _NUDGE_UNVERIFIED_NUMBER = (
 )
 
 
+# ВОЗВРАТЫ ХОДА ВЫКЛЮЧЕНЫ. 16.09.2026, после слов владельца «он лучше
+# работал, зачем мы его испортили».
+#
+# Что это. Возврат хода — перехват готового ответа модели и подстановка
+# ей поддельного сообщения «от пользователя» с указанием исправиться.
+# За неделю их стало пять, каждый — эвристика. Когда эвристика ошибается,
+# модель видит фантомную реплику и ОТВЕЧАЕТ НА НЕЁ, а не человеку:
+# «Спроси», «Понял, больше не буду», пустой ответ. Два инцидента в проде
+# за шесть дней (10.09 и 16.09), второй — 770 тысяч токенов за три
+# вопроса.
+#
+# Замер показывал 4.06 — на десяти синтетических сценариях про дозировки
+# и визы. Реальный день владельца — «какой у меня PESEL»; для такого
+# защиты не помогают, а только добавляют способов сломаться.
+#
+# Остаётся всё, что работает ПОСЛЕ ответа и с моделью не разговаривает:
+# вырезание выдуманных ссылок, пометка просроченных сроков и
+# непроверенных чисел, разбор JSON вместо текста, повтор при утёкшем
+# вызове. Это детерминированно и фантомных реплик не порождает.
+#
+# Код оставлен за одним переключателем, а не удалён: у каждого возврата
+# был живой случай, ради которого он появился (обещание без вызова —
+# 2% реплик, каждая обрушивала диалог в 1 балл). Включать обратно —
+# только по одному и только с доказательством на РЕАЛЬНЫХ диалогах, не
+# на замере.
+TRANSIENT_NUDGES_ENABLED = False
+
 _ALL_TRANSIENT_NUDGES = (
     _NUDGE_UNKEPT_PROMISE,
     _NUDGE_CAPITULATION,
@@ -2425,7 +2452,8 @@ async def _run_dialog_turn_locked(
         # ход уже создано, «сейчас добавлю ещё» не ложь, а нормальное
         # продолжение, и цикл сам дойдёт до следующей итерации.
         if (
-            not assistant_msg.tool_calls
+            TRANSIENT_NUDGES_ENABLED
+            and not assistant_msg.tool_calls
             and not mutating_tool_called_this_turn
             and not promise_nudged
             and _looks_like_unkept_promise(assistant_record["content"])
@@ -2456,7 +2484,8 @@ async def _run_dialog_turn_locked(
         # пошла проверять, смена ответа это УТОЧНЕНИЕ, а не уступка, и
         # мешать ей нельзя.
         if (
-            not assistant_msg.tool_calls
+            TRANSIENT_NUDGES_ENABLED
+            and not assistant_msg.tool_calls
             and not capitulation_nudged
             and _looks_like_capitulation(content, assistant_record["content"])
         ):
@@ -2483,7 +2512,8 @@ async def _run_dialog_turn_locked(
         # относится к тому, что человек сказал сейчас. Взяли бы шире —
         # ассистент дёргался бы на каждом ходу после одной такой просьбы.
         if (
-            not assistant_msg.tool_calls
+            TRANSIENT_NUDGES_ENABLED
+            and not assistant_msg.tool_calls
             and not remember_nudged
             and _asks_to_remember(content)
             and not any(
@@ -2548,7 +2578,8 @@ async def _run_dialog_turn_locked(
         # либо ответить без числа. Тот же приём, что для обещаний и
         # капитуляции, третий случай к нему.
         if (
-            not used_web_search
+            TRANSIENT_NUDGES_ENABLED
+            and not used_web_search
             and not read_own_data
             and not assistant_msg.tool_calls
             and not dose_nudged
