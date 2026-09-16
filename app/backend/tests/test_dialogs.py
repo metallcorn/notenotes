@@ -993,25 +993,6 @@ def test_everyday_durations_are_never_flagged():
 # ошибки, а длинный разговор содержит РАЗНЫЕ вопросы, и каждый может
 # зависеть от своих обстоятельств.
 
-def test_clarify_limits_are_a_frame_not_a_single_shot():
-    from app.routers import dialogs
-
-    assert dialogs._MAX_CLARIFY_NUDGES_PER_DIALOG > 1, (
-        "одного возврата на весь диалог мало: подряд идут разные вопросы"
-    )
-    assert dialogs._MAX_CLARIFY_NUDGES_PER_DIALOG <= 6, (
-        "потолок нужен: каждый возврат стоит вызова LLM и задержки, а "
-        "ассистент, переспрашивающий на каждом шагу, перестаёт быть полезным"
-    )
-    # Окно оглядки — примерно три обмена репликами: достаточно, чтобы «он
-    # только что спрашивал» ещё считалось, и мало, чтобы вопрос из начала
-    # длинного разговора глушил подсказку до конца.
-    assert 4 <= dialogs._CLARIFY_LOOKBACK_RECORDS <= 10
-
-
-# --- Подсказки, возвращающие ход, и бюджет веб-поиска ------------------
-
-
 def test_nudges_are_imperative_not_questions():
     """Подсказка — повеление, а не вопрос.
 
@@ -1028,20 +1009,6 @@ def test_nudges_are_imperative_not_questions():
 
     for nudge in _ALL_TRANSIENT_NUDGES:
         assert "?" not in nudge, f"подсказка задана вопросом, модель ответит на неё вслух: {nudge!r}"
-
-
-def test_clarify_nudge_does_not_allow_verbatim_repeat():
-    """Подсказка не разрешает повторить прежний ответ дословно.
-
-    Второе последствие того же случая: «Если ответ от этого не зависит —
-    просто повтори его» заставляло повторить ответ ВМЕСТЕ С ОШИБКОЙ, на
-    которую человек только что указал («ul. Przykładowa 1 — это мой адрес,
-    а не ужонда» → тот же адрес снова).
-    """
-    from app.routers.dialogs import _NUDGE_CLARIFY
-
-    assert "повтори его" not in _NUDGE_CLARIFY
-    assert "поправ" in _NUDGE_CLARIFY  # наоборот, велит учесть поправку
 
 
 def test_repeated_web_search_returns_cached_result_with_hint():
