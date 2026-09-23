@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 from typing import Any
 
 from sqlalchemy import select
@@ -70,6 +71,16 @@ DEFINITION = ToolDefinition(
 )
 
 
+def _local_midnight_utc(now: datetime, tz_name: str | None) -> datetime:
+    """Начало сегодняшнего дня по месту человека, выраженное в UTC."""
+    try:
+        tz = ZoneInfo(tz_name or "UTC")
+    except Exception:
+        tz = ZoneInfo("UTC")
+    local_start = now.astimezone(tz).replace(hour=0, minute=0, second=0, microsecond=0)
+    return local_start.astimezone(timezone.utc)
+
+
 async def collect_agenda(
     db, user_id: uuid.UUID, *, days: int = DEFAULT_HORIZON_DAYS, tz_name: str | None = None
 ) -> dict[str, Any]:
@@ -86,7 +97,11 @@ async def collect_agenda(
     # Нижняя граница — начало СЕГОДНЯШНЕГО дня, а не текущий момент:
     # событие в 9 утра, о котором спрашивают в 11, ещё сегодняшнее и из
     # ответа выпадать не должно.
-    since = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    #
+    # Начало дня — в ПОЯСЕ ЧЕЛОВЕКА, не в UTC. Раньше бралось UTC-полночь:
+    # для Варшавы (UTC+2) окно начиналось в 02:00 по местному, и всё, что
+    # ночью между полуночью и двумя, выпадало из «сегодня».
+    since = _local_midnight_utc(now, tz_name)
     until = now + timedelta(days=days)
 
     entries: list[dict[str, Any]] = []

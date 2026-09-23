@@ -32,7 +32,7 @@ import asyncio
 import hashlib
 import logging
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
@@ -69,16 +69,37 @@ def _local_now(tz_name: str | None) -> datetime:
         return datetime.now(ZoneInfo("UTC"))
 
 
-def _format(agenda: dict, tz_name: str | None) -> tuple[str, list[list[dict]]]:
-    """Текст сводки и клавиатура. Только сегодняшнее."""
+def _entry_time(e: dict) -> datetime | None:
+    try:
+        at = datetime.fromisoformat(e["at"])
+    except (ValueError, KeyError):
+        return None
+    return at if at.tzinfo else at.replace(tzinfo=timezone.utc)
+
+
+def _format(agenda: dict, tz_name: str | None, *, now: datetime | None = None) -> tuple[str, list[list[dict]]]:
+    """Текст сводки и клавиатура.
+
+    Сегодняшнее, ЕЩЁ НЕ ПРОШЕДШЕЕ, плюс завтрашнее раннее — то, о чём
+    завтрашняя сводка сообщит уже поздно.
+    """
+    tz = ZoneInfo(tz_name or "UTC")
+    now = now or datetime.now(timezone.utc)
     today = agenda["today"]
     lines: list[str] = []
     keyboard: list[list[dict]] = []
     for e in agenda["entries"]:
         if not e["at"].startswith(today):
             continue
+        at = _entry_time(e)
+        # Прошедшее не показываем. Живой случай 23.09: запись на приём в
+        # 08:00 попала в сводку, ушедшую в 09:00 — через час после. Для
+        # уведомления «сегодня в 08:00» в 09:00 нет никакого смысла, а
+        # доверие к сводке оно подрывает сразу.
+        if at is not None and at <= now:
+            continue
         try:
-            when = datetime.fromisoformat(e["at"]).astimezone(ZoneInfo(tz_name or "UTC")).strftime("%H:%M")
+            when = at.astimezone(tz).strftime("%H:%M") if at else ""
         except Exception:
             when = ""
         if e["kind"] == "напоминание":
@@ -97,13 +118,50 @@ def _format(agenda: dict, tz_name: str | None) -> tuple[str, list[list[dict]]]:
     return "\n".join(lines), keyboard
 
 
+def _early_tomorrow(agenda: dict, user: User, now: datetime) -> list[str]:
+    """Завтрашнее ДО времени сводки — про это завтра узнавать поздно.
+
+    Вторая половина того же случая: сводка в 09:00 физически не может
+    вовремя сообщить о приёме в 08:00. Раз она приходит раз в сутки,
+    про раннее завтрашнее надо говорить сегодня.
+    """
+    if not user.digest_time:
+        return []
+    tz = ZoneInfo(user.timezone or "UTC")
+    tomorrow = (now.astimezone(tz).date() + timedelta(days=1)).isoformat()
+    lines: list[str] = []
+    for e in agenda["entries"]:
+        if not e["at"].startswith(tomorrow):
+            continue
+        at = _entry_time(e)
+        if at is None:
+            continue
+        local = at.astimezone(tz)
+        if local.strftime("%H:%M") >= user.digest_time:
+            continue
+        mark = "⏰" if e["kind"] == "напоминание" else "📌"
+        lines.append(f"{mark} {local:%H:%M} {e['title']}")
+    return lines
+
+
 async def build_digest(db, user: User) -> tuple[str, list[list[dict]]] | None:
-    """Готовая сводка или None, если на сегодня ничего."""
-    agenda = await collect_agenda(db, user.id, days=1, tz_name=user.timezone)
-    text, keyboard = _format(agenda, user.timezone)
-    if not text:
+    """Готовая сводка или None, если сказать нечего."""
+    now = datetime.now(timezone.utc)
+    # days=2: нужен и завтрашний день — ради раннего завтрашнего.
+    agenda = await collect_agenda(db, user.id, days=2, tz_name=user.timezone)
+    text, keyboard = _format(agenda, user.timezone, now=now)
+
+    early = _early_tomorrow(agenda, user, now)
+    parts = []
+    if text:
+        parts.append(f"Сегодня, {agenda['today']}:\n\n{text}")
+    if early:
+        # Кнопок к завтрашнему намеренно нет: закрывать то, что ещё не
+        # наступило, незачем, а лишние кнопки делают сводку нечитаемой.
+        parts.append("Завтра рано утром (сводка придёт позже):\n\n" + "\n".join(early))
+    if not parts:
         return None
-    return f"Сегодня, {agenda['today']}:\n\n{text}", keyboard
+    return "\n\n".join(parts), keyboard
 
 
 async def _send_for(db, user: User) -> bool:

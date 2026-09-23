@@ -262,3 +262,91 @@ class TestПерерисовкаПослеКнопки:
         await daily_digest.handle_callback(db_session, test_user.id, f"dg:r:{n.id}")
 
         assert await daily_digest.build_digest(db_session, test_user) is None
+
+
+class TestПрошедшееИРаннееЗавтра:
+    """Живой случай 23.09.2026.
+
+    Запись на приём в 08:00 попала в сводку, ушедшую в 09:00 — через час
+    ПОСЛЕ. Две ошибки в одной: прошедшее показывалось как новость, и
+    сводка в 09:00 физически не может вовремя сообщить о событии в 08:00.
+    """
+
+    async def test_прошедшее_сегодня_не_показывается(self, base, db_session, test_user):
+        from unittest.mock import patch
+
+        now = datetime.now(base.tz).replace(hour=9, minute=0, second=0, microsecond=0)
+        await base.reminder("Было в восемь", now.replace(hour=8))
+        await base.reminder("Будет в шесть", now.replace(hour=18))
+
+        with patch("app.daily_digest.datetime") as fake:
+            fake.now.return_value = now.astimezone(timezone.utc)
+            fake.fromisoformat = datetime.fromisoformat
+            built = await daily_digest.build_digest(db_session, test_user)
+
+        text, _ = built
+        assert "Было в восемь" not in text
+        assert "Будет в шесть" in text
+
+    async def test_раннее_завтрашнее_предупреждается_сегодня(self, base, db_session, test_user):
+        """Про приём в 08:00 завтра надо сказать сегодня — завтрашняя
+        сводка в 09:00 придёт уже поздно."""
+        from unittest.mock import patch
+
+        now = datetime.now(base.tz).replace(hour=9, minute=0, second=0, microsecond=0)
+        test_user.digest_time = "09:00"
+        await db_session.commit()
+        await base.reminder("Приём завтра рано", (now + timedelta(days=1)).replace(hour=8))
+
+        with patch("app.daily_digest.datetime") as fake:
+            fake.now.return_value = now.astimezone(timezone.utc)
+            fake.fromisoformat = datetime.fromisoformat
+            built = await daily_digest.build_digest(db_session, test_user)
+
+        text, _ = built
+        assert "Завтра рано утром" in text
+        assert "Приём завтра рано" in text
+
+    async def test_позднее_завтрашнее_не_дублируется(self, base, db_session, test_user):
+        """Про завтрашний вечер завтрашняя сводка скажет вовремя."""
+        from unittest.mock import patch
+
+        now = datetime.now(base.tz).replace(hour=9, minute=0, second=0, microsecond=0)
+        await base.reminder("Завтра вечером", (now + timedelta(days=1)).replace(hour=19))
+
+        with patch("app.daily_digest.datetime") as fake:
+            fake.now.return_value = now.astimezone(timezone.utc)
+            fake.fromisoformat = datetime.fromisoformat
+            built = await daily_digest.build_digest(db_session, test_user)
+
+        assert built is None
+
+    async def test_у_завтрашнего_нет_кнопок(self, base, db_session, test_user):
+        """Закрывать то, что ещё не наступило, незачем."""
+        from unittest.mock import patch
+
+        now = datetime.now(base.tz).replace(hour=9, minute=0, second=0, microsecond=0)
+        await base.reminder("Приём завтра рано", (now + timedelta(days=1)).replace(hour=7))
+
+        with patch("app.daily_digest.datetime") as fake:
+            fake.now.return_value = now.astimezone(timezone.utc)
+            fake.fromisoformat = datetime.fromisoformat
+            text, keyboard = await daily_digest.build_digest(db_session, test_user)
+
+        assert "Приём завтра рано" in text
+        assert keyboard == []
+
+
+class TestНачалоДняПоМесту:
+    async def test_ночное_событие_не_выпадает(self, db_session, test_user):
+        """Начало дня — в поясе человека, не в UTC. Для Варшавы (UTC+2)
+        окно начиналось в 02:00 по местному, и всё между полуночью и
+        двумя выпадало из «сегодня»."""
+        from app.tools.agenda import _local_midnight_utc
+
+        now = datetime(2026, 9, 23, 7, 0, tzinfo=timezone.utc)  # 09:00 в Варшаве
+
+        assert _local_midnight_utc(now, "Europe/Warsaw") == datetime(2026, 9, 22, 22, 0, tzinfo=timezone.utc)
+        assert _local_midnight_utc(now, "UTC") == datetime(2026, 9, 23, 0, 0, tzinfo=timezone.utc)
+        # Кривой пояс не роняет.
+        assert _local_midnight_utc(now, "Нет/Такого") is not None
