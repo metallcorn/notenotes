@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import realtime
 from app import daily_digest
-from app.asr.factory import get_asr_client
+from app.asr.factory import asr_available, get_asr_client
 from app.core.config import get_settings
 from app.db import async_session
 from app.models import Folder, Item, Space, SpaceMember, TelegramLink, TelegramLinkCode, Upload, User
@@ -777,7 +777,7 @@ async def _handle_forward_batch(
             upload = await _save_upload(db, space_id, author_id, content_bytes, "voice.ogg", mime_type)
             transcript = ""
             settings = get_settings()
-            if settings.deepgram_api_key or settings.whisper_api_key:
+            if asr_available():
                 try:
                     transcript = await get_asr_client().transcribe(content_bytes, mime_type)
                 except Exception:
@@ -862,7 +862,7 @@ async def _transcribe_voice_only(message: dict) -> str:
     content_bytes, _file_path = result
     mime_type = voice.get("mime_type", "audio/ogg")
     settings = get_settings()
-    if not (settings.deepgram_api_key or settings.whisper_api_key):
+    if not asr_available():
         return ""
     try:
         return await get_asr_client().transcribe(content_bytes, mime_type)
@@ -1186,9 +1186,27 @@ async def _process(update: dict) -> None:
         elif "voice" in message or "audio" in message:
             transcript = await _transcribe_voice_only(message)
             if transcript.strip():
+                # Эхо распознанного ПЕРЕД ответом. Без него человек видит
+                # только ответ ассистента и, если тот странный, не может
+                # понять, ослышался ли ASR или ошиблась модель. В вебе
+                # расшифровка видна в поле ввода, в боте её не видно
+                # нигде.
+                await send_message(chat_id, f"🎤 {transcript.strip()}")
                 await _handle_assistant_message(db, link, transcript)
+            elif not asr_available():
+                # Отдельно от «не расслышал»: тут дело не в записи, и
+                # переговаривать бесполезно.
+                await send_message(
+                    chat_id,
+                    "Распознавание речи не настроено — напишите текстом или "
+                    "попросите владельца добавить ключ ASR.",
+                )
             else:
-                await send_message(chat_id, "Не удалось распознать голосовое сообщение.")
+                await send_message(
+                    chat_id,
+                    "Не удалось распознать голосовое сообщение — попробуйте записать ещё раз, "
+                    "ближе к микрофону.",
+                )
             return
         elif text:
             await _handle_assistant_message(db, link, text)

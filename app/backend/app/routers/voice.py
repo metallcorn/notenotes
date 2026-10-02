@@ -37,7 +37,7 @@ def _asr_configured(settings: Settings) -> bool:
     if settings.asr_provider == "deepgram":
         return bool(settings.deepgram_api_key)
     if settings.asr_provider == "whisper":
-        return bool(settings.whisper_api_key)
+        return bool(settings.groq_api_key)
     return False
 
 
