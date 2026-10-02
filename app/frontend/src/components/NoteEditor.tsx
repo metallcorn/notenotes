@@ -84,6 +84,7 @@ import { TableEmbed } from "../extensions/TableEmbed";
 import InsertTableModal from "./InsertTableModal";
 import { CollabProvider, type CollabStatus } from "../lib/collabProvider";
 import { attachCollab, detachCollab } from "../lib/collabState";
+import { enqueueEdit } from "../lib/offlineQueue";
 
 // Детерминированный цвет курсора участника из его id — тот же человек
 // всегда одного цвета у всех остальных, без координации между клиентами.
@@ -1043,7 +1044,25 @@ export default function NoteEditor({
     initializedItemId: initializedItemIdRef.current,
     updateAvailable,
     savedRef,
-    save: (payload) => updateItem.mutate(payload),
+    save: (payload) =>
+      updateItem.mutate(payload, {
+        // Сеть пропала — правка не теряется, а ложится в очередь и уйдёт,
+        // когда связь вернётся (lib/offlineQueue.ts). Без этого офлайн
+        // PATCH падал, retry: false показывал ошибку, и текст жил только
+        // в памяти вкладки — до её закрытия.
+        onError: () => {
+          void enqueueEdit({
+            itemId: payload.id,
+            title: payload.title,
+            content: payload.content,
+            editedAt: Date.now(),
+            // updated_at, какой заметка была, когда её открыли: по нему
+            // при отправке поймём, менял ли её кто-то ещё, пока мы были
+            // офлайн.
+            baseUpdatedAt: item?.updated_at ?? null,
+          });
+        },
+      }),
     onStatus: setStatus,
   });
 

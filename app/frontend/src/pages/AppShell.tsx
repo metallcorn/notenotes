@@ -25,6 +25,7 @@ import AssistantChat from "../components/AssistantChat";
 import TrashView from "../components/TrashView";
 import ActivityView from "../components/ActivityView";
 import OfflineBanner from "../components/OfflineBanner";
+import OfflineFlushNotice from "../components/OfflineFlushNotice";
 
 type MobileView = "sidebar" | "list" | "editor";
 
@@ -582,6 +583,7 @@ export default function AppShell() {
       )}
 
       <OfflineBanner />
+      <OfflineFlushNotice />
       {/* Реальный найденный баг: тут раньше был overflow-x-hidden (чтобы
           контент не вылезал вбок во время анимации ширины) — но CSS
           вычисляет overflow-y как auto вместо visible, если overflow-x
