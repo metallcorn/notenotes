@@ -81,10 +81,18 @@ services:
       start_period: 30s
     mem_limit: {{ postgres_mem_limit }}
     logging:
-      driver: json-file
+      # journald, а не json-file: логи json-file живут ВНУТРИ контейнера и
+      # исчезают при каждом пересоздании, то есть при каждом деплое.
+      # Поймано 02.10 — разбирать жалобу «ассистент какой-то не такой»
+      # пришлось по самим диалогам в БД: недельная история вызовов
+      # стёрлась деплоем за четыре минуты до этого.
+      #
+      # journald на хосте уже персистентный (Storage=persistent, 200 МБ,
+      # 14 дней — роль baseline): переживает и пересоздание контейнера, и
+      # перезагрузку. Читается `journalctl CONTAINER_NAME=notenotes-backend-1`.
+      driver: journald
       options:
-        max-size: "{{ docker_log_max_size }}"
-        max-file: "{{ docker_log_max_file }}"
+        tag: "{{ '{{.Name}}' }}"
 
   redis:
     image: {{ redis_image }}
@@ -106,10 +114,18 @@ services:
       retries: 5
     mem_limit: {{ redis_mem_limit }}
     logging:
-      driver: json-file
+      # journald, а не json-file: логи json-file живут ВНУТРИ контейнера и
+      # исчезают при каждом пересоздании, то есть при каждом деплое.
+      # Поймано 02.10 — разбирать жалобу «ассистент какой-то не такой»
+      # пришлось по самим диалогам в БД: недельная история вызовов
+      # стёрлась деплоем за четыре минуты до этого.
+      #
+      # journald на хосте уже персистентный (Storage=persistent, 200 МБ,
+      # 14 дней — роль baseline): переживает и пересоздание контейнера, и
+      # перезагрузку. Читается `journalctl CONTAINER_NAME=notenotes-backend-1`.
+      driver: journald
       options:
-        max-size: "{{ docker_log_max_size }}"
-        max-file: "{{ docker_log_max_file }}"
+        tag: "{{ '{{.Name}}' }}"
 
   # backend — ТЗ §19, Фаза 1. Секреты приходят из app.env внутри тома.
   #
@@ -144,10 +160,18 @@ services:
       redis: {condition: service_healthy}
     mem_limit: 768m
     logging:
-      driver: json-file
+      # journald, а не json-file: логи json-file живут ВНУТРИ контейнера и
+      # исчезают при каждом пересоздании, то есть при каждом деплое.
+      # Поймано 02.10 — разбирать жалобу «ассистент какой-то не такой»
+      # пришлось по самим диалогам в БД: недельная история вызовов
+      # стёрлась деплоем за четыре минуты до этого.
+      #
+      # journald на хосте уже персистентный (Storage=persistent, 200 МБ,
+      # 14 дней — роль baseline): переживает и пересоздание контейнера, и
+      # перезагрузку. Читается `journalctl CONTAINER_NAME=notenotes-backend-1`.
+      driver: journald
       options:
-        max-size: "{{ docker_log_max_size }}"
-        max-file: "{{ docker_log_max_file }}"
+        tag: "{{ '{{.Name}}' }}"
 
   # --- Заготовка под Фазу 2 из ТЗ §19 ---------------------------------------
   # Раскомментировать, когда появится очередь (OCR/авто-теги).
