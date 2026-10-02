@@ -6,6 +6,7 @@ from pydantic import BaseModel
 
 class NotificationOut(BaseModel):
     model_config = {"from_attributes": True}
+    repeat_rule: str | None = None
 
     id: uuid.UUID
     type: str
@@ -29,3 +30,5 @@ class NotificationCreateIn(BaseModel):
     # tools/reminders.py's create_reminder для ассистента эту привязку уже
     # умеет — этот путь просто не переиспользовал её.
     item_id: str | None = None
+    # daily/weekly/monthly/yearly или ничего. Проверяется в роутере.
+    repeat: str | None = None

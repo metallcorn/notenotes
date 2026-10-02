@@ -1566,8 +1566,14 @@ export function useMarkAllNotificationsRead() {
 export function useCreateReminder() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (payload: { title: string; body?: string; trigger_at: string; item_id?: string }) =>
-      api.post<Notification>("/notifications", payload),
+    mutationFn: (payload: {
+      title: string;
+      body?: string;
+      trigger_at: string;
+      item_id?: string;
+      /** "daily" | "weekly" | "monthly" | "yearly"; пусто — одноразовое. */
+      repeat?: string;
+    }) => api.post<Notification>("/notifications", payload),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["notifications"] }),
   });
 }

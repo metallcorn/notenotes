@@ -8,6 +8,7 @@ import {
   ChevronLeft,
   ListChecks,
   MessageSquare,
+  Repeat,
   Sparkles,
   StickyNote,
   X,
@@ -25,6 +26,7 @@ import {
   useUnresolveNotification,
 } from "../api/hooks";
 import type { DetectedEvent, Notification } from "../api/types";
+import { repeatLabel } from "../lib/recurrence";
 import Spinner from "./Spinner";
 
 type Tab = "notifications" | "recent";
@@ -93,6 +95,7 @@ function NotificationRow({
   const clickable = !!spaceId && !!itemId;
   const resolved = !!notification.resolved_at;
   const overdue = !resolved && !!notification.trigger_at && new Date(notification.trigger_at).getTime() <= Date.now();
+  const repeat = repeatLabel(notification.repeat_rule);
 
   return (
     <div className={`flex items-start gap-2 border-b px-4 py-3 ${!resolved && !notification.read_at ? "bg-muted" : ""}`}>
@@ -134,10 +137,18 @@ function NotificationRow({
               просрочено
             </span>
           )}
+          {repeat && (
+            // Без этой подписи повторяющееся не отличить от обычного, и
+            // "откуда оно опять взялось" выглядит багом.
+            <span className="ml-1 inline-flex items-center gap-0.5 text-[10px] text-subtle">
+              <Repeat size={10} />
+              {repeat}
+            </span>
+          )}
         </div>
       </button>
       <button
-        title="Удалить"
+        title={repeat ? "Удалить и больше не повторять" : "Удалить"}
         onClick={() => del.mutate(notification.id)}
         disabled={del.isPending}
         className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-subtle hover:bg-danger/10 hover:text-danger disabled:opacity-50"

@@ -287,6 +287,8 @@ export interface Notification {
   created_at: string;
   trigger_at: string | null;
   resolved_at: string | null;
+  /** Период повтора (app/recurrence.py) или null — одноразовое. */
+  repeat_rule: string | null;
 }
 
 // Дата/событие, найденное LLM внутри заметки (app/autotag.py) — пассивная

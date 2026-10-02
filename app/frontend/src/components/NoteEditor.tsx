@@ -2025,11 +2025,17 @@ export default function NoteEditor({
       {reminderModalOpen && (
         <ReminderModal
           defaultTitle={item.title}
-          onCreate={({ title: t, body, triggerAt }) => {
+          onCreate={({ title: t, body, triggerAt, repeat }) => {
             setReminderModalOpen(false);
             const anchorPos = reminderAnchorPos;
             createReminder.mutate(
-              { title: t, body, trigger_at: triggerAt.toISOString(), item_id: item.id },
+              {
+                title: t,
+                body,
+                trigger_at: triggerAt.toISOString(),
+                item_id: item.id,
+                ...(repeat ? { repeat } : {}),
+              },
               {
                 onSuccess: (notification) => {
                   // Якорь вставляется ПОСЛЕ успешного создания, не сразу

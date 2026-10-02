@@ -9,6 +9,7 @@ from app import realtime
 from app.core.config import get_settings
 from app.db import get_db
 from app.deps import ensure_space_access, get_current_user, space_member_ids
+from app.recurrence import RULES
 from app.models import Item, Notification, User
 from app.schemas.notification import NotificationCreateIn, NotificationOut
 from app.security import decode_session_token
@@ -81,11 +82,19 @@ async def create_notification(
         if user.id not in recipient_ids:
             recipient_ids.append(user.id)
 
+    repeat = (payload.repeat or "").strip().lower() or None
+    if repeat is not None and repeat not in RULES:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"Неизвестное правило повтора: {repeat}. Допустимы: {', '.join(RULES)}",
+        )
+
     own_notification: Notification | None = None
     for recipient_id in recipient_ids:
         notification = Notification(
             user_id=recipient_id,
             type="reminder",
+            repeat_rule=repeat,
             title=payload.title,
             body=payload.body,
             payload=notification_payload,

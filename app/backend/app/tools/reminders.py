@@ -10,6 +10,7 @@ from app.deps import space_member_ids
 from app.llm.base import ToolDefinition
 from app.models import Notification
 from app.tools.notes import _get_item_cross_space
+from app.recurrence import HUMAN, RULES
 from app.tools.registry import ToolContext, ToolError
 from app.user_timezone import assume_default_timezone, resolve_timezone
 
@@ -39,6 +40,15 @@ CREATE_REMINDER = ToolDefinition(
             "trigger_at": {
                 "type": "string",
                 "description": "Когда показать напоминание, ISO 8601 ('2026-08-08T09:00:00') — только то, что явно назвал пользователь",
+            },
+            "repeat": {
+                "type": "string",
+                "enum": ["daily", "weekly", "monthly", "yearly"],
+                "description": (
+                    "Повторять ли: daily/weekly/monthly/yearly. Ставь, только если пользователь "
+                    "сказал про регулярность («каждый понедельник», «раз в месяц», «ежегодно»). "
+                    "Разовую просьбу («напомни завтра») повторяющейся НЕ делай."
+                ),
             },
             "item_id": {"type": "string", "description": "id заметки/списка, к которому относится напоминание — необязательно"},
             "entry_id": {
@@ -79,6 +89,13 @@ async def create_reminder(ctx: ToolContext, args: dict[str, Any]) -> dict[str, A
     title = str(args.get("title", "")).strip()
     if not title:
         raise ToolError("Название напоминания не может быть пустым — коротко сформулируй, о чём напомнить")
+
+    repeat = str(args.get("repeat") or "").strip().lower() or None
+    if repeat is not None and repeat not in RULES:
+        raise ToolError(
+            f"Неизвестное правило повтора: {repeat} — допустимы daily, weekly, monthly, yearly "
+            "или вообще без него, если повторять не нужно"
+        )
 
     trigger_raw = args.get("trigger_at")
     if not trigger_raw:
@@ -127,6 +144,7 @@ async def create_reminder(ctx: ToolContext, args: dict[str, Any]) -> dict[str, A
         notification = Notification(
             user_id=recipient_id,
             type="reminder",
+            repeat_rule=repeat,
             title=title,
             body=body,
             payload=payload,
@@ -140,6 +158,9 @@ async def create_reminder(ctx: ToolContext, args: dict[str, Any]) -> dict[str, A
     return {
         "id": str(own_notification.id),
         "title": title,
+        # Повтор возвращаем словами: модель должна сказать человеку, что
+        # напоминание теперь регулярное, а не промолчать об этом.
+        **({"repeat": HUMAN[repeat]} if repeat else {}),
         **_echo_times(trigger_at, ctx.client_timezone),
     }
 
@@ -185,6 +206,7 @@ async def list_reminders(ctx: ToolContext, args: dict[str, Any]) -> dict[str, An
                 "id": str(n.id),
                 "title": n.title,
                 "body": n.body,
+                **({"repeat": HUMAN[n.repeat_rule]} if n.repeat_rule in HUMAN else {}),
                 **(
                     _echo_times(n.trigger_at, ctx.client_timezone)
                     if n.trigger_at

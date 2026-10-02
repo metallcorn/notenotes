@@ -11,6 +11,7 @@ from app.core.config import get_settings
 from app.db import async_session
 from app.models import Notification, PushSubscription, TelegramLink
 from app.push import send_push
+from app.recurrence import next_occurrence
 
 logger = logging.getLogger(__name__)
 
@@ -72,18 +73,62 @@ async def _dispatch_due() -> None:
                 Notification.dispatched_at.is_(None),
                 # Уже отметили выполненным до наступления времени (сделали
                 # заранее) — незачем слать пинг о том, что уже решено.
-                Notification.resolved_at.is_(None),
+                # Исключение — повторяющееся: пинг не нужен, а вот цепочку
+                # оборвать нельзя. «Полил цветы утром, галочку поставил» не
+                # должно значить «больше не напоминать никогда».
+                (Notification.resolved_at.is_(None)) | (Notification.repeat_rule.isnot(None)),
                 (Notification.trigger_at.is_(None)) | (Notification.trigger_at <= datetime.now(timezone.utc)),
             )
         )
         due = result.scalars().all()
         for notification in due:
+            if notification.resolved_at is None:
+                try:
+                    await _dispatch_one(notification, db)
+                except Exception:
+                    logger.exception("Ошибка доставки уведомления %s", notification.id)
+            else:
+                # Сделано заранее: доставлять нечего, но строку надо закрыть,
+                # иначе следующий проход заведёт повтор второй раз.
+                notification.dispatched_at = datetime.now(timezone.utc)
+            # Следующий раз заводим ПОСЛЕ отправки, а не после отметки
+            # «выполнено»: иначе цепочка «каждый понедельник» обрывалась
+            # бы на первой же неделе, когда человек не нажал галочку.
+            #
+            # И именно здесь, а не внутри _dispatch_one: тот может упасть
+            # (нет Telegram, протух push-ключ), а повторение от канала
+            # доставки зависеть не должно.
             try:
-                await _dispatch_one(notification, db)
+                _schedule_next(notification, db)
             except Exception:
-                logger.exception("Ошибка доставки уведомления %s", notification.id)
+                logger.exception("Не удалось завести повтор для %s", notification.id)
         if due:
             await db.commit()
+
+
+def _schedule_next(notification: Notification, db) -> None:
+    """Породить следующую копию повторяющегося напоминания."""
+    if not notification.repeat_rule or notification.trigger_at is None:
+        return
+    following = next_occurrence(notification.trigger_at, notification.repeat_rule)
+    if following is None:
+        return
+
+    db.add(
+        Notification(
+            user_id=notification.user_id,
+            type=notification.type,
+            title=notification.title,
+            body=notification.body,
+            payload=notification.payload,
+            trigger_at=following,
+            repeat_rule=notification.repeat_rule,
+        )
+    )
+    # Правило снимаем с отправленной: иначе она породила бы следующую
+    # копию ещё раз при любом повторном проходе.
+    notification.repeat_rule = None
+    logger.info("Повтор напоминания %s: следующий раз %s", notification.id, following)
 
 
 async def run_dispatch_worker() -> None:

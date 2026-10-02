@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { AlarmClock } from "lucide-react";
 
+import { REPEAT_LABELS, REPEAT_RULES, type RepeatRule } from "../lib/recurrence";
+
 // Реальный запрос: "через /notify создавать команду на создание
 // напоминания — открывается форма, выбираешь дату/время, можешь написать
 // текст". Тот же принцип подтверждения, что уже есть у кнопки "Напомнить"
@@ -14,12 +16,15 @@ export default function ReminderModal({
   onCancel,
 }: {
   defaultTitle: string;
-  onCreate: (data: { title: string; body: string; triggerAt: Date }) => void;
+  onCreate: (data: { title: string; body: string; triggerAt: Date; repeat: RepeatRule | "" }) => void;
   onCancel: () => void;
 }) {
   const [title, setTitle] = useState(defaultTitle);
   const [body, setBody] = useState("");
   const [when, setWhen] = useState("");
+  // По умолчанию — без повтора. Повторяющееся напоминание, заведённое
+  // случайно, раздражает каждый день и его надо идти отключать.
+  const [repeat, setRepeat] = useState<RepeatRule | "">("");
 
   const valid = title.trim() && when;
 
@@ -30,7 +35,7 @@ export default function ReminderModal({
     // пользователь выбирает время у себя на часах, а не в UTC.
     const triggerAt = new Date(when);
     if (Number.isNaN(triggerAt.getTime())) return;
-    onCreate({ title: title.trim(), body: body.trim(), triggerAt });
+    onCreate({ title: title.trim(), body: body.trim(), triggerAt, repeat });
   }
 
   return (
@@ -62,7 +67,7 @@ export default function ReminderModal({
           />
         </label>
 
-        <label className="mb-4 block">
+        <label className="mb-2 block">
           <span className="mb-1 block text-xs text-subtle">Когда</span>
           <input
             type="datetime-local"
@@ -71,6 +76,30 @@ export default function ReminderModal({
             onChange={(e) => setWhen(e.target.value)}
             className="w-full rounded border px-2 py-1.5 text-sm outline-none focus:border-strong"
           />
+        </label>
+
+        <label className="mb-4 block">
+          <span className="mb-1 block text-xs text-subtle">Повторять</span>
+          <select
+            value={repeat}
+            onChange={(e) => setRepeat(e.target.value as RepeatRule | "")}
+            className="w-full rounded border bg-surface px-2 py-1.5 text-sm outline-none focus:border-strong"
+          >
+            <option value="">не повторять</option>
+            {REPEAT_RULES.map((rule) => (
+              <option key={rule} value={rule}>
+                {REPEAT_LABELS[rule]}
+              </option>
+            ))}
+          </select>
+          {repeat && (
+            // Про это стоит сказать заранее: следующий раз заводится в
+            // момент отправки, поэтому "удалить" на пришедшем напоминании
+            // серию не остановит, а на ожидающем — остановит.
+            <span className="mt-1 block text-[11px] text-subtle">
+              Напоминание будет приходить {REPEAT_LABELS[repeat]}, пока его не удалить.
+            </span>
+          )}
         </label>
 
         <div className="flex justify-end gap-2">
