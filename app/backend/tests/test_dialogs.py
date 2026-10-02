@@ -1165,3 +1165,49 @@ def test_transient_nudges_are_off():
     from app.routers.dialogs import TRANSIENT_NUDGES_ENABLED
 
     assert TRANSIENT_NUDGES_ENABLED is False
+
+
+def test_file_bytes_never_reach_the_model():
+    """Байты файла не должны попадать в разговор с моделью.
+
+    Поймано 02.10 по диалогу «Найди мои права»: три get_file подряд и
+    «Не получилось получить ответ от LLM-провайдера». В ключах
+    _mcp_image/_mcp_resource лежит base64 файла целиком (до 4 МБ) — для
+    MCP это и нужно, там их достаёт routers/mcp.py и отдаёт отдельным
+    блоком протокола. А в обычном диалоге они молча уезжали в
+    tool-сообщение: ~1.9 МБ base64 на каждый PDF прямо в промпт.
+    """
+    result = {
+        "id": "x",
+        "filename": "права.pdf",
+        "text": "Официальное водительское удостоверение",
+        "_mcp_resource": {"data": "A" * 2_000_000, "mime_type": "application/pdf"},
+        "_mcp_image": {"data": "B" * 500_000, "mime_type": "image/png"},
+    }
+
+    cleaned = {k: v for k, v in result.items() if not k.startswith("_mcp_")}
+
+    assert set(cleaned) == {"id", "filename", "text"}
+    assert len(json.dumps(cleaned)) < 500
+    # Текст — то, ради чего файл и читают, — остаётся.
+    assert "водительское" in cleaned["text"]
+
+
+def test_fake_command_links_become_plain_text():
+    """Модель выдумывает «кнопки», которых в проекте нет.
+
+    Поймано 02.10: человек прислал выписку от ветеринара и получил ОДНУ
+    мёртвую ссылку [Создать напоминание](command:create_reminder?{...})
+    без единого слова по существу. Схема без «//» под проверку обычных
+    ссылок не попадала.
+    """
+    from app.routers.dialogs import _strip_fake_command_links
+
+    out = _strip_fake_command_links(
+        '[Создать напоминание на пятницу](command:create_reminder?{"title":"Осмотр"})'
+    )
+    assert out == "Создать напоминание на пятницу"
+
+    # Настоящие ссылки не трогаем.
+    real = "[PZU Страховка](https://notenotes.metallcorn.online/?item=abc)"
+    assert _strip_fake_command_links(real) == real

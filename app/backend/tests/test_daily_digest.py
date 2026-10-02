@@ -17,8 +17,23 @@ from app.models import Item, Notification, Space, SpaceMember, User
 from app.security import hash_password
 
 
+class _FrozenDatetime(datetime):
+    """datetime с прибитым now(). Остальное — как у настоящего.
+
+    Нужно, потому что сводка теперь прячет прошедшее: без фиксации
+    «сейчас» тесты про содержимое зеленели только до 15:00 и краснели
+    после. Поймано на себе же.
+    """
+
+    _now = datetime.now(timezone.utc)
+
+    @classmethod
+    def now(cls, tz=None):
+        return cls._now.astimezone(tz) if tz else cls._now
+
+
 @pytest_asyncio.fixture
-async def base(db_session, test_user):
+async def base(db_session, test_user, monkeypatch):
     test_user.timezone = "Europe/Warsaw"
     space = Space(name="Личное", owner_id=test_user.id)
     db_session.add(space)
@@ -27,7 +42,12 @@ async def base(db_session, test_user):
     await db_session.commit()
 
     tz = ZoneInfo("Europe/Warsaw")
-    today_local = datetime.now(tz).replace(hour=15, minute=0, second=0, microsecond=0)
+    # «Сейчас» — сегодня в 09:00 по месту человека; события ставим на
+    # 15:00, то есть всегда впереди.
+    frozen = datetime.now(tz).replace(hour=9, minute=0, second=0, microsecond=0)
+    _FrozenDatetime._now = frozen.astimezone(timezone.utc)
+    monkeypatch.setattr("app.daily_digest.datetime", _FrozenDatetime)
+    today_local = frozen.replace(hour=15)
 
     async def reminder(title, at=None, *, user=None):
         n = Notification(user_id=(user or test_user).id, type="reminder", title=title, body="",
@@ -49,7 +69,8 @@ async def base(db_session, test_user):
 
     from types import SimpleNamespace
 
-    return SimpleNamespace(space=space, reminder=reminder, event_note=event_note, today_local=today_local, tz=tz)
+    return SimpleNamespace(space=space, reminder=reminder, event_note=event_note,
+                           today_local=today_local, tz=tz, now_local=frozen)
 
 
 class TestСодержимое:
@@ -180,7 +201,9 @@ class TestКогдаСлать:
         monkeypatch.setattr(daily_digest, "_send_for", fake_send)
         monkeypatch.setattr(daily_digest, "async_session", same_session)
 
-        now_local = datetime.now(base.tz)
+        # Время берём ЗАМОРОЖЕННОЕ: _tick смотрит на него же, а не на
+        # настоящие часы (см. фикстуру).
+        now_local = base.now_local
         test_user.digest_time = now_local.strftime("%H:%M")
         test_user.digest_sent_on = None
         await db_session.commit()
@@ -273,16 +296,11 @@ class TestПрошедшееИРаннееЗавтра:
     """
 
     async def test_прошедшее_сегодня_не_показывается(self, base, db_session, test_user):
-        from unittest.mock import patch
-
-        now = datetime.now(base.tz).replace(hour=9, minute=0, second=0, microsecond=0)
+        now = base.now_local
         await base.reminder("Было в восемь", now.replace(hour=8))
         await base.reminder("Будет в шесть", now.replace(hour=18))
 
-        with patch("app.daily_digest.datetime") as fake:
-            fake.now.return_value = now.astimezone(timezone.utc)
-            fake.fromisoformat = datetime.fromisoformat
-            built = await daily_digest.build_digest(db_session, test_user)
+        built = await daily_digest.build_digest(db_session, test_user)
 
         text, _ = built
         assert "Было в восемь" not in text
@@ -291,17 +309,12 @@ class TestПрошедшееИРаннееЗавтра:
     async def test_раннее_завтрашнее_предупреждается_сегодня(self, base, db_session, test_user):
         """Про приём в 08:00 завтра надо сказать сегодня — завтрашняя
         сводка в 09:00 придёт уже поздно."""
-        from unittest.mock import patch
-
-        now = datetime.now(base.tz).replace(hour=9, minute=0, second=0, microsecond=0)
+        now = base.now_local
         test_user.digest_time = "09:00"
         await db_session.commit()
         await base.reminder("Приём завтра рано", (now + timedelta(days=1)).replace(hour=8))
 
-        with patch("app.daily_digest.datetime") as fake:
-            fake.now.return_value = now.astimezone(timezone.utc)
-            fake.fromisoformat = datetime.fromisoformat
-            built = await daily_digest.build_digest(db_session, test_user)
+        built = await daily_digest.build_digest(db_session, test_user)
 
         text, _ = built
         assert "Завтра рано утром" in text
@@ -309,29 +322,19 @@ class TestПрошедшееИРаннееЗавтра:
 
     async def test_позднее_завтрашнее_не_дублируется(self, base, db_session, test_user):
         """Про завтрашний вечер завтрашняя сводка скажет вовремя."""
-        from unittest.mock import patch
-
-        now = datetime.now(base.tz).replace(hour=9, minute=0, second=0, microsecond=0)
+        now = base.now_local
         await base.reminder("Завтра вечером", (now + timedelta(days=1)).replace(hour=19))
 
-        with patch("app.daily_digest.datetime") as fake:
-            fake.now.return_value = now.astimezone(timezone.utc)
-            fake.fromisoformat = datetime.fromisoformat
-            built = await daily_digest.build_digest(db_session, test_user)
+        built = await daily_digest.build_digest(db_session, test_user)
 
         assert built is None
 
     async def test_у_завтрашнего_нет_кнопок(self, base, db_session, test_user):
         """Закрывать то, что ещё не наступило, незачем."""
-        from unittest.mock import patch
-
-        now = datetime.now(base.tz).replace(hour=9, minute=0, second=0, microsecond=0)
+        now = base.now_local
         await base.reminder("Приём завтра рано", (now + timedelta(days=1)).replace(hour=7))
 
-        with patch("app.daily_digest.datetime") as fake:
-            fake.now.return_value = now.astimezone(timezone.utc)
-            fake.fromisoformat = datetime.fromisoformat
-            text, keyboard = await daily_digest.build_digest(db_session, test_user)
+        text, keyboard = await daily_digest.build_digest(db_session, test_user)
 
         assert "Приём завтра рано" in text
         assert keyboard == []

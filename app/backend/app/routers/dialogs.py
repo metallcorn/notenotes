@@ -812,6 +812,16 @@ def _to_llm_messages(records: list[dict], system_prompt: str) -> list[Message]:
 # доезжала до пользователя кликабельной.
 _MARKDOWN_LINK_RE = re.compile(r"\[([^\]]+)\]\(([A-Za-z][A-Za-z0-9+.\-]*://(?:[^\s()]|\([^\s()]*\))+)\)")
 
+# Выдуманные «команды» вида [Создать напоминание](command:create_reminder?{...}).
+# Такого синтаксиса в проекте НЕТ и никогда не было — модель его
+# изобрела. Поймано 02.10: человек прислал выписку от ветеринара, а
+# получил в ответ ОДНУ мёртвую ссылку без единого слова по существу.
+#
+# Схема без «//» под _MARKDOWN_LINK_RE не попадала, поэтому проезжала
+# как есть. Режем отдельно: оставляем текст ссылки, убираем мёртвую
+# цель — пусть ответ будет бедным, но не притворяется кнопкой.
+_FAKE_COMMAND_LINK_RE = re.compile(r"\[([^\]]+)\]\((?:command|action|app|tool):[^)]*\)")
+
 # Голая ссылка вне markdown-синтаксиса — реальный найденный случай (два раза
 # подряд на одном и том же разговоре): web_search не нашёл нужную страницу,
 # модель на прямой повторный вопрос всё равно ответила https://www.facebook.
@@ -829,6 +839,11 @@ _BARE_URL_RE = re.compile(r"[A-Za-z][A-Za-z0-9+.\-]*://[^\s\])]+")
 # пробела ВНУТРИ следующего поля (например title с пробелами), а не
 # останавливается на закрывающей кавычке самого URL.
 _BARE_URL_IN_JSON_RE = re.compile(r'https?://[^\s\])"]+')
+
+
+def _strip_fake_command_links(text: str) -> str:
+    """Мёртвые «кнопки», выдуманные моделью, — в обычный текст."""
+    return _FAKE_COMMAND_LINK_RE.sub(lambda m: m.group(1), text)
 
 
 def _strip_unverified_links(text: str, allowed_urls: set[str]) -> str:
@@ -2380,7 +2395,8 @@ async def _run_dialog_turn_locked(
             "id": str(uuid.uuid4()),
             "role": "assistant",
             "content": _append_missing_entry_links(
-                _strip_unverified_links(unwrapped_content, verified_urls), linked_entries_seen_this_turn
+                _strip_unverified_links(_strip_fake_command_links(unwrapped_content), verified_urls),
+                linked_entries_seen_this_turn,
             ),
             "created_at": _now_iso(),
         }
@@ -2814,6 +2830,19 @@ async def _run_dialog_turn_locked(
             # [текст](url), поэтому _MARKDOWN_LINK_RE её не видел вообще —
             # даже настоящую ссылку тула _strip_unverified_links резал бы
             # как непроверенную.
+            # Байты файла (get_file) в разговор с моделью НЕ кладём.
+            #
+            # Поймано 02.10 по диалогу «Найди мои права»: три get_file
+            # подряд, и ход кончился «Не получилось получить ответ от
+            # LLM-провайдера». Причина — ключи _mcp_image/_mcp_resource:
+            # в них base64 файла целиком, до 4 МБ. Для MCP это и нужно
+            # (routers/mcp.py достаёт их и отдаёт отдельным блоком
+            # протокола), а здесь они молча уезжали в tool-сообщение, то
+            # есть ~1.9 МБ base64 на каждый PDF прямо в промпт.
+            #
+            # Модели этих байтов не нужно: ниже в том же result лежит
+            # извлечённый текст, ради которого файл и читают.
+            result = {k: v for k, v in result.items() if not k.startswith("_mcp_")}
             result_json = json.dumps(result, ensure_ascii=False)
             for _, found_url in _MARKDOWN_LINK_RE.findall(result_json):
                 verified_urls.add(found_url)
