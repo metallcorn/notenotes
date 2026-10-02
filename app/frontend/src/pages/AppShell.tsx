@@ -24,6 +24,7 @@ import DialogList from "../components/DialogList";
 import AssistantChat from "../components/AssistantChat";
 import TrashView from "../components/TrashView";
 import ActivityView from "../components/ActivityView";
+import OfflineBanner from "../components/OfflineBanner";
 
 type MobileView = "sidebar" | "list" | "editor";
 
@@ -546,7 +547,9 @@ export default function AppShell() {
   return (
     <div
       ref={rootRef}
-      className="flex h-dvh bg-app text-primary"
+      // Колонка, а не только ряд: сверху узкая полоска «нет сети», под
+      // ней — прежняя горизонтальная раскладка.
+      className="flex h-dvh flex-col bg-app text-primary"
       style={{
         boxSizing: "border-box",
         paddingTop: "var(--safe-top)",
@@ -577,6 +580,8 @@ export default function AppShell() {
           </button>
         </div>
       )}
+
+      <OfflineBanner />
       {/* Реальный найденный баг: тут раньше был overflow-x-hidden (чтобы
           контент не вылезал вбок во время анимации ширины) — но CSS
           вычисляет overflow-y как auto вместо visible, если overflow-x
@@ -586,6 +591,7 @@ export default function AppShell() {
           вертикали — выпадающее меню шаблонов заметки (NoteTemplateMenu)
           рисовалось, но было невидимым и съедало следующий клик своим
           fixed-бэкдропом. Косметика ширины не стоила этой цены — убрано. */}
+      <div className="flex min-h-0 flex-1">
       <aside
         className={`${mobileView === "sidebar" ? "flex" : "hidden"} w-full shrink-0 flex-col border-r bg-muted lg:flex`}
         style={
@@ -828,6 +834,7 @@ export default function AppShell() {
           </>
         )}
       </main>
+      </div>
     </div>
   );
 }

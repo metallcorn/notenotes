@@ -32,7 +32,21 @@
 const SHELL_CACHE = "notenotes-shell-v2";
 const ASSET_CACHE = "notenotes-assets-v2";
 const MEDIA_CACHE = "notenotes-media-v2";
-const CURRENT_CACHES = [SHELL_CACHE, ASSET_CACHE, MEDIA_CACHE];
+// v3 данных — кэш появился 02.10 по жалобе: «если интернета нет, даже
+// кэшированные данные недоступны, не могу прочитать ничего».
+//
+// Почему он понадобился, хотя офлайн-чтение считалось сделанным.
+// Сделан был персист react-query в IndexedDB — он возвращает данные в
+// ПАМЯТЬ приложения, но только после того, как приложение загрузилось и
+// успело восстановиться, и только для запросов, которые кто-то уже
+// делал в этой вкладке. Сами ответы /api/* не кэшировались нигде, и
+// любой запрос, не попавший в персист (или сделанный заново после
+// рестарта), офлайн просто падал.
+//
+// Кэш на уровне SW решает это на слой ниже: ответ сервера лежит рядом с
+// оболочкой, и его видно даже на холодном старте без сети.
+const DATA_CACHE = "notenotes-data-v3";
+const CURRENT_CACHES = [SHELL_CACHE, ASSET_CACHE, MEDIA_CACHE, DATA_CACHE];
 const SHELL_KEY = "/";
 
 self.addEventListener("install", () => {
@@ -129,6 +143,38 @@ async function handleUpload(request) {
   return response;
 }
 
+// Сколько ждать сеть, прежде чем отдать из кэша. Та же причина, что у
+// NAVIGATE_TIMEOUT_MS: на плохой мобильной сети fetch не падает, а
+// висит, и без таймаута человек смотрит на крутилку вместо данных,
+// которые у него уже есть.
+const DATA_TIMEOUT_MS = 5000;
+
+// Что НЕ кэшируем. Общее правило: всё, что не является данными для
+// чтения. Ответы этих путей либо одноразовые, либо секретные, либо
+// меняются каждую секунду.
+const DATA_CACHE_SKIP = ["/api/mcp", "/api/oauth", "/api/telegram", "/api/health", "/api/version", "/api/debug-log"];
+
+async function handleApiData(request) {
+  const cache = await caches.open(DATA_CACHE);
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), DATA_TIMEOUT_MS);
+    try {
+      const response = await fetch(request, { signal: controller.signal });
+      // Кэшируем только успех: 401/500 в кэше означал бы, что офлайн
+      // человек видит «не авторизован» вместо своих заметок.
+      if (response.ok) cache.put(request, response.clone());
+      return response;
+    } finally {
+      clearTimeout(timeout);
+    }
+  } catch (err) {
+    const cached = await cache.match(request);
+    if (cached) return cached;
+    throw err;
+  }
+}
+
 self.addEventListener("fetch", (event) => {
   const { request } = event;
   if (request.method !== "GET") return;
@@ -145,6 +191,8 @@ self.addEventListener("fetch", (event) => {
     event.respondWith(handleAsset(request));
   } else if (url.pathname.startsWith("/api/uploads/")) {
     event.respondWith(handleUpload(request));
+  } else if (url.pathname.startsWith("/api/") && !DATA_CACHE_SKIP.some((p) => url.pathname.startsWith(p))) {
+    event.respondWith(handleApiData(request));
   }
 });
 
