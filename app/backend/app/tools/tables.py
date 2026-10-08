@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import uuid
 from datetime import datetime, timezone
 from typing import Any
@@ -52,6 +53,46 @@ async def _get_table_item(ctx: ToolContext, table_id_raw: Any) -> Item:
     return item
 
 
+# Ячейка таблицы — ПЛОСКИЙ ТЕКСТ: TableGrid.tsx рендерит её в <textarea>
+# значением, без markdown. А модель, дописывая подход в ячейку, выделяет
+# добавленное жирным — и в данные уезжает буквальное «**2: 7 кг × 8**».
+# Найдено на боевой базе 07.10: 21 строка из 35 в «Таблице тренировок»,
+# всегда последний подход, и именно это ломало «нормально найти и
+# статистику собрать» (жалоба владельца в том же диалоге).
+#
+# Снимаем на записи, а не на отображении: в ячейке лежат данные, и
+# чинить их показом значило бы хранить мусор вечно.
+_EMPHASIS_RE = re.compile(
+    r"""
+    (?<![*_\w])            # не середина слова и не ***жирный курсив***
+    (\*\*|\*|__|_)        # открывающий маркер
+    (?=\S)                 # сразу за ним непробел — иначе это не разметка
+    (.+?)                  # содержимое, минимально
+    (?<=\S)                # перед закрывающим маркером тоже непробел
+    \1                     # тот же маркер
+    (?![*_\w])
+    """,
+    re.VERBOSE | re.DOTALL,
+)
+
+
+def strip_emphasis(value: str) -> str:
+    r"""Убрать markdown-выделение, оставив сам текст.
+
+    Подчёркивание тоже маркер, но в данных оно часто значимо
+    (`snake_case`, `id_строки`), поэтому `(?<![*_\w])` и `(?![*_\w])`:
+    `_курсив_` снимается, `some_name_here` — нет.
+    """
+    previous = None
+    text = value
+    # Цикл — ради вложенного «**_текст_**»: один проход снимет только
+    # внешний маркер.
+    while text != previous:
+        previous = text
+        text = _EMPHASIS_RE.sub(r"\2", text)
+    return text
+
+
 def _cells_by_name(item: Item, cells_by_name: dict[str, str]) -> dict[str, str]:
     """Модель адресует столбцы по имени (id столбца ей взять неоткуда без
     лишнего get_table) — переводим в id для хранения, тем же способом,
@@ -65,7 +106,7 @@ def _cells_by_name(item: Item, cells_by_name: dict[str, str]) -> dict[str, str]:
         if col_id is None:
             unknown.append(name)
         else:
-            result[col_id] = str(value)
+            result[col_id] = strip_emphasis(str(value))
     if unknown:
         valid = ", ".join(c["name"] for c in columns) or "(столбцов пока нет)"
         raise ToolError(f"Нет столбца с именем {unknown} — реальные столбцы: {valid}")
@@ -129,7 +170,7 @@ async def create_table(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]
     for raw_row in args.get("rows") or []:
         if not isinstance(raw_row, dict):
             continue
-        cells = {name_to_id[k]: str(v) for k, v in raw_row.items() if k in name_to_id}
+        cells = {name_to_id[k]: strip_emphasis(str(v)) for k, v in raw_row.items() if k in name_to_id}
         if cells:
             rows.append({"id": str(uuid.uuid4()), "cells": cells, "created_at": _now_iso()})
 
@@ -190,7 +231,9 @@ ADD_TABLE_ROW = ToolDefinition(
         "(в отличие от update_note для обычных заметок, здесь не нужно пересказывать предыдущие "
         "строки). cells — объект {имя_столбца: значение}, имена столбцов ДОЛЖНЫ точно совпадать с "
         "реальными (сверься по get_table, если не уверен); столбцы, не упомянутые в cells, останутся "
-        "пустыми у этой строки."
+        "пустыми у этой строки. В результате возвращается row_id созданной строки — используй его "
+        "для update_table_row, повторный get_table ради id не нужен. Значения — ПЛОСКИЙ текст, "
+        "markdown в ячейках не отображается: никакого **жирного**, только сами данные."
     ),
     parameters={
         "type": "object",
@@ -208,7 +251,8 @@ async def add_table_row(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any
     cells = _cells_by_name(item, dict(args.get("cells") or {}))
 
     rows = list(item.properties.get("rows", []))
-    rows.append({"id": str(uuid.uuid4()), "cells": cells, "created_at": _now_iso()})
+    row_id = str(uuid.uuid4())
+    rows.append({"id": row_id, "cells": cells, "created_at": _now_iso()})
     item.properties = {**item.properties, "rows": rows}
     item.content = _flatten_table(item.properties.get("columns", []), rows)
     await ctx.db.commit()
@@ -218,14 +262,30 @@ async def add_table_row(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any
     # id/title — тот же формат результата, что у create_note/create_list,
     # чтобы фронтенд (CreatedItemLinks в AssistantChat.tsx) мог показать
     # кликабельную "Открыть «Название»" единым способом для всех тулов.
-    return {"id": str(item.id), "title": item.title, "table_id": str(item.id), "cells": _row_cells_to_names(item, rows[-1])}
+    #
+    # row_id ОБЯЗАТЕЛЕН в результате. Без него модель не знает id строки,
+    # которую сама же только что создала, — а update_table_row адресует
+    # строку только по id. Живой случай 07.10 (диалог «Тренировки»): на
+    # каждое «ещё подход» выходило update_table_row с выдуманным id →
+    # "Строка не найдена" → get_table (дамп всей таблицы, ~9 300 симв.) →
+    # повтор. Четырнадцать таких циклов в одном диалоге, ~130 тысяч
+    # символов контекста на то, чего не должно было случиться.
+    return {
+        "id": str(item.id),
+        "title": item.title,
+        "table_id": str(item.id),
+        "row_id": row_id,
+        "cells": _row_cells_to_names(item, rows[-1]),
+    }
 
 
 UPDATE_TABLE_ROW = ToolDefinition(
     name="update_table_row",
     description=(
-        "Изменить ячейки уже существующей строки по её id (из get_table) — обновляет только "
-        "переданные в cells столбцы, остальные ячейки строки не трогает."
+        "Изменить ячейки уже существующей строки по её id (row_id из результата add_table_row "
+        "или из get_table) — обновляет только переданные в cells столбцы, остальные ячейки строки "
+        "не трогает. Значения — ПЛОСКИЙ текст: markdown в ячейках не отображается, не выделяй "
+        "дописанное **жирным**."
     ),
     parameters={
         "type": "object",

@@ -18,6 +18,7 @@ from app.db import get_db
 from app.expiry_check import find_expired_claims
 from app.high_stakes import is_high_stakes_topic
 from app.dialog_compaction import _DEFAULT_KEEP_LAST, _MIN_OLD_MESSAGES, find_cut_index, summarize_records
+from app.dialog_tool_window import fold_stale_tool_results
 from app.deps import ensure_space_access, get_current_user, is_vault_space
 from app.llm.base import EmptyLLMResponseError, Message, ToolCall
 from app.llm.factory import get_escalated_llm_client, get_llm_client
@@ -770,7 +771,12 @@ def _serialize(item: Item) -> DialogOut:
 
 def _to_llm_messages(records: list[dict], system_prompt: str) -> list[Message]:
     messages = [Message(role="system", content=system_prompt)]
-    for r in records:
+    # Свёртка объёмных старых результатов инструментов — см. docstring
+    # dialog_tool_window.py: 93% контекста долгоживущего диалога
+    # составляли они, и пересылались заново на каждый вызов модели.
+    # Делается ЗДЕСЬ, а не на записи: records уходит в БД и на экран
+    # целиком, сворачивается только то, что отправляется в LLM.
+    for r in fold_stale_tool_results(records):
         role = r["role"]
         if role == "assistant":
             tool_calls = [
