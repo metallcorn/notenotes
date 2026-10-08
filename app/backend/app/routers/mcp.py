@@ -141,7 +141,9 @@ async def _home_space_id(db: AsyncSession, user_id: uuid.UUID) -> uuid.UUID | No
             select(Space.id)
             .join(SpaceMember, SpaceMember.space_id == Space.id)
             .where(SpaceMember.user_id == user_id, Space.is_vault.is_(False))
-            .order_by(Space.created_at)
+            # (created_at, id), а не только created_at — см. причину в
+            # докстринге _default_space_id (routers/dialogs.py).
+            .order_by(Space.created_at, Space.id)
             .limit(1)
         )
     ).scalar_one_or_none()

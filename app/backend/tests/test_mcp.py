@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import uuid
+from datetime import datetime, timezone
 
 import pytest_asyncio
 from sqlalchemy import select
@@ -147,8 +148,6 @@ class TestДоступ:
 
     async def test_отозванный_токен_не_работает(self, mcp, db_session, test_user):
         token = (await db_session.execute(select(MCPToken))).scalars().first()
-        from datetime import datetime, timezone
-
         token.revoked_at = datetime.now(timezone.utc)
         await db_session.commit()
 
@@ -236,8 +235,17 @@ class TestЗаписьИПоиск:
         """
         home = (await db_session.execute(select(Space).where(Space.name == "Личное"))).scalar_one()
         # Спейс поновее и сейф — оба НЕ должны стать местом записи.
-        await _make_space(db_session, test_user, "Закупки")
-        await _make_space(db_session, test_user, "Secret", is_vault=True)
+        newer = await _make_space(db_session, test_user, "Закупки")
+        vault = await _make_space(db_session, test_user, "Secret", is_vault=True)
+        # Времена ставим руками. now() в Postgres — время начала
+        # ТРАНЗАКЦИИ, а вся фикстура укладывается в одну, поэтому без
+        # этого все три спейса имеют одинаковый created_at и «самый
+        # старый» — вопрос везения. Тест падал через раз именно так; в
+        # проде такого не бывает, каждый спейс создаётся своим запросом.
+        home.created_at = datetime(2026, 8, 6, 12, 0, tzinfo=timezone.utc)
+        newer.created_at = datetime(2026, 9, 1, 12, 0, tzinfo=timezone.utc)
+        vault.created_at = datetime(2026, 7, 1, 12, 0, tzinfo=timezone.utc)  # старше всех, но сейф
+        await db_session.commit()
 
         r = await mcp("tools/call", {"name": "create_note", "arguments": {"title": "Из MCP", "content": "текст"}})
         assert r.json()["result"]["isError"] is False
@@ -513,3 +521,30 @@ class TestИнструкцииКлиенту:
         r = await mcp("initialize", {"protocolVersion": "2025-06-18"})
 
         assert "СЕКРЕТ_СОСЕДА" not in r.json()["result"]["instructions"]
+
+
+class TestДомашнийСпейсУстойчив:
+    """now() в Postgres — время начала транзакции. У спейсов, созданных
+    одним запросом, created_at совпадает до микросекунды, и «самый
+    старый» выбирался произвольно: домашний спейс мог меняться между
+    запросами. Поймано тестом выше, который падал через раз — на
+    двадцатом прогоне, а не на первом.
+    """
+
+    async def test_выбор_не_зависит_от_порядка_при_равном_времени(self, db_session, test_user):
+        from app.routers.dialogs import _default_space_id
+        from app.routers.mcp import _home_space_id
+
+        same = datetime(2026, 8, 6, 12, 0, tzinfo=timezone.utc)
+        ids = []
+        for name in ("Личное", "Закупки", "Авто"):
+            space = await _make_space(db_session, test_user, name)
+            space.created_at = same
+            ids.append(space.id)
+        await db_session.commit()
+
+        chosen = {await _default_space_id(db_session, test_user.id) for _ in range(5)}
+        chosen |= {await _home_space_id(db_session, test_user.id) for _ in range(5)}
+
+        assert len(chosen) == 1, "выбор должен быть один и тот же при любом прогоне"
+        assert chosen.pop() == min(ids, key=str), "тай-брейк по id — и он одинаков в обоих местах"
