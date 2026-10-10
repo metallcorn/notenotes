@@ -13,9 +13,10 @@ set -euo pipefail
 
 # Уборка кэша сборки — ВСЕГДА, даже если тесты упали. Раньше кэш чистил
 # только deploy.sh, а до него при красных тестах дело не доходило: каждая
-# неудачная сборка оставляла слои навсегда. Ограничение по объёму, не по
-# возрасту — см. deploy.sh, почему.
-trap 'sudo docker builder prune -f --keep-storage 1G >/dev/null 2>&1 || true' EXIT
+# неудачная сборка оставляла слои навсегда. Именно buildx и именно -af —
+# см. deploy.sh, почему (там же про то, как `docker builder prune` и
+# размерные флаги молча не чистили ничего).
+trap 'sudo docker buildx prune -af >/dev/null 2>&1 || true' EXIT
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
