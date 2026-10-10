@@ -77,14 +77,14 @@ class TestЦиклНаОшибке:
         """Тот самый случай: add_table_row не возвращал row_id, и на
         каждое «ещё подход» выходило update → ошибка → get_table."""
         err = '{"error": "Строка не найдена — сначала вызови get_table"}'
-        records = [_msg("tool", err, name="update_table_row") for _ in range(14)]
+        records = [_msg("tool", err, name="update_table_row", days_ago=1) for _ in range(14)]
 
         assert "циклит_на_ошибке" in _kinds(records)
 
     def test_два_повтора_это_норма(self):
         """На живой базе по два «Папка не найдена» / «Заметка не найдена»
         — обычное дело: модель уточняет и идёт дальше."""
-        records = [_msg("tool", '{"error": "Папка не найдена"}', name="get_note") for _ in range(2)]
+        records = [_msg("tool", '{"error": "Папка не найдена"}', name="get_note", days_ago=1) for _ in range(2)]
 
         assert "циклит_на_ошибке" not in _kinds(records)
 
@@ -94,16 +94,25 @@ class TestЦиклНаОшибке:
 
     def test_разные_ошибки_не_складываются(self):
         records = [
-            _msg("tool", '{"error": "Папка не найдена"}', name="a"),
-            _msg("tool", '{"error": "Заметка не найдена"}', name="b"),
-            _msg("tool", '{"error": "Пустой текст"}', name="c"),
-            _msg("tool", '{"error": "Это не заметка"}', name="d"),
+            _msg("tool", '{"error": "Папка не найдена"}', name="a", days_ago=1),
+            _msg("tool", '{"error": "Заметка не найдена"}', name="b", days_ago=1),
+            _msg("tool", '{"error": "Пустой текст"}', name="c", days_ago=1),
+            _msg("tool", '{"error": "Это не заметка"}', name="d", days_ago=1),
         ]
 
         assert "циклит_на_ошибке" not in _kinds(records)
 
+    def test_давний_цикл_не_нагоняет_вечно(self):
+        """Первый прогон 10.10 нашёл цикл из 14 ошибок, который УЖЕ
+        починен, — но следы остаются в диалоге навсегда. Напоминание о
+        них каждые шесть часов научило бы смахивать сводку не глядя."""
+        err = '{"error": "Строка не найдена"}'
+        records = [_msg("tool", err, name="update_table_row", days_ago=LOOKBACK.days + 2) for _ in range(14)]
+
+        assert "циклит_на_ошибке" not in _kinds(records)
+
     def test_успешные_результаты_не_считаются_ошибками(self):
-        records = [_msg("tool", '{"results": []}', name="search_base") for _ in range(10)]
+        records = [_msg("tool", '{"results": []}', name="search_base", days_ago=1) for _ in range(10)]
 
         assert "циклит_на_ошибке" not in _kinds(records)
 
