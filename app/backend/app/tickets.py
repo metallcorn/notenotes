@@ -23,6 +23,7 @@ from app.user_timezone import assume_default_timezone
 from app.vision import _replace_in_referencing_items
 from app.vision import placeholder_text as image_placeholder_text
 from app.vision import serialize_image_ocr_result
+from app.processing_status import STATUS_EMPTY
 
 logger = logging.getLogger(__name__)
 
@@ -415,7 +416,7 @@ async def _process(upload_id: uuid.UUID) -> None:
     async with async_session() as db:
         upload = await db.get(Upload, upload_id)
         if upload is not None:
-            upload.transcription_status = "done" if data else "failed"
+            upload.transcription_status = "done" if data else STATUS_EMPTY
             await db.commit()
 
     if not data:

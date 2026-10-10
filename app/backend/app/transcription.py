@@ -15,6 +15,7 @@ from app.core.config import get_settings
 from app.db import async_session
 from app.models import Item, Upload
 from app.vision import serialize_image_ocr_result
+from app.processing_status import STATUS_EMPTY
 
 logger = logging.getLogger(__name__)
 
@@ -164,7 +165,7 @@ async def _process(upload_id: uuid.UUID) -> None:
         if upload is None:
             return
         upload.transcript = transcript
-        upload.transcription_status = "done" if transcript.strip() else "failed"
+        upload.transcription_status = "done" if transcript.strip() else STATUS_EMPTY
         await db.commit()
 
     if not transcript.strip():

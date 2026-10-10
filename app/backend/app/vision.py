@@ -16,6 +16,7 @@ from app.db import async_session
 from app.document_reflow import reflow_document_text
 from app.models import Item, ItemVersion, Upload
 from app.rotation import correct_orientation
+from app.processing_status import STATUS_EMPTY
 
 logger = logging.getLogger(__name__)
 
@@ -339,7 +340,7 @@ async def _process(upload_id: uuid.UUID) -> None:
         # Билет остаётся "processing" — финальный статус (done/failed)
         # проставит tickets.py, когда закончит структурированное
         # извлечение; плейсхолдер в заметке (тот же самый) висит до тех пор.
-        upload.transcription_status = "processing" if is_ticket else ("done" if description.strip() else "failed")
+        upload.transcription_status = "processing" if is_ticket else ("done" if description.strip() else STATUS_EMPTY)
         await db.commit()
 
     if is_ticket and description.strip():

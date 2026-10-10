@@ -391,6 +391,8 @@ class Upload(Base):
     # файла в фоне"), отдельные таблицы ради этого не нужны. none — для
     # файлов, которые не обрабатываются (не видео и не изображение).
     transcription_status: Mapped[str] = mapped_column(String(20), default="none", server_default="none")
+    # Значения: none / recording / pending / processing / done / failed /
+    # empty (см. STATUS_EMPTY в app/processing_status.py).
     transcript: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 

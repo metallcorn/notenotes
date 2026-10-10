@@ -16,6 +16,7 @@ from app.document_reflow import reflow_document_text
 from app.models import Item, Upload
 from app.vision import _analyze as _vision_analyze
 from app.vision import _split_ticket_marker
+from app.processing_status import STATUS_EMPTY
 
 logger = logging.getLogger(__name__)
 
@@ -322,7 +323,7 @@ async def _process(upload_id: uuid.UUID) -> None:
         if upload is None:
             return
         upload.transcript = result
-        upload.transcription_status = "done" if result.strip() else "failed"
+        upload.transcription_status = "done" if result.strip() else STATUS_EMPTY
         await db.commit()
 
     if not result.strip():

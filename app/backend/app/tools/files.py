@@ -36,6 +36,7 @@ from app.deps import ensure_space_access, is_vault_space
 from app.llm.base import ToolDefinition
 from app.models import Item, Space, SpaceMember, Upload
 from app.tools.registry import ToolContext, ToolError
+from app.processing_status import STATUS_EMPTY
 
 # Сколько байтов файла готовы положить в ответ. Картинка на 4 МБ — это
 # ~5.3 МБ base64, и это уже много для одного ответа; всё, что больше,
@@ -114,6 +115,23 @@ async def _files_from_semantic_hits(ctx: ToolContext, needle: str, *, exclude: s
             found.append(upload)
     return found
 
+
+
+def _processing_note(status: str) -> str | None:
+    """Состояние обработки для модели — человеческим текстом, не кодом.
+
+    «failed» модель трактует как «файл сломан» и так и говорит человеку.
+    Для состояния «распознавание прошло, ничего не нашлось» это прямая
+    неправда (см. app/processing_status.py), поэтому отдаём не значение
+    поля, а смысл.
+    """
+    if status in ("none", "done"):
+        return None
+    if status == STATUS_EMPTY:
+        return "распознано, но текста/речи в файле нет (файл цел)"
+    if status == "failed":
+        return "обработать не удалось"
+    return status
 
 LIST_FILES = ToolDefinition(
     name="list_files",
@@ -223,7 +241,7 @@ async def list_files(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
             "text_extracted": has_text,
             # Статус нужен, чтобы модель не решила, будто текста нет
             # вовсе, когда он просто ещё считается.
-            "processing": upload.transcription_status if upload.transcription_status not in ("none", "done") else None,
+            "processing": _processing_note(upload.transcription_status),
             "url": _file_url(upload.id),
         })
     return {"files": files}
@@ -270,8 +288,18 @@ async def get_file(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
     if text:
         result["text"] = text[:MAX_TEXT_CHARS]
         result["text_truncated"] = len(text) > MAX_TEXT_CHARS
-    elif upload.transcription_status == "pending":
+    elif upload.transcription_status in ("pending", "processing"):
         result["note"] = "Текст из файла ещё извлекается — попробуй через минуту"
+    elif upload.transcription_status == STATUS_EMPTY:
+        # Разница важна для ответа человеку: «в файле нечего читать» и
+        # «файл не удалось обработать» — разные новости, и вторую нельзя
+        # сообщать про целый файл (см. app/processing_status.py).
+        result["note"] = (
+            "Распознавание прошло, но текста/речи в файле не нашлось — файл цел, "
+            "читать в нём нечего. Повторять обработку бессмысленно."
+        )
+    elif upload.transcription_status == "failed":
+        result["note"] = "Обработку файла не удалось завершить — можно попробовать загрузить его заново"
 
     path = _path(upload.id)
     if not path.exists():
