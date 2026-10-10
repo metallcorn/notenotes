@@ -255,3 +255,61 @@ class TestДубли:
         entries = (await agenda.handle(base.ctx, {}))["entries"]
 
         assert len(entries) == 2
+
+    async def test_одно_событие_на_двух_языках_схлопывается(self, base):
+        """Живой случай 10.10: сводка пришла двумя строками про один
+        собачий марш. poznan.pl написал о нём дважды, разными статьями, —
+        одна заметка по-польски, другая по-русски. Строгое равенство
+        названий такое не ловит (см. event_dedup.py)."""
+        at = _iso(1)
+        await base.note_with_events(
+            [{"at": at, "title": "Marsz Kejterka в Познани"}], title="🐕 Marsz Kejterka уже в субботу"
+        )
+        await base.note_with_events(
+            [{"at": at, "title": "Марш Кейтерка в Познани"}], title="🐕 В Познани снова пройдёт Марш Кейтерка"
+        )
+
+        entries = (await agenda.handle(base.ctx, {}))["entries"]
+
+        assert len(entries) == 1
+        # Второй источник не умалчивается: ассистент сможет сказать «это
+        # одно и то же, в базе две заметки».
+        assert entries[0]["duplicate_sources"] == ["🐕 В Познани снова пройдёт Марш Кейтерка"]
+
+    async def test_похожее_в_разное_время_остаётся_двумя(self, base):
+        """Порог похожести опасен без равенства времени: «Фестиваль 12
+        октября» и «Фестиваль 13 октября» похожи сильнее настоящего
+        дубликата."""
+        await base.note_with_events([
+            {"at": _iso(2), "title": "Фестиваль 12 октября"},
+            {"at": _iso(3), "title": "Фестиваль 13 октября"},
+        ])
+
+        entries = (await agenda.handle(base.ctx, {}))["entries"]
+
+        assert len(entries) == 2
+
+    async def test_разные_дела_в_один_час_не_склеиваются(self, base):
+        await base.note_with_events([{"at": (at := _iso(2)), "title": "Встреча с врачом"}], title="А")
+        await base.note_with_events([{"at": at, "title": "Забрать посылку"}], title="Б")
+
+        entries = (await agenda.handle(base.ctx, {}))["entries"]
+
+        assert len(entries) == 2
+
+    async def test_у_напоминания_из_заметки_есть_ссылка(self, base, db_session):
+        """Нужна кнопке «Открыть» в утренней сводке — и ассистенту, чтобы
+        сослаться на источник вместо утверждения от себя."""
+        note = await base.note_with_events([], title="Сервисная книжка")
+        n = Notification(
+            user_id=base.ctx.user_id, type="document_expiry", title="Срок истекает", body="",
+            payload={"item_id": str(note.id)},
+            trigger_at=datetime.now(timezone.utc) + timedelta(days=1),
+        )
+        db_session.add(n)
+        await db_session.commit()
+
+        entries = (await agenda.handle(base.ctx, {}))["entries"]
+        found = next(e for e in entries if e["kind"] == "напоминание")
+
+        assert str(note.id) in found["url"]

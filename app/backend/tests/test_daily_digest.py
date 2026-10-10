@@ -100,7 +100,10 @@ class TestСодержимое:
 
         _, keyboard = await daily_digest.build_digest(db_session, test_user)
 
-        datas = [row[0]["callback_data"] for row in keyboard]
+        # По всем кнопкам строки, не по row[0]: рядом с действием теперь
+        # стоит ещё и «Открыть», а у неё callback_data нет вовсе (это
+        # URL-кнопка, Telegram открывает ссылку сам).
+        datas = [b["callback_data"] for row in keyboard for b in row if "callback_data" in b]
         assert f"dg:r:{n.id}" in datas
         assert any(d.startswith(f"dg:e:{item.id}:") for d in datas)
         # Telegram даёт 64 байта на callback_data.
@@ -353,3 +356,56 @@ class TestНачалоДняПоМесту:
         assert _local_midnight_utc(now, "UTC") == datetime(2026, 9, 23, 0, 0, tzinfo=timezone.utc)
         # Кривой пояс не роняет.
         assert _local_midnight_utc(now, "Нет/Такого") is not None
+
+
+class TestКнопкаОткрыть:
+    """Прямой запрос владельца 10.10: «а кнопок перейти в записи или
+    посмотреть запись в чате нет». Сводка сообщала о событии, распознанном
+    в заметке, а попасть в саму заметку было неоткуда."""
+
+    async def test_у_события_есть_ссылка_на_заметку(self, base, db_session, test_user):
+        item = await base.event_note("Marsz Kejterka в Познани")
+
+        _, keyboard = await daily_digest.build_digest(db_session, test_user)
+
+        row = keyboard[0]
+        opener = next(b for b in row if "url" in b)
+        assert str(item.id) in opener["url"]
+        assert opener["url"].startswith("https://"), "Telegram принимает только https в URL-кнопке"
+
+    async def test_действие_осталось_рядом(self, base, db_session, test_user):
+        """Кнопка «Открыть» добавлена, а не поставлена вместо «не актуально»."""
+        item = await base.event_note("Событие")
+
+        _, keyboard = await daily_digest.build_digest(db_session, test_user)
+
+        row = keyboard[0]
+        assert any("url" in b for b in row)
+        assert any(b.get("callback_data", "").startswith(f"dg:e:{item.id}:") for b in row)
+
+    async def test_у_напоминания_без_заметки_лишней_кнопки_нет(self, base, db_session, test_user):
+        """Напоминание могли поставить «просто так» — вести некуда."""
+        await base.reminder("Позвонить в клинику")
+
+        _, keyboard = await daily_digest.build_digest(db_session, test_user)
+
+        assert all("url" not in b for row in keyboard for b in row)
+
+    async def test_у_напоминания_из_заметки_ссылка_есть(self, base, db_session, test_user):
+        """Срок документа, билет, «напомни про эту заметку» — у таких
+        напоминаний источник есть, и вести в него надо."""
+        from app.models import Notification
+
+        note = await base.event_note("Срок")
+        n = Notification(
+            user_id=test_user.id, type="document_expiry", title="Срок истекает", body="",
+            payload={"item_id": str(note.id)},
+            trigger_at=base.today_local.astimezone(timezone.utc),
+        )
+        db_session.add(n)
+        await db_session.commit()
+
+        _, keyboard = await daily_digest.build_digest(db_session, test_user)
+
+        openers = [b["url"] for row in keyboard for b in row if "url" in b]
+        assert any(str(note.id) in u for u in openers)

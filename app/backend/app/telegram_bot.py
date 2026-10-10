@@ -198,6 +198,26 @@ async def register_webhook() -> None:
             logger.exception("Ошибка при регистрации Telegram webhook")
 
 
+def _log_api_error(resp: httpx.Response, method: str, chat_id: int) -> None:
+    """Что Telegram ответил, если отказался.
+
+    Раньше ответ не читался вовсе: `await client.post(...)` и всё. 10.10
+    на вопрос «почему в сводке нет кнопок» ответа в логах не было — хотя
+    Telegram на негодную reply_markup отвечает 400 с описанием, и сводка
+    тогда не доходит ЦЕЛИКОМ. Приходилось доказывать от противного («текст
+    пришёл, значит клавиатуру приняли») вместо того, чтобы прочитать.
+
+    Это не ошибка хода: уведомление — вспомогательный канал, и падать
+    из-за него нельзя (тот же довод, что у _safe_broadcast). Поэтому
+    только запись в журнал.
+    """
+    if resp.is_success:
+        return
+    logger.error(
+        "Telegram отказал на %s для chat_id=%s: %s %s", method, chat_id, resp.status_code, resp.text[:500]
+    )
+
+
 async def send_message(chat_id: int, text: str, reply_markup: dict | None = None) -> None:
     settings = get_settings()
     if not settings.telegram_bot_token:
@@ -207,9 +227,11 @@ async def send_message(chat_id: int, text: str, reply_markup: dict | None = None
         payload["reply_markup"] = reply_markup
     async with httpx.AsyncClient(timeout=30) as client:
         try:
-            await client.post(_api_url("sendMessage"), json=payload)
+            resp = await client.post(_api_url("sendMessage"), json=payload)
         except Exception:
             logger.exception("Не удалось отправить сообщение в Telegram chat_id=%s", chat_id)
+            return
+        _log_api_error(resp, "sendMessage", chat_id)
 
 
 async def edit_message(chat_id: int, message_id: int, text: str, reply_markup: dict | None = None) -> None:
@@ -227,7 +249,8 @@ async def edit_message(chat_id: int, message_id: int, text: str, reply_markup: d
     payload["reply_markup"] = reply_markup or {"inline_keyboard": []}
     async with httpx.AsyncClient(timeout=30) as client:
         try:
-            await client.post(_api_url("editMessageText"), json=payload)
+            resp = await client.post(_api_url("editMessageText"), json=payload)
+            _log_api_error(resp, "editMessageText", chat_id)
         except Exception:
             logger.exception("Не удалось отредактировать сообщение в Telegram chat_id=%s", chat_id)
 

@@ -69,3 +69,58 @@ def test_логгеры_приложения_живы_после_миграци�
 
     for name in ("app", "app.llm.retry", "app.routers.dialogs"):
         assert not logging.getLogger(name).disabled, f"логгер {name} выключен — записи в журнал пропадают молча"
+
+
+# --- та же слепота, другое место -------------------------------------------
+
+
+async def test_отказ_телеграма_попадает_в_журнал(caplog, monkeypatch):
+    """Ответ Telegram не читался вовсе: `await client.post(...)` и всё.
+    10.10 на вопрос «почему в сводке нет кнопок» ответа в логах не было —
+    хотя на негодную reply_markup Telegram отвечает 400 с описанием, и
+    сообщение тогда не доходит целиком.
+    """
+    from types import SimpleNamespace
+
+    from app import telegram_bot
+
+    monkeypatch.setattr(telegram_bot, "get_settings", lambda: SimpleNamespace(telegram_bot_token="t"))
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(400, json={"ok": False, "description": "BUTTON_DATA_INVALID"})
+
+    original = httpx.AsyncClient
+
+    def factory(*args, **kwargs):
+        kwargs["transport"] = httpx.MockTransport(handler)
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(telegram_bot.httpx, "AsyncClient", factory)
+
+    with caplog.at_level("ERROR"):
+        await telegram_bot.send_message(123, "сводка", reply_markup={"inline_keyboard": [[{"text": "x"}]]})
+
+    assert "BUTTON_DATA_INVALID" in caplog.text
+    assert "sendMessage" in caplog.text
+
+
+async def test_отказ_телеграма_не_роняет_ход(monkeypatch):
+    """Уведомление — вспомогательный канал: падать из-за него нельзя."""
+    from types import SimpleNamespace
+
+    from app import telegram_bot
+
+    monkeypatch.setattr(telegram_bot, "get_settings", lambda: SimpleNamespace(telegram_bot_token="t"))
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(403, json={"ok": False, "description": "bot was blocked by the user"})
+
+    original = httpx.AsyncClient
+
+    def factory(*args, **kwargs):
+        kwargs["transport"] = httpx.MockTransport(handler)
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(telegram_bot.httpx, "AsyncClient", factory)
+
+    await telegram_bot.send_message(123, "текст")  # не должно бросить

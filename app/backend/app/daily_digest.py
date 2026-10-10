@@ -104,17 +104,31 @@ def _format(agenda: dict, tz_name: str | None, *, now: datetime | None = None) -
             when = ""
         if e["kind"] == "напоминание":
             lines.append(f"⏰ {when} {e['title']}".strip())
-            keyboard.append([{
+            row = [{
                 "text": f"✓ Сделано: {e['title'][:30]}",
                 "callback_data": f"{CALLBACK_PREFIX}r:{e['reminder_id']}",
-            }])
+            }]
+            # У напоминания заметка-источник есть не всегда (его могли
+            # поставить «просто так»), поэтому кнопка — только когда есть
+            # куда вести.
+            if e.get("url"):
+                row.append({"text": "📄 Открыть", "url": e["url"]})
+            keyboard.append(row)
         else:
             src = f" — {e['source_note']}" if e.get("source_note") else ""
             lines.append(f"📌 {when} {e['title']}{src}".strip())
-            keyboard.append([{
-                "text": f"✗ Не актуально: {e['title'][:26]}",
-                "callback_data": f"{CALLBACK_PREFIX}e:{e['item_id']}:{event_key(e['at'], e['title'])}",
-            }])
+            keyboard.append([
+                # Кнопка «открыть» — прямой запрос владельца 10.10: сводка
+                # сообщает о событии, распознанном в заметке, а попасть в
+                # саму заметку было неоткуда. Это обычная URL-кнопка, не
+                # callback: Telegram открывает ссылку сам, лишнего хода
+                # через наш сервер не нужно.
+                *([{"text": "📄 Открыть", "url": e["url"]}] if e.get("url") else []),
+                {
+                    "text": f"✗ Не актуально: {e['title'][:26]}",
+                    "callback_data": f"{CALLBACK_PREFIX}e:{e['item_id']}:{event_key(e['at'], e['title'])}",
+                },
+            ])
     return "\n".join(lines), keyboard
 
 

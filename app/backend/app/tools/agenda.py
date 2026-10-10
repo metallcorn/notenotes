@@ -35,6 +35,7 @@ from sqlalchemy import select
 
 from app.llm.base import ToolDefinition
 from app.models import Item, Notification, Space, SpaceMember
+from app.event_dedup import same_event
 from app.tools.notes import item_url
 from app.tools.registry import ToolContext
 from app.user_timezone import now_local_date
@@ -123,6 +124,11 @@ async def collect_agenda(
         )
     ).scalars().all()
     for n in reminders:
+        # Ссылка на заметку-источник, если напоминание привязано к ней
+        # (срок документа, билет, «напомни про эту заметку»). Нужна и
+        # ассистенту — чтобы сослаться на источник, а не утверждать от
+        # себя, — и кнопке «Открыть» в утренней сводке.
+        source_item = (n.payload or {}).get("item_id")
         entries.append({
             "at": n.trigger_at.isoformat(),
             "title": n.title,
@@ -130,6 +136,7 @@ async def collect_agenda(
             # id нужен, чтобы можно было закрыть через resolve_reminder,
             # не разыскивая его отдельным вызовом.
             "reminder_id": str(n.id),
+            **({"url": item_url(source_item)} if source_item else {}),
             **({"details": n.body} if n.body else {}),
         })
 
@@ -179,24 +186,51 @@ async def collect_agenda(
 
     entries.sort(key=lambda e: e["at"])
 
-    # Схлопываем одинаковое: та же дата + то же название.
+    # Схлопываем одинаковое: то же время + то же (или почти то же) название.
     #
     # Дубли берутся не из ошибки инструмента, а из данных. Проверено на
-    # боевой базе: письмо «Налоги 08-2026» пришло на почту дважды, стало
-    # двумя заметками, и в каждой распозналось одно и то же событие.
-    # Показывать их обе честно, но человеку, спросившему «что впереди»,
-    # это шум — а шум и есть главный способ обесценить такой ответ.
+    # боевой базе дважды. Письмо «Налоги 08-2026» пришло на почту дважды,
+    # стало двумя заметками, и в каждой распозналось одно и то же
+    # событие. А 10.10 сводка пришла такой:
     #
-    # Ключ намеренно СТРОГИЙ (дата плюс точное название): фестиваль
-    # 12-го и 13-го — два разных дня и должен остаться двумя записями.
-    seen: set[tuple[str, str]] = set()
+    #   📌 11:00 Marsz Kejterka в Познани — 🐕 Marsz Kejterka уже в субботу
+    #   📌 11:00 Марш Кейтерка в Познани  — 🐕 В Познани снова пройдёт Марш
+    #
+    # Один собачий марш двумя строками: poznan.pl написал о нём дважды,
+    # разными статьями, одна заметка по-польски, другая по-русски.
+    # Показывать обе честно, но человеку, спросившему «что впереди», это
+    # шум — а шум и есть главный способ обесценить такой ответ.
+    #
+    # Сравнение по ВРЕМЕНИ СТРОГОЕ, по НАЗВАНИЮ — похожесть (event_dedup.py,
+    # порог замерен). Строгое равенство названий не поймало бы случай выше,
+    # а похожесть без равенства времени склеила бы фестиваль 12-го с
+    # фестивалем 13-го — поэтому ровно так, а не иначе.
     unique: list[dict[str, Any]] = []
     for entry in entries:
-        key = (entry["at"], entry["title"].strip().lower())
-        if key in seen:
+        twin = next(
+            (
+                u
+                for u in unique
+                # Только однородное: у напоминания и распознанного события
+                # разное назначение (первое закрывают через resolve, второе
+                # убирают через dismiss), и склеивать их нельзя даже при
+                # одинаковом названии.
+                if u["kind"] == entry["kind"]
+                and u["at"] == entry["at"]
+                and same_event(u["title"], entry["title"])
+            ),
+            None,
+        )
+        if twin is None:
+            unique.append(entry)
             continue
-        seen.add(key)
-        unique.append(entry)
+        # Про второй источник не умалчиваем: ассистент сможет сказать
+        # «это одно и то же, в базе две заметки», а молчаливое
+        # исчезновение заметки выглядело бы потерей.
+        others = twin.setdefault("duplicate_sources", [])
+        source = entry.get("source_note") or entry.get("title")
+        if source and source not in others:
+            others.append(source)
 
     return {
         "today": now_local_date(tz_name).isoformat(),

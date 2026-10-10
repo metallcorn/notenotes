@@ -2,11 +2,16 @@ from __future__ import annotations
 
 from typing import Any
 
+import logging
+
 import httpx
 
 from app.core.config import get_settings
 from app.llm.base import ToolDefinition
+from app.tools.notes import item_url
 from app.tools.registry import ToolContext
+
+logger = logging.getLogger(__name__)
 
 TAVILY_API_URL = "https://api.tavily.com/search"
 
@@ -91,4 +96,63 @@ async def handle(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
             for img in data.get("images", []) or []
             if (isinstance(img, dict) and img.get("url")) or isinstance(img, str)
         ]
+
+    own = await _also_in_user_base(ctx, query)
+    if own:
+        result["есть_в_базе_пользователя"] = own
     return result
+
+
+# Сколько своих записей показывать. Три — это подсказка «посмотри сюда», а
+# не выдача: полноценный поиск по базе у модели уже есть (search_base).
+_OWN_HITS = 3
+
+
+async def _also_in_user_base(ctx: ToolContext, query: str) -> dict[str, Any] | None:
+    """Есть ли спрошенное в собственных записях человека.
+
+    ЖИВОЙ СЛУЧАЙ 10.10, и он показательный. Утренняя сводка сообщила про
+    «Marsz Kejterka в Познани» — распознано в двух его же заметках. Через
+    пару часов человек спросил бота: «А что такое Кейтерка?» Ассистент
+    пошёл в веб с запросом «Кейтерка что это», получил страницы про
+    КЕЙТЕРИНГ и выдал лекцию про «ресторан на выезд» — при том что ответ
+    (собачий марш в Познани, kejter — «пёс» на познанском) лежал в двух
+    заметках, о которых ему же утром и написали.
+
+    ПОЧЕМУ НЕ ПРАВИЛОМ В ПРОМПТЕ. Правило «сначала ищи в базе» там уже
+    есть — в описании самого web_search, первой строкой. Оно не сработало,
+    и это ожидаемо: промпт — самый слабый рычаг, а здесь модель вообще не
+    подозревала, что слово ей знакомо. Добавлять ещё абзац значило бы
+    повторять то, что уже не помогло.
+
+    ПОЭТОМУ — ФАКТОМ В РЕЗУЛЬТАТЕ. Мы точно знаем, есть ли эти слова в
+    его записях: один дешёвый полнотекстовый запрос. Если есть — кладём
+    рядом с веб-выдачей, и модель видит не правило, а данные. Решение
+    остаётся за ней: про погоду в базе ничего не найдётся, и поле просто
+    не появится.
+
+    Сейф исключён, потому что исключён в search_items (routers/search.py).
+    """
+    from app.routers.search import search_items
+
+    try:
+        items = await search_items(
+            ctx.db, ctx.user_id, query, material_types=("note", "list", "ticket", "table"), limit=_OWN_HITS
+        )
+    except Exception:
+        # Подсказка не стоит того, чтобы ронять из-за неё веб-поиск.
+        logger.warning("Не удалось проверить базу пользователя по запросу веб-поиска", exc_info=True)
+        return None
+    if not items:
+        return None
+    return {
+        "подсказка": (
+            "Эти слова есть в собственных записях пользователя — возможно, вопрос про них, "
+            "а не про общее понятие из интернета. Прочитай через get_note, прежде чем "
+            "отвечать из общих знаний."
+        ),
+        "записи": [
+            {"id": str(i.id), "title": i.title, "url": item_url(i.id), "excerpt": (i.content or "")[:200]}
+            for i in items
+        ],
+    }
