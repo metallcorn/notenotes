@@ -173,9 +173,40 @@ async def build_digest(db, user: User) -> tuple[str, list[list[dict]]] | None:
         # Кнопок к завтрашнему намеренно нет: закрывать то, что ещё не
         # наступило, незачем, а лишние кнопки делают сводку нечитаемой.
         parts.append("Завтра рано утром (сводка придёт позже):\n\n" + "\n".join(early))
+
+    # Самопроверка — одной строкой и только когда есть что сказать.
+    #
+    # Почему здесь, а не отдельным уведомлением: все промахи ассистента
+    # до сих пор находил человек и приносил их сам (см. self_check.py).
+    # Отдельная тревога про это была бы ещё одним каналом, который учатся
+    # смахивать; сводку он и так читает каждое утро. «Всё хорошо» не
+    # пишем никогда — ровно по той же причине, по которой не шлём пустую
+    # сводку.
+    trouble = await _self_check_line(db)
+    if trouble:
+        parts.append(trouble)
+
     if not parts:
         return None
     return "\n\n".join(parts), keyboard
+
+
+async def _self_check_line(db) -> str | None:
+    """Что нашла самопроверка — коротко, без машинных полей."""
+    from app.self_check import collect_findings
+
+    try:
+        findings = await collect_findings(db)
+    except Exception:
+        # Сводка про дела человека важнее нашей диагностики: если
+        # самопроверка упала, он всё равно должен получить сводку.
+        logger.exception("Самопроверка для сводки не отработала")
+        return None
+    if not findings:
+        return None
+    lines = [f"• {f.text} («{f.dialog_title[:30]}»)" for f in findings[:3]]
+    more = f"\n…и ещё {len(findings) - 3}" if len(findings) > 3 else ""
+    return "⚠️ Самопроверка:\n" + "\n".join(lines) + more
 
 
 async def _send_for(db, user: User) -> bool:

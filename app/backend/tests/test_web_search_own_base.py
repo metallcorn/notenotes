@@ -74,7 +74,7 @@ async def test_своё_попадает_в_результат_рядом_с_в�
     result = await web_search.handle(ctx.ctx, {"query": "Marsz Kejterka"})
 
     assert result["results"], "веб-выдача остаётся на месте"
-    hint = result["есть_в_базе_пользователя"]
+    hint = result[web_search.OWN_BASE_KEY]
     assert str(own.id) in [z["id"] for z in hint["записи"]]
     assert "get_note" in hint["подсказка"], "модели надо сказать, что делать дальше"
 
@@ -85,7 +85,7 @@ async def test_без_своего_поля_нет(ctx, monkeypatch):
 
     result = await web_search.handle(ctx.ctx, {"query": "погода в Познани на выходные"})
 
-    assert "есть_в_базе_пользователя" not in result
+    assert web_search.OWN_BASE_KEY not in result
 
 
 async def test_сейф_не_подсказывается(ctx, db_session, test_user, monkeypatch):
@@ -103,7 +103,7 @@ async def test_сейф_не_подсказывается(ctx, db_session, test_
 
     result = await web_search.handle(ctx.ctx, {"query": "Marsz Kejterka"})
 
-    assert "есть_в_базе_пользователя" not in result
+    assert web_search.OWN_BASE_KEY not in result
 
 
 async def test_чужое_не_подсказывается(ctx, db_session, monkeypatch):
@@ -126,7 +126,7 @@ async def test_чужое_не_подсказывается(ctx, db_session, mon
 
     result = await web_search.handle(ctx.ctx, {"query": "Marsz Kejterka"})
 
-    assert "есть_в_базе_пользователя" not in result
+    assert web_search.OWN_BASE_KEY not in result
 
 
 async def test_поломка_поиска_по_базе_не_роняет_веб_поиск(ctx, monkeypatch):
@@ -141,7 +141,7 @@ async def test_поломка_поиска_по_базе_не_роняет_ве�
     result = await web_search.handle(ctx.ctx, {"query": "Marsz Kejterka"})
 
     assert result["results"]
-    assert "есть_в_базе_пользователя" not in result
+    assert web_search.OWN_BASE_KEY not in result
 
 
 async def test_не_больше_трёх_записей(ctx, monkeypatch):
@@ -153,4 +153,4 @@ async def test_не_больше_трёх_записей(ctx, monkeypatch):
 
     result = await web_search.handle(ctx.ctx, {"query": "Kejterka"})
 
-    assert len(result["есть_в_базе_пользователя"]["записи"]) == web_search._OWN_HITS
+    assert len(result[web_search.OWN_BASE_KEY]["записи"]) == web_search._OWN_HITS

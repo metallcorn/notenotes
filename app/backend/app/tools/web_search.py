@@ -15,6 +15,11 @@ logger = logging.getLogger(__name__)
 
 TAVILY_API_URL = "https://api.tavily.com/search"
 
+# Имя поля с подсказкой — константой, потому что по нему же самопроверка
+# (self_check.py) ищет случаи, когда модель подсказку получила и
+# проигнорировала.
+OWN_BASE_KEY = "есть_в_базе_пользователя"
+
 DEFINITION = ToolDefinition(
     name="web_search",
     description=(
@@ -99,7 +104,7 @@ async def handle(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
 
     own = await _also_in_user_base(ctx, query)
     if own:
-        result["есть_в_базе_пользователя"] = own
+        result[OWN_BASE_KEY] = own
     return result
 
 

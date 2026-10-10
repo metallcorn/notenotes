@@ -82,6 +82,7 @@ SKILL_CATALOG: dict[str, dict[str, Any]] = {
     "get_file": {"label": "Чтение файлов", "description": "Читает содержимое файла — текст или саму картинку", "toggleable": False},
     "upload_file": {"label": "Загрузка файлов", "description": "Кладёт файл в базу и вставляет в заметку", "toggleable": True},
     "list_agenda": {"label": "Что впереди", "description": "Показывает напоминания и события, распознанные в заметках", "toggleable": False},
+    "self_check": {"label": "Самопроверка", "description": "Отвечает на «что у нас не так» — где ассистент за неделю спотыкался", "toggleable": True},
     "resolve_reminder": {"label": "Отметка напоминаний", "description": "Отмечает напоминание выполненным", "toggleable": False},
     "run_python": {"label": "Python-вычисления", "description": "Точные вычисления в изолированной песочнице", "toggleable": True},
     "read_website": {"label": "Чтение сайтов по ссылке", "description": "Скачивает и читает содержимое страницы по присланной ссылке", "toggleable": True},
@@ -130,6 +131,7 @@ def _expand_disabled(disabled: set[str]) -> set[str]:
 
 
 def _build_registry() -> dict[str, tuple[ToolDefinition, ToolHandler]]:
+    from app import self_check
     from app.tools import agenda, calendar_event, files as files_tool, dialog_history, lists, maps, memory, notes, python_sandbox, read_website, reminders, search_base, tables, track_delivery, ui, url_check, web_search
 
     registry: dict[str, tuple[ToolDefinition, ToolHandler]] = {
@@ -153,6 +155,7 @@ def _build_registry() -> dict[str, tuple[ToolDefinition, ToolHandler]]:
         reminders.CREATE_REMINDER.name: (reminders.CREATE_REMINDER, reminders.create_reminder),
         reminders.LIST_REMINDERS.name: (reminders.LIST_REMINDERS, reminders.list_reminders),
         agenda.DEFINITION.name: (agenda.DEFINITION, agenda.handle),
+        self_check.DEFINITION.name: (self_check.DEFINITION, self_check.handle),
         files_tool.LIST_FILES.name: (files_tool.LIST_FILES, files_tool.list_files),
         files_tool.GET_FILE.name: (files_tool.GET_FILE, files_tool.get_file),
         files_tool.UPLOAD_FILE.name: (files_tool.UPLOAD_FILE, files_tool.upload_file),

@@ -14,6 +14,7 @@ from app.embeddings import run_backfill as run_embedding_backfill, run_worker as
 from app.cleanup import run_periodic_sweep
 from app.daily_digest import run_worker as run_digest_worker
 from app.document_expiry import run_worker as run_expiry_worker
+from app.self_check import run_worker as run_self_check_worker
 from app.note_recording import resume_pending as resume_note_recording, run_worker as run_note_recording_worker
 from app.notification_dispatch import run_dispatch_worker as run_notification_dispatch_worker
 from app.pdf_processing import resume_pending as resume_pdf_ocr, run_worker as run_pdf_worker
@@ -137,6 +138,7 @@ async def lifespan(app: FastAPI):
     note_recording_task = asyncio.create_task(_supervised("note_recording", run_note_recording_worker))
     digest_task = asyncio.create_task(_supervised("daily_digest", run_digest_worker))
     expiry_task = asyncio.create_task(_supervised("document_expiry", run_expiry_worker))
+    self_check_task = asyncio.create_task(_supervised("self_check", run_self_check_worker))
     await resume_transcription()
     await resume_vision()
     await resume_stuck_replacements()
@@ -165,6 +167,7 @@ async def lifespan(app: FastAPI):
         note_recording_task.cancel()
         digest_task.cancel()
         expiry_task.cancel()
+        self_check_task.cancel()
 
 
 # docs_url/redoc_url/openapi_url отключены — реальный найденный баг

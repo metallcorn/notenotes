@@ -409,3 +409,76 @@ class TestКнопкаОткрыть:
 
         openers = [b["url"] for row in keyboard for b in row if "url" in b]
         assert any(str(note.id) in u for u in openers)
+
+
+class TestСтрокаСамопроверки:
+    """Промахи ассистента до сих пор находил человек и приносил сам.
+    Отдельная тревога про это была бы ещё одним каналом, который учатся
+    смахивать; сводку он и так читает каждое утро."""
+
+    async def test_замечание_попадает_в_сводку(self, base, db_session, test_user, monkeypatch):
+        from app import self_check
+
+        await base.reminder("Позвонить в клинику")
+
+        async def findings(db):
+            return [self_check.Finding(
+                kind="ход_не_состоялся", dialog_id="d1", dialog_title="Telegram",
+                text="Ассистент 2 раза за неделю ответил «не получилось».",
+            )]
+
+        monkeypatch.setattr(self_check, "collect_findings", findings)
+
+        text, _ = await daily_digest.build_digest(db_session, test_user)
+
+        assert "Самопроверка" in text
+        assert "не получилось" in text
+        assert "Telegram" in text
+
+    async def test_без_замечаний_ни_слова(self, base, db_session, test_user, monkeypatch):
+        """«Всё хорошо» каждое утро учит смахивать не глядя — ровно та же
+        причина, по которой не шлём пустую сводку."""
+        from app import self_check
+
+        await base.reminder("Позвонить в клинику")
+        monkeypatch.setattr(self_check, "collect_findings", lambda db: _none())
+
+        text, _ = await daily_digest.build_digest(db_session, test_user)
+
+        assert "Самопроверка" not in text
+
+    async def test_поломка_самопроверки_не_отнимает_сводку(self, base, db_session, test_user, monkeypatch):
+        """Дела человека важнее нашей диагностики."""
+        from app import self_check
+
+        await base.reminder("Позвонить в клинику")
+
+        async def boom(db):
+            raise RuntimeError("упало")
+
+        monkeypatch.setattr(self_check, "collect_findings", boom)
+
+        text, _ = await daily_digest.build_digest(db_session, test_user)
+
+        assert "Позвонить в клинику" in text
+
+    async def test_длинный_список_обрезается(self, base, db_session, test_user, monkeypatch):
+        from app import self_check
+
+        await base.reminder("Дело")
+
+        async def many(db):
+            return [
+                self_check.Finding(kind="k", dialog_id=str(i), dialog_title=f"Д{i}", text=f"замечание {i}")
+                for i in range(7)
+            ]
+
+        monkeypatch.setattr(self_check, "collect_findings", many)
+
+        text, _ = await daily_digest.build_digest(db_session, test_user)
+
+        assert "и ещё 4" in text
+
+
+async def _none():
+    return []
