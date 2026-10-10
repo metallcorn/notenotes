@@ -72,6 +72,30 @@ _CHECK_INTERVAL_SECONDS = 6 * 3600
 _NOISE_RE = re.compile(r"&#\d+;|&[a-z]{2,6};|[|─—]{2,}|[-]{3,}")
 
 
+# Длинные цепочки цифр в пояснении — это идентификаторы документов, и им
+# в уведомлении не место.
+#
+# Найдено 10.10 в живом напоминании про паспорт: «Jan K… PESEL
+# 90010112345 Paszport 75 1234567 ważny do 10.08.2027». Это уходит в
+# Telegram и в push, то есть ВЫТАЛКИВАЕТСЯ без спроса, а ещё попадает в
+# промпт модели через list_agenda (details). ТЗ §16.1 про PII говорит
+# ровно обратное: в индекс и в промпт — только тег/лейбл.
+#
+# Смысл пояснения — сказать, КАКОЙ это документ («Paszport … ważny do»),
+# а не повторить номер: для «пора продлевать» номер не нужен. Шесть цифр
+# подряд — порог, который не задевает даты (10.12.2026 — группы по две и
+# четыре) и обычные числа («do 73 000 km»).
+#
+# Чего это НЕ делает: сам документ лежит в общем хранилище, и его полный
+# текст по-прежнему доступен ассистенту через get_note. Здесь закрыт
+# только канал, который срабатывает сам, без просьбы человека.
+_LONG_DIGITS_RE = re.compile(r"\d{6,}")
+
+
+def _mask_identifiers(text: str) -> str:
+    return _LONG_DIGITS_RE.sub(lambda m: "•" * min(len(m.group()), 8), text)
+
+
 def _snippet(text: str, match_end: int) -> str:
     """Кусок текста вокруг срока — чтобы человек понял, о чём речь.
 
@@ -81,7 +105,7 @@ def _snippet(text: str, match_end: int) -> str:
     start = max(0, match_end - 140)
     raw = html.unescape(text[start:match_end])
     cleaned = _NOISE_RE.sub(" ", raw).replace("|", " ")
-    return " ".join(cleaned.split())[-90:]
+    return _mask_identifiers(" ".join(cleaned.split())[-90:])
 
 
 def find_upcoming(text: str, today: date) -> list[tuple[date, str]]:

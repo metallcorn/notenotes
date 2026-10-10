@@ -239,6 +239,43 @@ class TestПояснениеЧитаемо:
         assert "Warunki normalne" in got, "смысл при чистке теряться не должен"
 
     def test_обычный_текст_не_портится(self):
-        text = "Paszport AB7654321, ważny do 05.02.2031"
+        """Без разметки и без длинных цифровых цепочек пояснение должно
+        доходить слово в слово. (Номер документа тут был бы замаскирован —
+        см. test_серия_в_буквенно_цифровом_номере_маскируется.)"""
+        text = "Umowa najmu, przedłużyć do dnia 14.07.2027"
 
         assert document_expiry._snippet(text, len(text)) == text
+
+    def test_номера_документов_не_уезжают_в_уведомление(self):
+        """Живое напоминание про паспорт выглядело так: «Jan K… PESEL
+        90010112345 Paszport 75 1234567 ważny do 10.08.2027». Оно уходит в
+        Telegram и в push, то есть ВЫТАЛКИВАЕТСЯ без спроса, а ещё
+        попадает в промпт модели через list_agenda. ТЗ §16.1 про PII
+        говорит обратное: в индекс и в промпт — только тег/лейбл.
+
+        Смысл пояснения — сказать, КАКОЙ это документ, а не повторить
+        номер: для «пора продлевать» номер не нужен.
+        """
+        text = "Jan Kowalski PESEL 90010112345 Paszport 75 1234567 ważny do 10.08.2027"
+
+        got = document_expiry._snippet(text, len(text))
+
+        assert "90010112345" not in got
+        assert "1234567" not in got
+        assert "Paszport" in got, "какой это документ — должно остаться"
+        assert "10.08.2027" in got, "и срок тоже"
+
+    def test_даты_и_обычные_числа_не_маскируются(self):
+        text = "10.12.2024 Warunki normalne do 73 000 km lub do dnia 10.12.2026"
+
+        got = document_expiry._snippet(text, len(text))
+
+        assert got == text
+
+    def test_серия_в_буквенно_цифровом_номере_маскируется(self):
+        text = "Paszport AB7654321, ważny do 05.02.2031"
+
+        got = document_expiry._snippet(text, len(text))
+
+        assert "7654321" not in got
+        assert got.startswith("Paszport AB"), "по префиксу документ ещё узнаваем"
