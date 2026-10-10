@@ -902,6 +902,22 @@ async def _transcribe_voice_only(message: dict) -> str:
 # item'а, на который можно ссылаться через ?item= (тот же query-param,
 # что уже читает AppShell.tsx для навигации).
 _ITEM_LINK_TOOLS = {"create_note", "create_list", "create_table"}
+
+# Тулы, которые ПОКАЗЫВАЮТ существующую запись. Кнопка к ним нужна ровно
+# по той же причине, по какой нужна к созданной: в Telegram ссылки внутри
+# текста модель ставит не всегда, а открыть обсуждаемое хочется одним
+# нажатием.
+#
+# Живая жалоба 10.10 (голосом): «он ответил фигню да и без кнопки» — на
+# вопрос «какие мероприятия на этой неделе». Кнопок не было вовсе,
+# потому что list_agenda/get_note в этот список не входили: он
+# ограничивался созданием.
+_ITEM_SHOW_TOOLS = {"get_note", "get_list", "get_table"}
+
+# Сколько кнопок на одну адженду. Три: сводка на неделю бывает длинной, а
+# стена кнопок читается хуже отсутствия кнопок.
+_AGENDA_BUTTONS = 3
+
 _IMAGE_MD_RE = re.compile(r"!\[[^\]]*\]\((/api/uploads/[^)\s]+)\)")
 
 
@@ -923,12 +939,43 @@ def _build_action_buttons(new_records: list[dict], base_url: str) -> list[list[d
             if not isinstance(result, dict) or result.get("error"):
                 continue
             name = tc.get("name")
-            if name in _ITEM_LINK_TOOLS and result.get("id") and result.get("title"):
+            if name in (_ITEM_LINK_TOOLS | _ITEM_SHOW_TOOLS) and result.get("id") and result.get("title"):
                 rows.append(
                     [{"text": f"Открыть «{str(result['title'])[:60]}»", "url": f"{base_url}/?item={result['id']}"}]
                 )
             elif name == "create_maps_link" and result.get("url"):
                 rows.append([{"text": "Открыть в Google Maps", "url": result["url"]}])
+            elif name == "list_agenda":
+                rows.extend(_agenda_buttons(result))
+
+    # Одна запись могла прийти и из get_note, и из адженды — дважды её не
+    # показываем.
+    unique: list[list[dict]] = []
+    seen: set[str] = set()
+    for row in rows:
+        key = row[0].get("url", "")
+        if key and key in seen:
+            continue
+        seen.add(key)
+        unique.append(row)
+    return unique
+
+
+def _agenda_buttons(result: dict) -> list[list[dict]]:
+    """Кнопки «открыть» к записям, из которых собрана адженда.
+
+    Прошедшие не показываем: открывать то, что уже случилось, обычно
+    незачем, а место в клавиатуре ограничено.
+    """
+    rows: list[list[dict]] = []
+    for entry in (result.get("entries") or []):
+        if len(rows) >= _AGENDA_BUTTONS:
+            break
+        url = entry.get("url")
+        if not url or entry.get("уже_прошло"):
+            continue
+        title = str(entry.get("title") or "запись")
+        rows.append([{"text": f"Открыть «{title[:50]}»", "url": url}])
     return rows
 
 

@@ -33,7 +33,9 @@
 from __future__ import annotations
 
 import asyncio
+import html
 import logging
+import re
 import uuid
 from datetime import date, datetime, time, timedelta, timezone
 
@@ -61,14 +63,25 @@ MAX_HORIZON = timedelta(days=400)
 _CHECK_INTERVAL_SECONDS = 6 * 3600
 
 
+# Разметка и служебный мусор, которые в пояснении только мешают.
+#
+# Живой пример из боевой базы (напоминание про сервисную книжку):
+#   "-----------|&#10;| 10.12.2024 | | Warunki normalne □ | do 73 000 km"
+# Это срез markdown-таблицы: горизонтальная линейка, неразэкранированный
+# перевод строки и палки столбцов. Человеку непонятно, модели — тоже.
+_NOISE_RE = re.compile(r"&#\d+;|&[a-z]{2,6};|[|─—]{2,}|[-]{3,}")
+
+
 def _snippet(text: str, match_end: int) -> str:
     """Кусок текста вокруг срока — чтобы человек понял, о чём речь.
 
     Названия заметок бывают бесполезны («CamScanner 29.05.2025 07.31.pdf»),
     а строка «Paszport AB7654321, ważny do 10.08.2027» объясняет всё.
     """
-    start = max(0, match_end - 110)
-    return " ".join(text[start:match_end].split())[-90:]
+    start = max(0, match_end - 140)
+    raw = html.unescape(text[start:match_end])
+    cleaned = _NOISE_RE.sub(" ", raw).replace("|", " ")
+    return " ".join(cleaned.split())[-90:]
 
 
 def find_upcoming(text: str, today: date) -> list[tuple[date, str]]:

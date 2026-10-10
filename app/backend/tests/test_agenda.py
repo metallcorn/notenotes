@@ -313,3 +313,58 @@ class TestДубли:
         found = next(e for e in entries if e["kind"] == "напоминание")
 
         assert str(note.id) in found["url"]
+
+    async def test_прошедшее_сегодняшнее_помечено_а_не_выброшено(self, base):
+        """Живой случай 10.10: на голосовой вопрос в 18:38 «какие
+        мероприятия на этой неделе» ассистент МОЛЧА выбросил марш, который
+        был в 11:00 — в данных не было признака, прошёл он или нет. Мог с
+        тем же успехом объявить его предстоящим: ровно так и вышло с
+        рейсом, о котором предупредили, когда человек уже был в самолёте.
+        """
+        await base.note_with_events([{"at": _iso(-0.2), "title": "Marsz Kejterka"}])
+        await base.note_with_events([{"at": _iso(1), "title": "Завтрашнее"}], title="Б")
+
+        entries = (await agenda.handle(base.ctx, {}))["entries"]
+        by_title = {e["title"]: e for e in entries}
+
+        assert by_title["Marsz Kejterka"]["уже_прошло"] is True
+        assert "уже_прошло" not in by_title["Завтрашнее"], "будущее не помечаем"
+
+    async def test_прошедшее_всё_ещё_в_ответе(self, base):
+        """«Что у меня было сегодня» — законный вопрос."""
+        await base.note_with_events([{"at": _iso(-0.3), "title": "Утренний приём"}])
+
+        entries = (await agenda.handle(base.ctx, {}))["entries"]
+
+        assert [e["title"] for e in entries] == ["Утренний приём"]
+
+
+class TestСрокДокумента:
+    """Срок документа — не мероприятие. Живой случай 10.10: на «какие
+    мероприятия на этой неделе» ассистент ответил «11 октября в 12:00 —
+    Срок истекает 10.12.2026: Сервисная книжка». Две даты спорят друг с
+    другом, и человек прочитал это как бред — справедливо."""
+
+    async def test_две_даты_разведены_по_разным_полям(self, base, db_session):
+        note = await base.note_with_events([], title="Сервисная книжка")
+        db_session.add(Notification(
+            user_id=base.ctx.user_id, type="document_expiry",
+            title="Срок истекает 10.12.2026: Сервисная книжка", body="",
+            payload={"item_id": str(note.id), "expires_on": "2026-12-10"},
+            trigger_at=datetime.now(timezone.utc) + timedelta(days=1),
+        ))
+        await db_session.commit()
+
+        found = next(e for e in (await agenda.handle(base.ctx, {}))["entries"] if "Сервисная" in e["title"])
+
+        assert found["kind"] == "срок документа", "иначе модель назовёт это мероприятием"
+        assert found["срок_истекает"] == "2026-12-10"
+        assert found["напомнить"] != "2026-12-10", "когда предупредить — не когда истекает"
+
+    async def test_обычное_напоминание_осталось_напоминанием(self, base):
+        await base.reminder("Позвонить в клинику", _iso(1))
+
+        found = next(e for e in (await agenda.handle(base.ctx, {}))["entries"] if "клинику" in e["title"])
+
+        assert found["kind"] == "напоминание"
+        assert "срок_истекает" not in found

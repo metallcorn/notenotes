@@ -105,3 +105,103 @@ def test_extract_image_paths_none():
     stripped, paths = _extract_image_paths("Обычный текстовый ответ без картинок")
     assert paths == []
     assert stripped == "Обычный текстовый ответ без картинок"
+
+
+# --- кнопки к существующим записям, не только к созданным -----------------
+#
+# Живая жалоба 10.10 (голосом): «он ответил фигню да и без кнопки» — на
+# вопрос «какие мероприятия на этой неделе». Кнопок не было вовсе, потому
+# что список тулов с кнопкой ограничивался созданием записи.
+
+
+def test_кнопка_к_открытой_заметке():
+    records = _tool_turn(
+        [{"id": "c1", "name": "get_note", "arguments": {}}],
+        {"c1": {"id": "abc-123", "title": "🐕 Marsz Kejterka уже в субботу", "content": "..."}},
+    )
+
+    rows = _build_action_buttons(records, "https://notenotes.example")
+
+    assert rows == [[{
+        "text": "Открыть «🐕 Marsz Kejterka уже в субботу»",
+        "url": "https://notenotes.example/?item=abc-123",
+    }]]
+
+
+def test_кнопки_к_записям_адженды():
+    records = _tool_turn(
+        [{"id": "c1", "name": "list_agenda", "arguments": {}}],
+        {"c1": {"entries": [
+            {"at": "2026-10-11T12:00:00+00:00", "title": "Срок: Сервисная книжка",
+             "url": "https://notenotes.example/?item=f91"},
+            {"at": "2026-10-12T09:00:00+00:00", "title": "Репетиция",
+             "url": "https://notenotes.example/?item=aa2"},
+        ]}},
+    )
+
+    rows = _build_action_buttons(records, "https://notenotes.example")
+
+    assert [r[0]["url"] for r in rows] == [
+        "https://notenotes.example/?item=f91",
+        "https://notenotes.example/?item=aa2",
+    ]
+
+
+def test_прошедшее_кнопки_не_получает():
+    """Открывать то, что уже случилось, обычно незачем, а место в
+    клавиатуре ограничено."""
+    records = _tool_turn(
+        [{"id": "c1", "name": "list_agenda", "arguments": {}}],
+        {"c1": {"entries": [
+            {"at": "2026-10-10T09:00:00+00:00", "title": "Marsz Kejterka",
+             "url": "https://notenotes.example/?item=563", "уже_прошло": True},
+            {"at": "2026-10-11T12:00:00+00:00", "title": "Завтрашнее",
+             "url": "https://notenotes.example/?item=f91"},
+        ]}},
+    )
+
+    rows = _build_action_buttons(records, "https://notenotes.example")
+
+    assert [r[0]["url"] for r in rows] == ["https://notenotes.example/?item=f91"]
+
+
+def test_длинная_адженда_не_превращается_в_стену_кнопок():
+    from app.telegram_bot import _AGENDA_BUTTONS
+
+    entries = [
+        {"at": f"2026-10-1{i}T09:00:00+00:00", "title": f"Дело {i}", "url": f"https://x/?item={i}"}
+        for i in range(8)
+    ]
+    records = _tool_turn([{"id": "c1", "name": "list_agenda", "arguments": {}}], {"c1": {"entries": entries}})
+
+    rows = _build_action_buttons(records, "https://notenotes.example")
+
+    assert len(rows) == _AGENDA_BUTTONS
+
+
+def test_запись_не_дублируется_из_двух_тулов():
+    """Одна и та же заметка могла прийти и из адженды, и из get_note."""
+    records = _tool_turn(
+        [
+            {"id": "c1", "name": "list_agenda", "arguments": {}},
+            {"id": "c2", "name": "get_note", "arguments": {}},
+        ],
+        {
+            "c1": {"entries": [{"at": "2026-10-11T12:00:00+00:00", "title": "Книжка",
+                                "url": "https://notenotes.example/?item=f91"}]},
+            "c2": {"id": "f91", "title": "Книжка"},
+        },
+    )
+
+    rows = _build_action_buttons(records, "https://notenotes.example")
+
+    assert len(rows) == 1
+
+
+def test_адженда_без_ссылок_кнопок_не_даёт():
+    records = _tool_turn(
+        [{"id": "c1", "name": "list_agenda", "arguments": {}}],
+        {"c1": {"entries": [{"at": "2026-10-11T12:00:00+00:00", "title": "Напоминание без источника"}]}},
+    )
+
+    assert _build_action_buttons(records, "https://notenotes.example") == []
