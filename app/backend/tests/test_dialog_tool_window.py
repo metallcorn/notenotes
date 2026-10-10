@@ -141,3 +141,76 @@ class TestЖивойЗамер:
         assert after < before / 4
         # Подтверждения с id целы все до единого.
         assert sum(1 for r in fold_stale_tool_results(records) if r.get("content") == "w" * 320) == 20
+
+
+class TestПотолокНаОдинРезультат:
+    """Живой случай 10.10: диалог «Telegram» умер насовсем. Три get_file с
+    base64 файлов (1.5 + 3.8 + 1.9 МБ) в ОДНОМ ходу — Mistral ответил 400.
+    Запись починили 26.09, но история проигрывается заново каждый ход, и
+    через две недели тот же чат снова отдал ту же ошибку на безобидное
+    «а что такое Кейтерка?». Лечится только на чтении."""
+
+    def test_непомерный_свежий_результат_обрезается(self):
+        huge = "{" + "д" * 4_000_000
+        records = [_user("найди мои права"), _tool(huge, name="get_file"), _assistant()]
+
+        folded = fold_stale_tool_results(records)
+
+        assert len(folded[1]["content"]) < 31_000
+
+    def test_обрезок_честно_помечен(self):
+        """Иначе модель примет обрубок за полный результат и ответит по
+        половине данных, не сказав об этом."""
+        records = [_user(), _tool("я" * 100_000, name="get_file"), _assistant()]
+
+        content = fold_stale_tool_results(records)[1]["content"]
+
+        assert "ОБРЕЗАНО" in content
+        assert "100000" in content, "сколько было — тоже надо сказать"
+
+    def test_три_мегабайтных_вместе_укладываются_в_контекст(self):
+        """Ровно форма мёртвого диалога: один ход, три get_file."""
+        records = [
+            _user("найди мои права"),
+            _assistant("", calls=[{"id": f"f{i}", "name": "get_file", "arguments": {}} for i in range(3)]),
+            _tool("a" * 1_535_922, name="get_file", call_id="f0"),
+            _tool("b" * 3_795_300, name="get_file", call_id="f1"),
+            _tool("c" * 1_928_784, name="get_file", call_id="f2"),
+        ]
+
+        total = sum(len(r.get("content") or "") for r in fold_stale_tool_results(records))
+
+        assert total < 100_000, "7.26 МБ в промпт больше не уедет"
+
+    def test_потолок_не_трогает_обычные_результаты(self):
+        """Самый крупный законный результат в живой базе — list_all_items
+        на 57 850; он обрежется, и это правильная цена. А get_table на
+        9 300 и web_search на 23 000 должны проходить целиком."""
+        for size, name in ((9_300, "get_table"), (23_215, "web_search")):
+            records = [_user(), _tool("x" * size, name=name), _assistant()]
+
+            assert fold_stale_tool_results(records)[1]["content"] == "x" * size
+
+    def test_старое_и_непомерное_становится_заглушкой_а_не_обрезком(self):
+        """Заглушка дешевле обрезка: 120 символов против 30 000, а для
+        устаревших данных и то и то бесполезно."""
+        records = [_user(), _tool("x" * 1_000_000, name="get_file"), _assistant()]
+        records += [_user(), _assistant()] * 6
+
+        content = fold_stale_tool_results(records)[1]["content"]
+
+        assert "_свёрнуто" in content
+        assert len(content) < 300
+
+    def test_структура_цела_и_при_обрезке(self):
+        records = [
+            _user(),
+            _assistant("", calls=[{"id": "f0", "name": "get_file", "arguments": {}}]),
+            _tool("x" * 1_000_000, name="get_file", call_id="f0"),
+        ]
+
+        folded = fold_stale_tool_results(records)
+
+        assert folded[2]["tool_call_id"] == "f0"
+        assert folded[2]["name"] == "get_file"
+        assert len(folded) == 3

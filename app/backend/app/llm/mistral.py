@@ -5,7 +5,7 @@ import json
 import httpx
 
 from app.llm.base import LLMResponse, Message, ToolCall, ToolDefinition
-from app.llm.retry import post_with_retry
+from app.llm.retry import post_with_retry, raise_for_status_with_body
 
 MISTRAL_API_URL = "https://api.mistral.ai/v1/chat/completions"
 
@@ -109,7 +109,7 @@ class MistralClient:
                 headers={"Authorization": f"Bearer {self._api_key}", "Content-Type": "application/json"},
                 json=payload,
             )
-            resp.raise_for_status()
+            raise_for_status_with_body(resp, "Mistral")
             data = resp.json()
 
         choice = data["choices"][0]

@@ -5,7 +5,7 @@ import logging
 import httpx
 
 from app.llm.base import EmptyLLMResponseError, LLMResponse, Message, ToolCall, ToolDefinition
-from app.llm.retry import post_with_retry
+from app.llm.retry import post_with_retry, raise_for_status_with_body
 
 logger = logging.getLogger(__name__)
 
@@ -112,7 +112,7 @@ class GeminiClient:
         # (httpx.ReadTimeout на /ai/transform для большой заметки).
         async with httpx.AsyncClient(timeout=180) as client:
             resp = await post_with_retry(client, url, params={"key": self._api_key}, json=payload)
-            resp.raise_for_status()
+            raise_for_status_with_body(resp, "Gemini")
             data = resp.json()
 
         candidate = data["candidates"][0]

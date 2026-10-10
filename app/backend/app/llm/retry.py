@@ -132,3 +132,28 @@ async def post_with_retry(
 
     assert resp is not None  # max_attempts >= 1, цикл выполнился хотя бы раз
     return resp
+
+# Что ответил провайдер, когда ответил ошибкой.
+#
+# Живой случай 10.10: ассистент в Telegram молчал, в логах — ровно
+# «httpx.HTTPStatusError: Client error '400 Bad Request' for url
+# https://api.mistral.ai/v1/chat/completions» и больше ничего. Причину
+# (7.26 МБ base64 в истории диалога) пришлось доставать запросами к базе,
+# хотя провайдер её наверняка написал в теле ответа — только его никто не
+# читал: raise_for_status() тело выбрасывает.
+#
+# Обрезаем: тело ошибки бывает с эхом запроса, а запрос у нас как раз и
+# бывает многомегабайтным — залить такое в журнал значит потерять журнал.
+_ERROR_BODY_CHARS = 2000
+
+
+def raise_for_status_with_body(resp: httpx.Response, provider: str) -> None:
+    """raise_for_status, но сначала записать, ЧТО именно не понравилось."""
+    if resp.is_success:
+        return
+    try:
+        body = resp.text[:_ERROR_BODY_CHARS]
+    except Exception:  # pragma: no cover — тело может быть нечитаемым
+        body = "(тело ответа прочитать не удалось)"
+    logger.error("%s ответил %s: %s", provider, resp.status_code, body)
+    resp.raise_for_status()
