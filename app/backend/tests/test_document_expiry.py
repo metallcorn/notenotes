@@ -182,3 +182,63 @@ class TestЗаведениеНапоминаний:
         agenda = await collect_agenda(db_session, test_user.id, days=3, tz_name="Europe/Warsaw")
 
         assert any("Карта побыту" in e["title"] for e in agenda["entries"])
+
+    async def test_диалог_не_документ(self, base, db_session, monkeypatch, test_user):
+        """Живой случай 10.10: на «какие мероприятия на этой неделе» пришло
+        два одинаковых «Срок истекает 10.12.2026» — один от сервисной
+        книжки, второй от ДИАЛОГА, где ассистент про неё говорил.
+
+        content диалога — это расшифровка разговора (_flatten_transcript),
+        и любой обсуждённый срок находился в нём второй раз. Разговор не
+        документ: срок у него не истекает, и вести человека из
+        напоминания в середину переписки вместо самой книжки —
+        бессмысленно.
+        """
+        dialog = Item(
+            space_id=base.space.id, author_id=test_user.id, material_type="dialog",
+            title="Telegram", properties={"messages": []},
+            content="Ты: когда техосмотр?\nАссистент: Warunki normalne do dnia 10.12.2026",
+        )
+        db_session.add(dialog)
+        await db_session.commit()
+
+        found = await _scan(db_session, monkeypatch)
+
+        assert found == [], "из разговора срок заводить нельзя"
+
+    async def test_тот_же_срок_в_заметке_заводится(self, base, db_session, monkeypatch, test_user):
+        """Контроль к тесту выше: исключён именно диалог, а не сам разбор."""
+        await base.note("Warunki normalne do dnia 10.12.2026", title="Сервисная книжка")
+        dialog = Item(
+            space_id=base.space.id, author_id=test_user.id, material_type="dialog",
+            title="Telegram", properties={"messages": []},
+            content="Ассистент: Warunki normalne do dnia 10.12.2026",
+        )
+        db_session.add(dialog)
+        await db_session.commit()
+
+        found = await _scan(db_session, monkeypatch)
+
+        assert len(found) == 1
+        assert "Сервисная книжка" in found[0].title
+
+
+class TestПояснениеЧитаемо:
+    def test_мусор_разметки_вычищен(self):
+        """В боевой базе пояснение выглядело так:
+        «-----------|&#10;| 10.12.2024 | | Warunki normalne □ | do 73 000 km»
+        — срез markdown-таблицы с неразэкранированным переводом строки и
+        палками столбцов. Непонятно ни человеку, ни модели."""
+        text = "|-----------|&#10;| 10.12.2024 | | Warunki normalne □ | do 73 000 km lub do dnia 10.12.2026"
+
+        got = document_expiry._snippet(text, len(text))
+
+        assert "|" not in got
+        assert "&#" not in got
+        assert "---" not in got
+        assert "Warunki normalne" in got, "смысл при чистке теряться не должен"
+
+    def test_обычный_текст_не_портится(self):
+        text = "Paszport AB7654321, ważny do 05.02.2031"
+
+        assert document_expiry._snippet(text, len(text)) == text

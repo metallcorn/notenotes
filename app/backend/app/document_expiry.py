@@ -105,7 +105,23 @@ async def _scan_once() -> int:
             await db.execute(
                 select(Item.id, Item.author_id, Item.title, Item.content)
                 .join(Space, Space.id == Item.space_id)
-                .where(Item.deleted_at.is_(None), Space.is_vault.is_(False))
+                .where(
+                    Item.deleted_at.is_(None),
+                    Space.is_vault.is_(False),
+                    # ДИАЛОГИ ИСКЛЮЧЕНЫ. Их content — это расшифровка
+                    # разговора (_flatten_transcript), и если ассистент
+                    # обсуждал срок из заметки, тот же срок находился
+                    # второй раз — уже «в диалоге».
+                    #
+                    # Живой случай 10.10: на «какие мероприятия на этой
+                    # неделе» пришло два одинаковых «Срок истекает
+                    # 10.12.2026» — один от сервисной книжки, второй от
+                    # диалога «Telegram», где про неё говорили. Разговор
+                    # не документ: срок у него не истекает, и вести
+                    # человека из напоминания в середину переписки
+                    # вместо самой книжки — бессмысленно.
+                    Item.material_type.in_(("note", "list", "ticket", "table")),
+                )
             )
         ).all()
         sources: list[tuple[uuid.UUID, uuid.UUID, str, str]] = [
