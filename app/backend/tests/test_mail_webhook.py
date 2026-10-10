@@ -281,3 +281,143 @@ async def test_webhook_saves_attachment_and_links_it(client, db_session, test_us
     upload = (await db_session.execute(select(Upload).where(Upload.space_id == space.id))).scalar_one()
     assert upload.filename == "photo.png"
     assert f"/api/uploads/{upload.id}" in item.content
+
+
+# --- повторная доставка одного письма ------------------------------------
+#
+# Найдено на живой базе 10.10 — две пары заметок с интервалом РОВНО
+# 10 минут 10 секунд в обоих случаях («Fwd: Налоги 08-2026» 14:49:22 и
+# 14:59:32; «Fwd: Налоги за 07-2026» 21:09:21 и 21:19:32). Это не человек
+# переслал дважды, это расписание повторов Mailgun: обработчик делает
+# тяжёлую работу прямо в запросе и не успевает ответить.
+
+
+async def _inbox(db_session, test_user):
+    from app.models import EmailInbox, Space, SpaceMember
+
+    space = Space(name="Почта", owner_id=test_user.id)
+    db_session.add(space)
+    await db_session.flush()
+    db_session.add(SpaceMember(space_id=space.id, user_id=test_user.id))
+    db_session.add(EmailInbox(user_id=test_user.id, local_part="mytoken123", space_id=space.id))
+    await db_session.commit()
+    return space
+
+
+async def test_повторная_доставка_не_создаёт_второй_заметки(client, db_session, test_user, monkeypatch):
+    from sqlalchemy import select
+
+    from app.models import Item
+
+    monkeypatch.setattr(get_settings(), "mailgun_webhook_signing_key", _SIGNING_KEY)
+    space = await _inbox(db_session, test_user)
+
+    def form(text):
+        return _signed_form(
+            recipient="mytoken123@mail.notenotes.example",
+            subject="Fwd: Налоги 08-2026",
+            **{"stripped-text": text, "Message-Id": "<CAF=abc123@mail.gmail.com>"},
+        )
+
+    first = await client.post("/api/mail/webhook", data=form("Налоги за август"))
+    # Содержимое второй доставки ОТЛИЧАЕТСЯ — именно это сбивало со следа:
+    # текст письма один, а блоки вложений содержат новый id загрузки.
+    second = await client.post("/api/mail/webhook", data=form("Налоги за август и ещё немного"))
+
+    assert first.json() == {"ok": True}
+    assert second.json() == {"ok": True, "duplicate": True}, "Mailgun должен считать доставку успешной"
+    items = (await db_session.execute(select(Item).where(Item.space_id == space.id))).scalars().all()
+    assert len(items) == 1
+
+
+async def test_разные_письма_с_одной_темой_остаются_двумя(client, db_session, test_user, monkeypatch):
+    """«Fwd: Przedłużenie umowy najmu» в живой базе встречается трижды за
+    двенадцать дней — это РАЗНЫЕ письма с одной темой, и схлопывать их по
+    теме было бы потерей."""
+    from sqlalchemy import select
+
+    from app.models import Item
+
+    monkeypatch.setattr(get_settings(), "mailgun_webhook_signing_key", _SIGNING_KEY)
+    space = await _inbox(db_session, test_user)
+
+    for n in (1, 2, 3):
+        await client.post("/api/mail/webhook", data=_signed_form(
+            recipient="mytoken123@mail.notenotes.example",
+            subject="Fwd: Przedłużenie umowy najmu",
+            **{"stripped-text": f"письмо {n}", "Message-Id": f"<msg-{n}@mail.gmail.com>"},
+        ))
+
+    items = (await db_session.execute(select(Item).where(Item.space_id == space.id))).scalars().all()
+    assert len(items) == 3
+
+
+async def test_письмо_без_message_id_не_теряется(client, db_session, test_user, monkeypatch):
+    """Заголовок обязателен по RFC, но мы не вправе выкидывать письмо,
+    если его нет: потерять письмо хуже, чем завести дубль."""
+    from sqlalchemy import select
+
+    from app.models import Item
+
+    monkeypatch.setattr(get_settings(), "mailgun_webhook_signing_key", _SIGNING_KEY)
+    space = await _inbox(db_session, test_user)
+
+    for _ in range(2):
+        await client.post("/api/mail/webhook", data=_signed_form(
+            recipient="mytoken123@mail.notenotes.example",
+            subject="Без идентификатора",
+            **{"stripped-text": "текст"},
+        ))
+
+    items = (await db_session.execute(select(Item).where(Item.space_id == space.id))).scalars().all()
+    assert len(items) == 2
+
+
+async def test_регистр_заголовка_не_важен(client, db_session, test_user, monkeypatch):
+    from sqlalchemy import select
+
+    from app.models import Item
+
+    monkeypatch.setattr(get_settings(), "mailgun_webhook_signing_key", _SIGNING_KEY)
+    space = await _inbox(db_session, test_user)
+
+    await client.post("/api/mail/webhook", data=_signed_form(
+        recipient="mytoken123@mail.notenotes.example", subject="Тема",
+        **{"stripped-text": "раз", "Message-Id": "<same@x>"}))
+    await client.post("/api/mail/webhook", data=_signed_form(
+        recipient="mytoken123@mail.notenotes.example", subject="Тема",
+        **{"stripped-text": "два", "message-id": "<same@x>"}))
+
+    items = (await db_session.execute(select(Item).where(Item.space_id == space.id))).scalars().all()
+    assert len(items) == 1
+
+
+async def test_одно_письмо_двум_людям_доходит_обоим(client, db_session, test_user, monkeypatch):
+    """Message-Id уникален глобально, поэтому проверка только в пределах
+    спейса ящика: рассылку, пришедшую двум людям, каждый должен получить.
+    """
+    from sqlalchemy import select
+
+    from app.models import EmailInbox, Item, Space, SpaceMember, User
+    from app.security import hash_password
+
+    monkeypatch.setattr(get_settings(), "mailgun_webhook_signing_key", _SIGNING_KEY)
+    mine = await _inbox(db_session, test_user)
+
+    other = User(username="other@example.com", name="Другой", password_hash=hash_password("x"))
+    db_session.add(other)
+    await db_session.flush()
+    other_space = Space(name="Почта", owner_id=other.id)
+    db_session.add(other_space)
+    await db_session.flush()
+    db_session.add(SpaceMember(space_id=other_space.id, user_id=other.id))
+    db_session.add(EmailInbox(user_id=other.id, local_part="othertoken", space_id=other_space.id))
+    await db_session.commit()
+
+    for recipient in ("mytoken123@mail.notenotes.example", "othertoken@mail.notenotes.example"):
+        await client.post("/api/mail/webhook", data=_signed_form(
+            recipient=recipient, subject="Рассылка",
+            **{"stripped-text": "всем", "Message-Id": "<newsletter@x>"}))
+
+    assert len((await db_session.execute(select(Item).where(Item.space_id == mine.id))).scalars().all()) == 1
+    assert len((await db_session.execute(select(Item).where(Item.space_id == other_space.id))).scalars().all()) == 1

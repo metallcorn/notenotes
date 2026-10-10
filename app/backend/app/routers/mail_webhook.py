@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import get_settings
 from app.db import get_db
 from app.mail_forward import first_other_recipient, is_own_address, parse_forwarded_sender
-from app.models import EmailInbox, Folder, Upload, User
+from app.models import EmailInbox, Folder, Item, Upload, User
 from app.pdf_processing import AUTO_OCR_MAX_PDF_BYTES
 from app.pdf_processing import enqueue_ocr as enqueue_pdf_ocr
 from app.pdf_processing import extract_text as extract_pdf_text
@@ -97,6 +97,54 @@ async def _save_attachment(
     return upload
 
 
+# Повторная доставка одного и того же письма.
+#
+# ЧТО НАШЛОСЬ НА ЖИВОЙ БАЗЕ 10.10 — две пары заметок:
+#
+#   Fwd: Налоги 08-2026       14:49:22  и  14:59:32   (02.09)
+#   Fwd: Налоги за 07-2026    21:09:21  и  21:19:32   (25.08)
+#
+# Ровно десять минут и десять секунд в обоих случаях — это не человек,
+# переслал дважды, это РАСПИСАНИЕ ПОВТОРОВ Mailgun. Он повторяет
+# доставку, если вебхук не ответил вовремя, а обработчик здесь делает
+# тяжёлую работу прямо в запросе: читает все вложения, вытаскивает текст
+# из PDF, заводит загрузки. На большом письме с вложениями на 4 ГБ VPS
+# это легко выходит за таймаут вебхука — и письмо приезжает снова.
+#
+# Содержимое двух заметок при этом РАЗЛИЧАЕТСЯ (24 784 и 26 641
+# символа), и это сбивало со следа: выглядит как два разных письма. На
+# самом деле текст письма один, а отличаются блоки вложений — в них
+# входит id загрузки, он у второй доставки другой, плюс OCR на одном
+# проходе успел извлечь текст, а на другом нет.
+#
+# Ключ — Message-Id из самого письма: он уникален глобально и один для
+# всех доставок одного сообщения. Ни «похожесть», ни тема, ни время:
+# «Fwd: Przedłużenie umowy najmu» в той же базе встречается трижды за
+# двенадцать дней — это РАЗНЫЕ письма с одной темой, и схлопывать их
+# было бы потерей.
+#
+# Проверяем в пределах спейса этого ящика, а не глобально: если один и
+# тот же рассылочный лист придёт двум людям, каждый должен получить свою
+# заметку, а Message-Id у них совпадёт.
+#
+# Храним в properties заметки, без отдельной таблицы и индекса: писем
+# единицы в день, записей в базе сотни, а лишняя сущность со своей
+# миграцией тут дороже, чем seq scan раз в несколько часов (тот же
+# довод, что у дедупликации в document_expiry.py).
+async def _already_received(db: AsyncSession, space_id: uuid.UUID, message_id: str) -> bool:
+    if not message_id:
+        return False
+    found = (
+        await db.execute(
+            select(Item.id).where(
+                Item.space_id == space_id,
+                Item.properties["mail_message_id"].astext == message_id,
+            )
+        )
+    ).first()
+    return found is not None
+
+
 async def _attachment_block(upload: Upload, data: bytes, auto_process: bool) -> str:
     """Markdown-блок для одного вложения — та же логика по типам, что у
     Telegram-документов/фото/видео (telegram_bot.py::_handle_document/
@@ -168,6 +216,15 @@ async def webhook(request: Request, db: AsyncSession = Depends(get_db)) -> dict:
     title = str(form.get("subject", "")).strip() or "Письмо без темы"
     content = str(form.get("stripped-text", "") or form.get("body-plain", "")).strip()
 
+    # Регистр поля не документирован (как и у To/Cc ниже) — пробуем оба.
+    message_id = str(form.get("Message-Id", "") or form.get("message-id", "")).strip()
+    if await _already_received(db, inbox.space_id, message_id):
+        # 200, а не ошибка: Mailgun должен считать доставку успешной и
+        # прекратить повторы, иначе он будет возвращаться каждые десять
+        # минут до конца своего расписания.
+        logger.info("Письмо %s уже получено — повторная доставка пропущена", message_id)
+        return {"ok": True, "duplicate": True}
+
     # Mailgun отдаёт заголовки как есть из письма — регистр поля у To/Cc
     # не документирован так же чётко, как у "from"/"sender"/"recipient"
     # (те — собственные поля Mailgun, всегда нижним регистром); пробуем
@@ -213,6 +270,7 @@ async def webhook(request: Request, db: AsyncSession = Depends(get_db)) -> dict:
         title=title,
         content=content,
         folder_id=folder_id,
+        properties={"mail_message_id": message_id} if message_id else None,
     )
 
     return {"ok": True}
