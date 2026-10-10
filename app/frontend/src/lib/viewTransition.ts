@@ -30,13 +30,32 @@
 // пропускает startViewTransition выше lg: (1024px, тот же брейкпоинт,
 // что и весь остальной mobile/desktop-переключатель в приложении) —
 // стейт обновляется мгновенно, без снимка.
+type ViewTransitionLike = { ready?: Promise<void>; finished?: Promise<void> };
+
 export function withViewTransition(fn: () => void, opts?: { mobileOnly?: boolean }): void {
-  const doc = document as Document & { startViewTransition?: (callback: () => void) => void };
+  const doc = document as Document & {
+    startViewTransition?: (callback: () => void) => ViewTransitionLike | undefined;
+  };
   const isStandalone = typeof matchMedia === "function" && matchMedia("(display-mode: standalone)").matches;
   const isDesktop = opts?.mobileOnly && typeof matchMedia === "function" && matchMedia("(min-width: 1024px)").matches;
   if (isStandalone || isDesktop || typeof doc.startViewTransition !== "function") {
     fn();
     return;
   }
-  doc.startViewTransition(fn);
+  const transition = doc.startViewTransition(fn);
+  // Пропущенный переход — не ошибка, и молчать о нём надо явно.
+  //
+  // startViewTransition возвращает объект с промисами ready/finished, и
+  // при пропуске перехода они ОТКЛОНЯЮТСЯ. Обработчика не было, поэтому
+  // каждый такой случай улетал в unhandled rejection: 24 записи в
+  // журнале фронтенда, последняя 07.10 — «Skipped ViewTransition due to
+  // another transition starting» и «due to document being hidden».
+  //
+  // Для нас это штатные ситуации: два перехода подряд (restoration в
+  // AppShell) и уход страницы в фон. DOM к этому моменту уже обновлён
+  // колбэком — пропущена только анимация, то есть ровно то
+  // «прогрессивное улучшение», о котором говорит комментарий выше.
+  // Поэтому гасим, а не чиним: чинить тут нечего.
+  transition?.ready?.catch(() => {});
+  transition?.finished?.catch(() => {});
 }

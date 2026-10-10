@@ -8,7 +8,6 @@ import { useResizeHandle } from "../lib/useResizablePanel";
 import { useVersionCheck } from "../lib/useVersionCheck";
 import { useSpaceSync } from "../lib/useSpaceSync";
 import { useNotificationSync } from "../lib/useNotificationSync";
-import { diagnosticLog } from "../lib/diagnostics";
 import CreateSpaceButton from "../components/CreateSpaceButton";
 import SpaceSection from "../components/SpaceSection";
 import TagList from "../components/TagList";
@@ -229,10 +228,6 @@ export default function AppShell() {
     const listParam = searchParams.get("list");
     const screenParam = searchParams.get("screen");
     const nextMobileView: MobileView = itemParam || dialogParam ? "editor" : listParam ? "list" : "sidebar";
-    diagnosticLog("search_params_sync_start", {
-      nextMobileView,
-      rootRect: rootRef.current?.getBoundingClientRect().toJSON() ?? null,
-    });
     setTransitionDirection(mobileView, nextMobileView);
     withViewTransition(
       () => {
@@ -278,15 +273,13 @@ export default function AppShell() {
     );
     if (activeSpaceId) uiStorage.setLastItemId(activeSpaceId, itemParam);
     uiStorage.setLastDialogId(dialogParam);
-    // Геометрия ПОСЛЕ перерисовки — сравнить с rootRect выше: если экран
-    // белый именно из-за схлопнувшейся высоты (гипотеза про dvh в Firefox
-    // Android), тут будет видно нулевую/аномальную высоту.
-    setTimeout(() => {
-      diagnosticLog("search_params_sync_settled", {
-        nextMobileView,
-        rootRect: rootRef.current?.getBoundingClientRect().toJSON() ?? null,
-      });
-    }, 300);
+    // Пробы геометрии (search_params_sync_start/settled) убраны 10.10:
+    // они ответили на свой вопрос. Ставились, чтобы проверить гипотезу
+    // «белый экран из-за схлопнувшейся высоты dvh в Firefox Android», и
+    // за два месяца собрали 6 881 замер — аномальная высота встретилась
+    // в ТРЁХ. Гипотеза опровергнута, причина оказалась в компоузере
+    // (см. forceRepaint.ts), а пробы продолжали писать по две строки в
+    // журнал на каждую навигацию.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams]);
 
@@ -377,10 +370,6 @@ export default function AppShell() {
   // Кнопка «назад к списку спейсов» — тот же принцип, что closeItemView:
   // прямой replace, не полагается на глубину history.
   function closeListView() {
-    diagnosticLog("close_list_view_clicked", {
-      mobileView,
-      rootRect: rootRef.current?.getBoundingClientRect().toJSON() ?? null,
-    });
     setSearchParams((prev) => {
       const next = new URLSearchParams(prev);
       next.delete("item");

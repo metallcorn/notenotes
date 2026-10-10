@@ -3,7 +3,7 @@ import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, status
 from fastapi.staticfiles import StaticFiles
 from starlette.responses import FileResponse
 from starlette.requests import Request
@@ -244,6 +244,17 @@ if STATIC_DIR.is_dir():
 
     @app.get("/{full_path:path}")
     async def spa(request: Request, full_path: str):
+        # Неизвестный путь под /api — честный 404, а не index.html.
+        #
+        # Catch-all подключён последним и перехватывал ВСЁ, включая
+        # опечатки в адресах API: GET /api/такого-нет отдавал 200 и HTML.
+        # Два следствия, оба неприятные. Фронтенд на такой ответ падал с
+        # «Unexpected token '<'» вместо внятного 404 — ошибка указывала на
+        # разбор JSON, а не на неверный адрес. А в логах любой сканер
+        # получал 200 на что угодно («GET /credentials.json 200 OK»),
+        # и настоящие 404 в этом шуме не разглядеть.
+        if full_path.startswith("api/"):
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Неизвестный эндпоинт")
         candidate = STATIC_DIR / full_path
         if full_path and candidate.is_file():
             return FileResponse(candidate)

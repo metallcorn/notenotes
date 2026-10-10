@@ -8,7 +8,7 @@ from sqlalchemy import delete, func, select
 from app import realtime
 from app.core.config import get_settings
 from app.db import async_session
-from app.models import AuditLog, Item, ItemVersion, Notification, OAuthClient, OAuthCode, OAuthRefreshToken, Upload
+from app.models import AuditLog, DebugLog, Item, ItemVersion, Notification, OAuthClient, OAuthCode, OAuthRefreshToken, Upload
 
 logger = logging.getLogger(__name__)
 
@@ -91,6 +91,26 @@ async def _purge_audit_once() -> int:
     async with async_session() as db:
         cutoff = datetime.now(timezone.utc) - _AUDIT_RETENTION
         result = await db.execute(delete(AuditLog).where(AuditLog.created_at < cutoff))
+        await db.commit()
+        return result.rowcount or 0
+
+
+# Срок хранения журнала фронтенда. Короче аудита, и намеренно: там «кто
+# подключался к моей базе» — вопрос на месяцы вперёд, а здесь ошибки
+# браузера, которые разбирают по горячим следам или не разбирают вовсе.
+#
+# Почему это понадобилось: срока у debug_log не было вообще, и к 10.10 он
+# накопил 14 701 строку (11 МБ) — из них 14 376 не ошибки, а отработавшие
+# диагностические пробы (убраны тем же днём). На 4 ГБ VPS это не вопрос
+# опрятности, а место; плюс в таком стоге настоящие 103 unhandled
+# rejection никто не заметил два месяца.
+_DEBUG_LOG_RETENTION = timedelta(days=30)
+
+
+async def _purge_debug_log_once() -> int:
+    async with async_session() as db:
+        cutoff = datetime.now(timezone.utc) - _DEBUG_LOG_RETENTION
+        result = await db.execute(delete(DebugLog).where(DebugLog.created_at < cutoff))
         await db.commit()
         return result.rowcount or 0
 
@@ -206,4 +226,10 @@ async def run_periodic_sweep() -> None:
                 logger.info("Очистка аудита (>180 дней): удалено %d записей", purged)
         except Exception:
             logger.exception("Ошибка при очистке аудита")
+        try:
+            purged = await _purge_debug_log_once()
+            if purged:
+                logger.info("Очистка журнала фронтенда (>30 дней): удалено %d записей", purged)
+        except Exception:
+            logger.exception("Ошибка при очистке журнала фронтенда")
         await asyncio.sleep(_SWEEP_INTERVAL_SECONDS)
