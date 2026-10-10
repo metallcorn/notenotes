@@ -40,13 +40,29 @@ async def test_get_note_includes_url(auth_client, db_session, test_user):
     assert result["url"] == item_url(created["id"])
 
 
-async def test_list_all_items_includes_url(auth_client, db_session, test_user):
+async def test_list_all_items_отдаёт_id_а_за_ссылкой_посылает_к_get_note(auth_client, db_session, test_user):
+    """Раньше здесь проверялось наличие url — его убрали 10.10 осознанно.
+
+    Причина: при 263 записях перечисление с url и space_id занимало
+    57 850 символов, обрезалось по потолку (30 000), и модель видела
+    половину базы, не зная об этом. url — 70 символов на запись и в
+    перечислении не нужен: по id вызывается get_note, и ссылка приходит
+    оттуда.
+
+    Инвариант «не выдумывай ссылку» при этом остаётся закрытым: он держится
+    на том, что ссылка берётся ИЗ РЕЗУЛЬТАТА тула, а не собирается из id.
+    Поэтому id здесь обязателен, а в самом результате прямо написано, где
+    брать ссылку (тесты ниже).
+    """
     space_id = (await auth_client.post("/api/spaces", json={"name": "S"})).json()["id"]
     ctx = ToolContext(db=db_session, user_id=test_user.id, space_id=uuid.UUID(space_id))
     created = await create_note(ctx, {"title": "T", "content": "C"})
     result = await list_all_items(ctx, {})
     found = next(i for i in result["items"] if i["id"] == created["id"])
-    assert found["url"] == item_url(created["id"])
+    assert "url" not in found
+    assert "get_note" in result["ссылок_здесь_нет"]
+    # Остальные тулы url отдают по-прежнему — проверено тестами выше/ниже.
+    assert item_url(created["id"])
 
 
 async def test_list_items_in_folder_includes_url(auth_client, db_session, test_user):
@@ -147,3 +163,120 @@ async def test_get_note_rejects_list_item(auth_client, db_session, test_user):
     lst = await create_list(ctx, {"title": "Список"})
     with pytest.raises(ToolError):
         await get_note(ctx, {"item_id": lst["id"]})
+
+
+class TestПеречислениеВлезаетВКонтекст:
+    """Нашла самопроверка на первом же прогоне: при лимите 200 и полях с
+    url и space_id результат list_all_items вырастал до 57 850 символов —
+    больше потолка на один результат (30 000), то есть обрезался. На
+    «просмотри заголовки сам» модель видела ПОЛОВИНУ базы, не зная об
+    этом, и честно отвечала «не нашёл»."""
+
+    async def test_результат_никогда_не_перерастает_потолок(self, db_session, test_user):
+        import json
+        from types import SimpleNamespace
+
+        from app.dialog_tool_window import MAX_RESULT_CHARS
+        from app.models import Item, Space, SpaceMember
+        from app.tools import notes
+
+        space = Space(name="Личное", owner_id=test_user.id)
+        db_session.add(space)
+        await db_session.flush()
+        db_session.add(SpaceMember(space_id=space.id, user_id=test_user.id))
+        for i in range(260):
+            db_session.add(Item(
+                space_id=space.id, author_id=test_user.id, material_type="note",
+                # Длинные названия — так в живой базе и бывает
+                # («🐕 Marsz Kejterka уже в эту субботу в Познани»).
+                title=f"Заметка номер {i} с довольно длинным названием про Познань",
+                content="", properties={},
+            ))
+        await db_session.commit()
+        ctx = SimpleNamespace(db=db_session, user_id=test_user.id, space_id=space.id, client_timezone="UTC")
+
+        result = await notes.list_all_items(ctx, {})
+        size = len(json.dumps(result, ensure_ascii=False))
+
+        assert size < MAX_RESULT_CHARS, f"{size} символов — обрежется и модель не узнает"
+        assert result["items"], "хоть что-то показать надо"
+        assert "из 260" in result["показано"]
+
+    async def test_про_неполноту_сказано_честно(self, db_session, test_user):
+        """Обрезали по лимиту — модель должна об этом знать, иначе скажет
+        «в базе этого нет»."""
+        from types import SimpleNamespace
+
+        from app.models import Item, Space, SpaceMember
+        from app.tools import notes
+
+        space = Space(name="Личное", owner_id=test_user.id)
+        db_session.add(space)
+        await db_session.flush()
+        db_session.add(SpaceMember(space_id=space.id, user_id=test_user.id))
+        # Коротких названий влезает больше — именно поэтому бюджет в
+        # символах, а не в числе записей.
+        for i in range(400):
+            db_session.add(Item(space_id=space.id, author_id=test_user.id, material_type="note",
+                                title=f"З{i}", content="", properties={}))
+        await db_session.commit()
+        ctx = SimpleNamespace(db=db_session, user_id=test_user.id, space_id=space.id, client_timezone="UTC")
+
+        result = await notes.list_all_items(ctx, {})
+
+        assert "Перечисление неполное" in result["примечание"]
+        # И главное — чем это НЕ является: «здесь нет» ≠ «в базе нет».
+        assert "НЕ значит, что его нет в базе" in result["примечание"]
+
+    async def test_ссылок_нет_но_про_это_сказано(self, db_session, test_user):
+        """Убрать url молча нельзя: выдумывание ссылок — реальный баг
+        («notenotes://<id>»). Поэтому прямо в результате написано, где
+        брать ссылку."""
+        from types import SimpleNamespace
+
+        from app.models import Item, Space, SpaceMember
+        from app.tools import notes
+
+        space = Space(name="Личное", owner_id=test_user.id)
+        db_session.add(space)
+        await db_session.flush()
+        db_session.add(SpaceMember(space_id=space.id, user_id=test_user.id))
+        db_session.add(Item(space_id=space.id, author_id=test_user.id, material_type="note",
+                            title="Одна", content="", properties={}))
+        await db_session.commit()
+        ctx = SimpleNamespace(db=db_session, user_id=test_user.id, space_id=space.id, client_timezone="UTC")
+
+        result = await notes.list_all_items(ctx, {})
+
+        assert "url" not in result["items"][0]
+        assert "get_note" in result["ссылок_здесь_нет"]
+        # id остаётся — без него не вызвать get_note.
+        assert result["items"][0]["id"]
+
+    async def test_короткие_названия_влезают_числом_больше(self, db_session, test_user):
+        """Главный довод за бюджет в символах: число записей размером не
+        управляет. С названиями по пять символов их влезает кратно
+        больше, чем с живыми вроде «🐕 Marsz Kejterka уже в субботу»."""
+        from types import SimpleNamespace
+
+        from app.models import Item, Space, SpaceMember
+        from app.tools import notes
+
+        space = Space(name="S", owner_id=test_user.id)
+        db_session.add(space)
+        await db_session.flush()
+        db_session.add(SpaceMember(space_id=space.id, user_id=test_user.id))
+        for i in range(400):
+            db_session.add(Item(space_id=space.id, author_id=test_user.id, material_type="note",
+                                title=f"З{i}", content="", properties={}))
+        await db_session.commit()
+        ctx = SimpleNamespace(db=db_session, user_id=test_user.id, space_id=space.id, client_timezone="UTC")
+
+        short = await notes.list_all_items(ctx, {})
+
+        for item in (await db_session.execute(__import__("sqlalchemy").select(Item))).scalars().all():
+            item.title = item.title + " с довольно длинным названием про Познань и документы"
+        await db_session.commit()
+        long = await notes.list_all_items(ctx, {})
+
+        assert len(short["items"]) > len(long["items"])

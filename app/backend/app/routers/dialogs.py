@@ -276,7 +276,7 @@ SYSTEM_PROMPT_BASE = (
     "мере касается и ссылок на СОБСТВЕННЫЕ заметки/списки: реальный "
     "найденный случай — модель придумывала несуществующую схему вида "
     "«notenotes://<id>» или просто вставляла голый id вместо ссылки, обе "
-    "формы не кликабельны. create_note/get_note/search_base/list_all_items/"
+    "формы не кликабельны. create_note/get_note/search_base/"
     "list_items_in_folder/list_items_by_tag отдают готовое поле url для "
     "каждой заметки/списка — если пользователь просит ссылку, используй "
     "именно его как есть, целиком, никогда не собирай сам из id.\n\n"
@@ -2837,7 +2837,7 @@ async def _run_dialog_turn_locked(
             # достаточно "верифицирована" для показа кликабельной.
             #
             # _BARE_URL_RE тоже — реальный найденный пробел: поле "url" в
-            # результатах create_note/get_note/search_base/list_all_items/
+            # результатах create_note/get_note/search_base/
             # list_items_in_folder/list_items_by_tag (item_url,
             # tools/notes.py) — это голая JSON-строка, не markdown-ссылка
             # [текст](url), поэтому _MARKDOWN_LINK_RE её не видел вообще —
