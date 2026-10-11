@@ -42,7 +42,7 @@ from datetime import date, datetime, time, timedelta, timezone
 from sqlalchemy import select
 
 from app.db import async_session
-from app.expiry_check import _CLAIM_RE, _to_date
+from app.expiry_check import _CLAIM_RE, _VALIDITY_PHRASES, _to_date
 from app.models import Item, Notification, Space, Upload
 
 logger = logging.getLogger(__name__)
@@ -108,14 +108,75 @@ def _snippet(text: str, match_end: int) -> str:
     return _mask_identifiers(" ".join(cleaned.split())[-90:])
 
 
+# Формулировка, которой заявлен срок, — отдельно от самой даты. Берём из
+# того же списка, что и _CLAIM_RE, чтобы не разъехалось.
+_PHRASE_RE = re.compile(r"(?:" + "|".join(_VALIDITY_PHRASES) + r")", re.IGNORECASE)
+
+
+def _phrase_of(match: re.Match[str]) -> str:
+    found = _PHRASE_RE.match(match.group(0))
+    return " ".join(found.group(0).lower().split()) if found else ""
+
+
 def find_upcoming(text: str, today: date) -> list[tuple[date, str]]:
-    """Будущие сроки с пояснением. Дубли по дате схлопнуты."""
-    found: dict[date, str] = {}
-    for match in _CLAIM_RE.finditer(text or ""):
+    """Будущие сроки с пояснением. Дубли по дате схлопнуты, перекрытые убраны.
+
+    ПЕРЕКРЫТЫЕ СРОКИ. Жалоба владельца 11.10: пришло напоминание «Срок
+    истекает 10.12.2026: Сервисная книжка», а срок давно не актуален.
+    Документ оказался ЖУРНАЛОМ обслуживания — восемь записей вида
+    «обслужено тогда → следующий осмотр до тогда»:
+
+        16.01.2014 → 16.01.2017      10.12.2024 → 10.12.2026
+        03.10.2023 → 03.10.2024      12.12.2024 → 12.12.2025
+        25.10.2023 → 25.10.2024      02.07.2025 → 02.07.2026
+        14.03.2024 → 14.03.2025      25.08.2026 → 25.08.2027
+
+    Последнее ТО 25.08.2026, значит 10.12.2026 перекрыт четырьмя более
+    поздними записями. Предупреждать о нём — вранье.
+
+    ПРАВИЛО ВЫБРАЛИ ДАННЫЕ, А НЕ ИНТУИЦИЯ. Первое, что хочется, —
+    «оставляем самый поздний срок под одной формулировкой». Прогнал по
+    всей боевой базе: оно отбросило бы 10.08.2027 в скане CamScanner,
+    оставив 05.02.2031. А это РАЗНЫЕ документы в одном скане (там и
+    PESEL'и трёх человек), и спрятать срок на три с половиной года раньше
+    было бы хуже исходной болезни. Правило не поехало в прод.
+
+    Работает уточнённое: формулировка «журнальная», если под ней в том же
+    документе есть и ПРОШЕДШИЕ даты, — тогда это история, и жива только
+    последняя запись. Если все даты под формулировкой в будущем, это
+    разные документы, и трогать их нельзя. Проверено на той же базе:
+    сервисная книжка схлопывается верно («do dnia», шесть прошедших
+    дат), скан остаётся целым («ważny do», прошедших нет).
+    """
+    text = text or ""
+    history: dict[str, bool] = {}
+    future: dict[str, dict[date, str]] = {}
+
+    for match in _CLAIM_RE.finditer(text):
         parsed = _to_date(match)
-        if parsed is None or parsed <= today or parsed > today + MAX_HORIZON:
+        if parsed is None:
             continue
-        found.setdefault(parsed, _snippet(text, match.end()))
+        phrase = _phrase_of(match)
+        if parsed <= today:
+            # Прошедшее само в напоминания не идёт (ими занимается
+            # expiry_check в ответе), но служит признаком журнала.
+            history[phrase] = True
+            continue
+        if parsed > today + MAX_HORIZON:
+            continue
+        future.setdefault(phrase, {}).setdefault(parsed, _snippet(text, match.end()))
+
+    found: dict[date, str] = {}
+    for phrase, dates in future.items():
+        if history.get(phrase) and len(dates) > 1:
+            latest = max(dates)
+            found[latest] = dates[latest]
+            logger.info(
+                "Сроки под «%s» выглядят журналом: оставлен %s, перекрыты %s",
+                phrase, latest, ", ".join(str(d) for d in sorted(dates) if d != latest),
+            )
+            continue
+        found.update(dates)
     return sorted(found.items())
 
 

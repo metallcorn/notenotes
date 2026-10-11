@@ -14,6 +14,7 @@ from app.llm.base import ToolDefinition
 from app.models import Folder, Item, ItemTag, ItemVersion, Space, SpaceMember, Tag
 from app.note_formatting import linkify_notes_content
 from app.routers.items import create_item_row
+from app.identifier_ambiguity import ambiguity_warning
 from app.tools.registry import ToolContext, ToolError
 
 # Реальный найденный случай: пользователь просит ссылку на заметку —
@@ -179,6 +180,11 @@ async def get_note(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
         # основной источник ответа.
         result["material_type"] = "ticket"
         result["properties"] = item.properties
+    # Несколько разных номеров в одном документе — модель обязана узнать
+    # об этом до того, как назовёт один из них (identifier_ambiguity.py).
+    warning = ambiguity_warning(item.content or "")
+    if warning:
+        result["чьи_номера"] = warning
     return result
 
 

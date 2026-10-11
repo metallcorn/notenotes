@@ -36,6 +36,7 @@ from app.deps import ensure_space_access, is_vault_space
 from app.llm.base import ToolDefinition
 from app.models import Item, Space, SpaceMember, Upload
 from app.tools.registry import ToolContext, ToolError
+from app.identifier_ambiguity import ambiguity_warning
 from app.processing_status import STATUS_EMPTY
 
 # Сколько байтов файла готовы положить в ответ. Картинка на 4 МБ — это
@@ -288,6 +289,9 @@ async def get_file(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
     if text:
         result["text"] = text[:MAX_TEXT_CHARS]
         result["text_truncated"] = len(text) > MAX_TEXT_CHARS
+        warning = ambiguity_warning(text)
+        if warning:
+            result["чьи_номера"] = warning
     elif upload.transcription_status in ("pending", "processing"):
         result["note"] = "Текст из файла ещё извлекается — попробуй через минуту"
     elif upload.transcription_status == STATUS_EMPTY:

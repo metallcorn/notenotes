@@ -279,3 +279,86 @@ class TestПояснениеЧитаемо:
 
         assert "7654321" not in got
         assert got.startswith("Paszport AB"), "по префиксу документ ещё узнаваем"
+
+
+class TestПерекрытыеСроки:
+    """Жалоба владельца 11.10: пришло «Срок истекает 10.12.2026:
+    Сервисная книжка», а срок давно не актуален — документ оказался
+    журналом обслуживания, и с тех пор было четыре ТО."""
+
+    SERVICE_BOOK = """
+    | 03.10.2023 | Następny przegląd do | 26000 km lub do dnia 03.10.2024 |
+    | 25.10.2023 | Następny przegląd do | 41000 km lub do dnia 25.10.2024 |
+    | 14.03.2024 | Warunki trudne | do 56 000 km lub do dnia 14.03.2025 |
+    | 10.12.2024 | Warunki normalne | do 73 000 km lub do dnia 10.12.2026 |
+    | 12.12.2024 | Warunki trudne | do 73 000 km lub do dnia 12.12.2025 |
+    | 02.07.2025 | Warunki trudne | do 90 000 km lub do dnia 02.07.2026 |
+    | 25.08.2026 | Następny przegląd: do 88.166 km lub do dnia 25.08.2027 |
+    """
+
+    def test_журнал_обслуживания_схлопывается_в_последнюю_запись(self):
+        from datetime import date
+
+        got = document_expiry.find_upcoming(self.SERVICE_BOOK, date(2026, 10, 11))
+
+        assert [d for d, _ in got] == [date(2027, 8, 25)]
+
+    def test_разные_документы_в_одном_скане_остаются_оба(self):
+        """ПРАВИЛО ВЫБРАЛИ ДАННЫЕ. Очевидное «оставляем самый поздний под
+        одной формулировкой» прогнал по всей боевой базе — оно отбросило
+        бы 10.08.2027 в скане CamScanner, оставив 05.02.2031. А это
+        РАЗНЫЕ документы в одном скане (там и PESEL'и трёх человек), и
+        спрятать срок на три с половиной года раньше было бы хуже
+        исходной болезни. Правило в прод не поехало.
+
+        Два паспорта с близкими сроками — тот же случай, но уже внутри
+        горизонта: оба обязаны остаться."""
+        from datetime import date
+
+        scan = (
+            "Paszport 75 1234567 ważny do 10.08.2027\n"
+            "Karta pobytu AB7654321 ważny do 20.10.2027\n"
+        )
+
+        got = document_expiry.find_upcoming(scan, date(2026, 10, 11))
+
+        assert [d for d, _ in got] == [date(2027, 8, 10), date(2027, 10, 20)]
+
+    def test_слишком_далёкий_срок_по_прежнему_ждёт(self):
+        """Горизонт в 400 дней никуда не делся — и именно он, а не новое
+        правило, защищал скан CamScanner в проде: паспорт до 2031 года
+        просто не попадал в выборку. Новое правило нужно для случая, когда
+        оба срока внутри горизонта (тест выше)."""
+        from datetime import date
+
+        got = document_expiry.find_upcoming("Paszport ważny do 05.02.2031", date(2026, 10, 11))
+
+        assert got == []
+
+    def test_журналом_считается_только_своя_формулировка(self):
+        """История под «do dnia» не должна схлопывать сроки под «ważny do»
+        в том же документе."""
+        from datetime import date
+
+        mixed = (
+            "Następny przegląd do dnia 03.10.2024\n"      # прошедшее, история
+            "Następny przegląd do dnia 25.08.2027\n"
+            "Następny przegląd do dnia 10.12.2026\n"
+            "Paszport ważny do 10.08.2027\n"
+            "Karta pobytu ważny do 20.10.2027\n"
+        )
+
+        got = [d for d, _ in document_expiry.find_upcoming(mixed, date(2026, 10, 11))]
+
+        assert date(2027, 8, 25) in got and date(2026, 12, 10) not in got, "журнал схлопнут"
+        assert date(2027, 8, 10) in got and date(2027, 10, 20) in got, "паспорта не тронуты"
+
+    def test_одна_будущая_дата_при_истории_остаётся(self):
+        """Нечего схлопывать — нечего и терять."""
+        from datetime import date
+
+        text = "do dnia 03.10.2024\ndo dnia 25.08.2027\n"
+
+        got = document_expiry.find_upcoming(text, date(2026, 10, 11))
+
+        assert [d for d, _ in got] == [date(2027, 8, 25)]
