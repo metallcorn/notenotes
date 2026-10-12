@@ -48,7 +48,11 @@ sudo docker run --rm $TEST_LIMITS \
 echo "==> Frontend-тесты прошли"
 
 echo "==> Сборка образа backend (не трогает работающий контейнер)"
-(cd /srv/notenotes/compose && sudo docker compose build backend)
+# --pull обязателен. Без него docker берёт закэшированный базовый образ и
+# держит его месяцами: 12.10 внутри собранного образа ждали 16 обновлений,
+# среди них OpenSSL из stable-security. Цена — изредка перекачать 190 МБ
+# базового образа, и это дешевле, чем жить с непропатченным OpenSSL.
+(cd /srv/notenotes/compose && sudo docker compose build --pull backend)
 
 echo "==> Тесты на СОБРАННОМ образе, изолированная notenotes_test БД"
 (
