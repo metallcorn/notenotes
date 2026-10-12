@@ -122,6 +122,6 @@ export const uiStorage = {
 };
 
 export type ContentWidth = "narrow" | "wide" | "full";
-export type ViewMode = "notes" | "assistant" | "trash" | "activity";
+export type ViewMode = "notes" | "assistant" | "trash" | "activity" | "documents";
 export type NoteEditorMode = "view" | "wysiwyg" | "raw";
 export type Theme = "light" | "dark" | "system";

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Bell, ChevronLeft, ChevronRight, Sparkles, Trash2 } from "lucide-react";
+import { Bell, ChevronLeft, ChevronRight, FileStack, Sparkles, Trash2 } from "lucide-react";
 import { useSpaces } from "../api/hooks";
 import { uiStorage, type ViewMode } from "../lib/storage";
 import { withViewTransition } from "../lib/viewTransition";
@@ -23,6 +23,7 @@ import DialogList from "../components/DialogList";
 import AssistantChat from "../components/AssistantChat";
 import TrashView from "../components/TrashView";
 import ActivityView from "../components/ActivityView";
+import DocumentsView from "../components/DocumentsView";
 import OfflineBanner from "../components/OfflineBanner";
 import OfflineFlushNotice from "../components/OfflineFlushNotice";
 
@@ -199,6 +200,13 @@ export default function AppShell() {
       setSearchParams({ list: "1" });
       return;
     }
+    if (savedViewMode === "documents") {
+      setViewModeState("documents");
+      // list: "1" — как у «Корзины» и «Активности»: на мобиле это
+      // раскрывает список, иначе экран открывался бы пустым.
+      setSearchParams({ list: "1" });
+      return;
+    }
     if (savedViewMode === "activity") {
       setViewModeState("activity");
       setSearchParams({ list: "1" });
@@ -244,6 +252,7 @@ export default function AppShell() {
         // своего item/dialog не имеют, поэтому их трогать не нужно.
         if (itemParam) setViewModeState("notes");
         else if (screenParam === "activity") setViewModeState("activity");
+        else if (screenParam === "documents") setViewModeState("documents");
         else if (screenParam === "trash") setViewModeState("trash");
         // screen=assistant — тот же маркер для настоящего перехода на
         // вкладку "Ассистент" (см. selectDialog/switchToAssistant). Чат,
@@ -344,7 +353,7 @@ export default function AppShell() {
   // сессии с несколькими переключениями папок должен был пройти через
   // ВСЕ них по одной, прежде чем реально попасть на sidebar, и выглядело
   // это как "назад вообще ничего не делает" (реальная жалоба).
-  function openListView(screen?: "activity" | "trash" | "assistant") {
+  function openListView(screen?: "activity" | "trash" | "assistant" | "documents") {
     const alreadyOnList = mobileView === "list";
     setSearchParams(
       (prev) => {
@@ -421,6 +430,11 @@ export default function AppShell() {
   function switchToActivity() {
     setViewMode("activity");
     openListView("activity");
+  }
+
+  function switchToDocuments() {
+    setViewMode("documents");
+    openListView("documents");
   }
 
   function openRecentItem(spaceId: string, itemId: string) {
@@ -631,6 +645,14 @@ export default function AppShell() {
               <Bell size={15} /> Активность
             </button>
             <button
+              onClick={switchToDocuments}
+              className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-sm ${
+                viewMode === "documents" ? "bg-muted-active font-medium text-primary" : "text-secondary hover:bg-muted-hover"
+              }`}
+            >
+              <FileStack size={15} /> Документы
+            </button>
+            <button
               onClick={switchToTrash}
               className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-sm ${
                 viewMode === "trash" ? "bg-muted-active font-medium text-primary" : "text-secondary hover:bg-muted-hover"
@@ -696,6 +718,8 @@ export default function AppShell() {
       <main className="flex min-h-0 flex-1 overflow-hidden">
         {viewMode === "trash" ? (
           <TrashView spaceId={activeSpaceId} onBack={closeListView} />
+        ) : viewMode === "documents" ? (
+          <DocumentsView onBack={closeListView} onOpenItem={openRecentItem} />
         ) : viewMode === "activity" ? (
           <ActivityView
             onBack={closeListView}

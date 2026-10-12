@@ -28,6 +28,7 @@ from app.routers import (
     calendar,
     collab_ws,
     debug_log,
+    documents,
     dialogs,
     feedback,
     folders,
@@ -192,6 +193,7 @@ app.include_router(public.router)
 # SPA-роута ниже (app.get("/{full_path:path}")) — иначе тот перехватит
 # запрос первым и отдаст голый index.html без og:*/title заметки.
 app.include_router(share_preview.router)
+app.include_router(documents.router)
 app.include_router(search.router)
 app.include_router(feedback.router)
 app.include_router(debug_log.router)

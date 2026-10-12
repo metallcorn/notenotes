@@ -41,6 +41,7 @@ import type {
   User,
   VaultUnlockInfo,
   SemanticHit,
+  DocumentsOverview,
 } from "./types";
 
 // --- auth --------------------------------------------------------------
@@ -1575,6 +1576,15 @@ export function useCreateReminder() {
       repeat?: string;
     }) => api.post<Notification>("/notifications", payload),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["notifications"] }),
+  });
+}
+
+// --- документы -----------------------------------------------------------
+
+export function useDocuments() {
+  return useQuery({
+    queryKey: ["documents"],
+    queryFn: () => api.get<DocumentsOverview>("/documents"),
   });
 }
 

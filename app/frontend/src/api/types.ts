@@ -319,3 +319,46 @@ export interface SemanticHit {
   /** Кусок текста, который совпал по смыслу — не начало заметки. */
   excerpt: string;
 }
+
+// Сквозной вид «Документы» (routers/documents.py). Запрос владельца:
+// «возможно отсортировать или пересобрать отдельно где-то все документы,
+// потому что всё сейчас так раскидано». Это ВИД: ничего не перемещается,
+// доступы не меняются.
+export interface DocumentEntry {
+  id: string;
+  filename: string;
+  content_type: string;
+  size_bytes: number | null;
+  created_at: string;
+  space_id: string;
+  space_name: string;
+  /** Заметка, в которой лежит файл — чтобы попасть к нему в контекст. */
+  item_id: string | null;
+  item_title: string | null;
+}
+
+export interface DocumentInstalment {
+  period: string;
+  upload_id: string;
+  filename: string;
+  space_name: string;
+  received_on: string;
+}
+
+export interface DocumentSeries {
+  key: string;
+  title: string;
+  monthly: boolean;
+  /** "ок" | "ожидается" | "задерживается" */
+  status: string;
+  instalments: DocumentInstalment[];
+  /** Пропущенные периоды ВНУТРИ наблюдаемого диапазона. */
+  gaps: string[];
+  expected_next: string | null;
+  expected_by: string | null;
+}
+
+export interface DocumentsOverview {
+  series: DocumentSeries[];
+  documents: DocumentEntry[];
+}
