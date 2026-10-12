@@ -44,10 +44,15 @@ async def test_note_total_attachment_size_over_100mb_rejected(auth_client):
     54 МБ — ещё не бьют потолок; шесть таких же — 108 МБ, уже должны
     отклоняться при попытке сохранить заметку с таким content."""
     space_id = await _make_space(auth_client)
-    chunk = b"x" * (18 * 1024 * 1024)
 
     upload_ids = []
     for i in range(6):
+        # Содержимое у каждого РАЗНОЕ. С одинаковыми байтами дедупликация
+        # по содержимому (app/upload_dedup.py) вернула бы один и тот же
+        # файл шесть раз, и суммарный вес остался бы 18 МБ — тест
+        # проверял бы не то, что написано в его имени. Поймано ровно так
+        # при внедрении дедупа.
+        chunk = bytes([i]) + b"x" * (18 * 1024 * 1024 - 1)
         r = await auth_client.post(
             f"/api/uploads?space_id={space_id}", files={"file": (f"f{i}.bin", chunk, "application/octet-stream")}
         )

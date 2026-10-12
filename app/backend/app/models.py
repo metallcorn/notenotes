@@ -394,6 +394,19 @@ class Upload(Base):
     # Значения: none / recording / pending / processing / done / failed /
     # empty (см. STATUS_EMPTY в app/processing_status.py).
     transcript: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Содержимое файла одной строкой — для дедупликации на приёме.
+    #
+    # ЗАМЕР 12.10: из 355 файлов 71 оказался побайтовым дубликатом (49
+    # групп, каждый пятый файл). Почти всё — месячные пакеты от
+    # бухгалтера, которые приходят повторно: «ZUS DRA 07-2026.pdf» лежал
+    # в пяти экземплярах, с 19.08 по 01.10, в «Почте» и в «Личном».
+    # Сравнивать их было НЕЧЕМ: ни хэша, ни размера в таблице не было.
+    #
+    # nullable, потому что у файлов, залитых до этой правки, хэша нет, а
+    # считать его на миграции для 427 МБ на 4 ГБ VPS — лишний риск;
+    # досчитывается отдельным проходом.
+    sha256: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    size_bytes: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
 
 
 class ItemVersion(Base):

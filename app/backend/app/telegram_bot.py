@@ -349,12 +349,13 @@ async def _download_file(file_id: str) -> tuple[bytes, str] | None:
 async def _save_upload(
     db: AsyncSession, space_id: uuid.UUID, author_id: uuid.UUID, content: bytes, filename: str, content_type: str
 ) -> Upload:
-    upload = Upload(space_id=space_id, author_id=author_id, filename=filename, content_type=content_type)
-    db.add(upload)
-    await db.flush()
-    upload_dir = Path(get_settings().upload_dir)
-    upload_dir.mkdir(parents=True, exist_ok=True)
-    _upload_path(upload.id).write_bytes(content)
+    """Файл из Telegram. Повторная пересылка того же файла не создаёт
+    второй копии — см. save_upload_deduplicated."""
+    from app.routers.uploads import save_upload_deduplicated
+
+    upload, _reused = await save_upload_deduplicated(
+        db, space_id, author_id, content, filename, content_type
+    )
     return upload
 
 

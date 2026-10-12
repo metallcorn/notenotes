@@ -1,3 +1,4 @@
+import hashlib
 import logging
 import uuid
 from pathlib import Path
@@ -13,6 +14,7 @@ from app.db import get_db
 from app.deps import ensure_space_access, get_current_user, is_vault_space
 from app.models import Upload, User
 from app.schemas.upload import UploadOut
+from app.upload_dedup import content_hash, find_anywhere, find_in_space, link_or_write
 from app.pdf_processing import AUTO_OCR_MAX_PDF_BYTES
 from app.pdf_processing import enqueue_ocr as enqueue_pdf_ocr
 from app.pdf_processing import extract_text as extract_pdf_text
@@ -193,6 +195,50 @@ def _generate_pdf_thumbnail(upload_id: uuid.UUID, pdf_bytes: bytes) -> bool:
         return False
 
 
+
+# Единая точка приёма файла из писем, Telegram и инструментов ассистента.
+#
+# Дедупликация здесь, а не у каждого вызывающего: иначе из трёх входов
+# проверку получил бы один, и ровно через месяц никто бы не помнил,
+# почему дубли всё равно появляются (см. app/upload_dedup.py — замер, из
+# которого это выросло).
+async def save_upload_deduplicated(
+    db: AsyncSession,
+    space_id: uuid.UUID,
+    author_id: uuid.UUID,
+    content: bytes,
+    filename: str,
+    content_type: str,
+) -> tuple[Upload, bool]:
+    """Сохранить файл. Возвращает (файл, он_уже_был).
+
+    он_уже_был == True — в этом спейсе такой файл уже лежит, нового не
+    создано; вызывающий должен сослаться на возвращённый.
+    """
+    digest = content_hash(content)
+    existing = await find_in_space(db, space_id, digest)
+    if existing is not None:
+        logger.info("Файл %s уже есть в спейсе (%s) — ссылаюсь на существующий", filename, existing.id)
+        return existing, True
+
+    upload = Upload(
+        space_id=space_id,
+        author_id=author_id,
+        filename=filename,
+        content_type=content_type,
+        sha256=digest,
+        size_bytes=len(content),
+    )
+    db.add(upload)
+    await db.flush()
+
+    upload_dir = Path(get_settings().upload_dir)
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    twin = await find_anywhere(db, digest)
+    source = _upload_path(twin.id) if twin is not None and twin.id != upload.id else None
+    link_or_write(source, _upload_path(upload.id), content)
+    return upload, False
+
 @router.post("", response_model=UploadOut, status_code=status.HTTP_201_CREATED)
 async def create_upload(
     space_id: uuid.UUID,
@@ -222,6 +268,10 @@ async def create_upload(
     # одним куском на весь запрос, легко несколько таких параллельно — OOM.
     per_file_limit = MAX_UPLOAD_BYTES if _is_media_content_type(content_type) else MAX_GENERIC_UPLOAD_BYTES
     total = 0
+    # Хэш считаем ПО ХОДУ записи, а не потом по готовому файлу: иначе
+    # пришлось бы прочитать его второй раз целиком, а здесь всё написано
+    # ради того, чтобы не держать файл в памяти (см. комментарий выше).
+    digest = hashlib.sha256()
     try:
         with dest.open("wb") as out:
             while chunk := await file.read(_STREAM_CHUNK_BYTES):
@@ -230,11 +280,56 @@ async def create_upload(
                     raise HTTPException(
                         status.HTTP_400_BAD_REQUEST, f"Файл больше {per_file_limit // (1024 * 1024)} МБ"
                     )
+                digest.update(chunk)
                 out.write(chunk)
     except HTTPException:
         dest.unlink(missing_ok=True)
         await db.rollback()
         raise
+
+    # Такой файл в этом спейсе уже есть — отдаём его, а только что
+    # записанный убираем.
+    #
+    # Проверка ПОСЛЕ записи, а не до: файл приходит потоком, и хэш
+    # известен только когда поток закончился. Платим за это одной лишней
+    # записью на диск — зато не держим многомегабайтный файл в памяти,
+    # ради чего весь этот поток и сделан.
+    #
+    # Возвращаем 201 с уже существующей записью намеренно: вызывающий
+    # (редактор, бот, инструмент ассистента) вставит в заметку ссылку на
+    # неё, то есть получится ровно то, что человек и хотел — «этот файл
+    # уже есть, используй тот».
+    hex_digest = digest.hexdigest()
+    twin = await find_in_space(db, space_id, hex_digest)
+    if twin is not None:
+        # Поля близнеца читаем ДО rollback. Откат транзакции помечает все
+        # объекты сессии устаревшими, и следующее обращение к любому
+        # атрибуту попыталось бы сходить в БД — а это синхронный доступ в
+        # асинхронном коде, то есть MissingGreenlet. Поймано тестом.
+        existing_text = (twin.transcript or "") or None
+        payload = UploadOut(
+            id=twin.id,
+            url=f"/api/uploads/{twin.id}",
+            filename=twin.filename,
+            content_type=twin.content_type,
+            # Текст берём уже извлечённый — повторно обрабатывать файл
+            # незачем: это и деньги провайдера, и очередь на 4 ГБ VPS, и
+            # риск перезаписать распознанное пустотой.
+            pdf_text=existing_text if twin.content_type == "application/pdf" else None,
+            pdf_ocr_queued=False,
+            preview_text=existing_text if twin.content_type != "application/pdf" else None,
+            has_thumbnail=_thumbnail_path(twin.id).is_file(),
+            size_bytes=twin.size_bytes
+            or (_upload_path(twin.id).stat().st_size if _upload_path(twin.id).is_file() else 0),
+        )
+        twin_id = twin.id
+        dest.unlink(missing_ok=True)
+        await db.rollback()
+        logger.info("Загружен файл, который уже есть в спейсе (%s) — отдаю существующий", twin_id)
+        return payload
+
+    upload.sha256 = hex_digest
+    upload.size_bytes = total
 
     # Сейф — сервер не видит plaintext (клиент шлёт уже зашифрованные
     # байты и родовое имя файла), поэтому вся обработка ниже (текстовый

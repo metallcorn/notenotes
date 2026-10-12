@@ -18,7 +18,7 @@ from app.pdf_processing import enqueue_ocr as enqueue_pdf_ocr
 from app.pdf_processing import extract_text as extract_pdf_text
 from app.pdf_processing import serialize_document_attachment
 from app.routers.items import create_item_row
-from app.routers.uploads import MAX_GENERIC_UPLOAD_BYTES, _extract_text_preview, _upload_path
+from app.routers.uploads import MAX_GENERIC_UPLOAD_BYTES, _extract_text_preview, _upload_path, save_upload_deduplicated
 from app.transcription import enqueue_transcription
 from app.transcription import placeholder_text as video_placeholder_text
 from app.vision import enqueue_vision
@@ -85,16 +85,29 @@ async def _get_or_create_folder(db: AsyncSession, space_id: uuid.UUID, name: str
     return folder.id
 
 
+def _existing_attachment_block(upload: Upload) -> str:
+    """Блок для вложения, которое в этом спейсе уже лежало.
+
+    Ссылаемся на тот же файл и говорим об этом прямым текстом: человек
+    должен видеть, что это повтор, а не думать, что вложение потерялось.
+    Очередь обработки не трогаем — см. комментарий у вызова.
+    """
+    url = f"/api/uploads/{upload.id}"
+    if upload.content_type.startswith("image/"):
+        return f"![]({url})\n\n_Этот файл уже был в базе — показан тот же._\n"
+    return (
+        f"{serialize_document_attachment(url, upload.filename, (upload.transcript or '')[:4000])}\n\n"
+        "_Этот файл уже был в базе — приложен тот же._\n"
+    )
+
+
 async def _save_attachment(
     db: AsyncSession, space_id: uuid.UUID, author_id: uuid.UUID, content: bytes, filename: str, content_type: str
-) -> Upload:
-    upload = Upload(space_id=space_id, author_id=author_id, filename=filename, content_type=content_type)
-    db.add(upload)
-    await db.flush()
-    upload_dir = Path(get_settings().upload_dir)
-    upload_dir.mkdir(parents=True, exist_ok=True)
-    _upload_path(upload.id).write_bytes(content)
-    return upload
+) -> tuple[Upload, bool]:
+    """Вложение письма. Возвращает (файл, он_уже_был) — см.
+    save_upload_deduplicated: бухгалтер присылает месячный пакет
+    повторно, и без этого «ZUS DRA 07-2026.pdf» лежал в пяти копиях."""
+    return await save_upload_deduplicated(db, space_id, author_id, content, filename, content_type)
 
 
 # Повторная доставка одного и того же письма.
@@ -254,10 +267,18 @@ async def webhook(request: Request, db: AsyncSession = Depends(get_db)) -> dict:
             data = await file.read()
             if len(data) > MAX_GENERIC_UPLOAD_BYTES:
                 continue
-            upload = await _save_attachment(
+            upload, reused = await _save_attachment(
                 db, inbox.space_id, inbox.user_id, data, file.filename or f"attachment-{i}", file.content_type or "application/octet-stream"
             )
-            blocks.append(await _attachment_block(upload, data, auto_process))
+            # Повторно присланный файл не обрабатываем заново: OCR и
+            # распознавание речи уже отработали на нём в прошлый раз, и
+            # второй проход — это и деньги провайдера, и очередь на 4 ГБ
+            # VPS, и риск перезаписать уже извлечённый текст пустотой.
+            blocks.append(
+                _existing_attachment_block(upload)
+                if reused
+                else await _attachment_block(upload, data, auto_process)
+            )
 
     if blocks:
         content = f"{content}\n\n" + "\n\n".join(blocks) if content else "\n\n".join(blocks)

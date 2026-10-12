@@ -421,3 +421,52 @@ async def test_одно_письмо_двум_людям_доходит_обои
 
     assert len((await db_session.execute(select(Item).where(Item.space_id == mine.id))).scalars().all()) == 1
     assert len((await db_session.execute(select(Item).where(Item.space_id == other_space.id))).scalars().all()) == 1
+
+
+async def test_повторное_вложение_не_плодит_файлы(client, db_session, test_user, monkeypatch):
+    """ЗАМЕР 12.10: «ZUS DRA 07-2026.pdf» лежал в ПЯТИ экземплярах, с 19.08
+    по 01.10 — бухгалтер присылает месячный пакет повторно. Письма разные
+    (у каждого свой Message-Id), а файл в них один и тот же."""
+    import io
+
+    from sqlalchemy import select
+
+    from app.models import Upload
+
+    monkeypatch.setattr(get_settings(), "mailgun_webhook_signing_key", _SIGNING_KEY)
+    space = await _inbox(db_session, test_user)
+    pdf = b"%PDF-1.4 ZUS DRA 07-2026" + b"x" * 500
+
+    for n in (1, 2, 3):
+        await client.post("/api/mail/webhook", data=_signed_form(
+            recipient="mytoken123@mail.notenotes.example",
+            subject="Налоги за июль",
+            **{"stripped-text": f"пакет, попытка {n}", "Message-Id": f"<pack-{n}@buh>", "attachment-count": "1"},
+        ), files={"attachment-1": ("ZUS DRA 07-2026.pdf", io.BytesIO(pdf), "application/pdf")})
+
+    uploads = (await db_session.execute(select(Upload).where(Upload.space_id == space.id))).scalars().all()
+    assert len(uploads) == 1, "файл один, сколько бы писем с ним ни пришло"
+
+
+async def test_повтор_вложения_виден_человеку(client, db_session, test_user, monkeypatch):
+    """Человек должен понять, что это повтор, а не думать, что вложение
+    потерялось."""
+    import io
+
+    from sqlalchemy import select
+
+    from app.models import Item
+
+    monkeypatch.setattr(get_settings(), "mailgun_webhook_signing_key", _SIGNING_KEY)
+    space = await _inbox(db_session, test_user)
+    pdf = b"%PDF-1.4 faktura" + b"y" * 300
+
+    for n in (1, 2):
+        await client.post("/api/mail/webhook", data=_signed_form(
+            recipient="mytoken123@mail.notenotes.example", subject="Счёт",
+            **{"stripped-text": "см. вложение", "Message-Id": f"<f-{n}@buh>", "attachment-count": "1"},
+        ), files={"attachment-1": ("faktura.pdf", io.BytesIO(pdf), "application/pdf")})
+
+    notes = (await db_session.execute(select(Item).where(Item.space_id == space.id))).scalars().all()
+    assert len(notes) == 2, "письма разные — заметки тоже"
+    assert any("уже был в базе" in (n.content or "") for n in notes)
