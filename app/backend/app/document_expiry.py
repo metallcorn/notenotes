@@ -118,6 +118,41 @@ def _phrase_of(match: re.Match[str]) -> str:
     return " ".join(found.group(0).lower().split()) if found else ""
 
 
+# Любая дата — чтобы найти, к какой записи журнала относится срок.
+_ANY_DATE_RE = re.compile(r"\b(\d{1,2})[.\-/](\d{1,2})[.\-/](\d{4})\b")
+
+# Насколько далеко назад искать дату записи. В таблице сервисной книжки
+# строка целиком — «| 10.12.2024 | | Warunki normalne □ | do 73 000 km lub
+# do dnia 10.12.2026 |», то есть около ста символов. Двести — с запасом на
+# разметку OCR, но не настолько, чтобы залезть в предыдущую строку.
+_ROW_LOOKBEHIND = 200
+
+
+def _row_date(text: str, match: re.Match[str]) -> date | None:
+    """Дата ЗАПИСИ, к которой относится найденный срок.
+
+    В журнале обслуживания каждая строка — «обслужено тогда → следующий
+    осмотр до тогда», и живой срок принадлежит строке с самым поздним
+    обслуживанием. Берём ближайшую дату ПЕРЕД формулировкой.
+
+    СТРОГО В ПРЕДЕЛАХ ОДНОЙ СТРОКИ. Первая версия искала просто назад на
+    двести символов и на тексте, где сроки идут подряд разными строками,
+    принимала за «дату записи» срок из ПРЕДЫДУЩЕЙ строки. Поймано
+    собственным тестом. В таблице дата и срок всегда в одной строке, так
+    что ограничение ничего не отнимает, а ложные пары убирает.
+    """
+    line_start = text.rfind("\n", 0, match.start()) + 1
+    start = max(line_start, match.start() - _ROW_LOOKBEHIND)
+    candidates = list(_ANY_DATE_RE.finditer(text, start, match.start()))
+    if not candidates:
+        return None
+    day, month, year = candidates[-1].groups()
+    try:
+        return date(int(year), int(month), int(day))
+    except ValueError:
+        return None
+
+
 def find_upcoming(text: str, today: date) -> list[tuple[date, str]]:
     """Будущие сроки с пояснением. Дубли по дате схлопнуты, перекрытые убраны.
 
@@ -150,13 +185,21 @@ def find_upcoming(text: str, today: date) -> list[tuple[date, str]]:
     """
     text = text or ""
     history: dict[str, bool] = {}
-    future: dict[str, dict[date, str]] = {}
+    # По формулировке: срок -> (дата записи, пояснение).
+    entries: dict[str, dict[date, tuple[date | None, str]]] = {}
+    # Самая поздняя дата ЗАПИСИ под формулировкой, включая прошедшие сроки.
+    newest_row: dict[str, date] = {}
 
     for match in _CLAIM_RE.finditer(text):
         parsed = _to_date(match)
         if parsed is None:
             continue
         phrase = _phrase_of(match)
+        row = _row_date(text, match)
+        if row is not None and row <= today:
+            previous = newest_row.get(phrase)
+            if previous is None or row > previous:
+                newest_row[phrase] = row
         if parsed <= today:
             # Прошедшее само в напоминания не идёт (ими занимается
             # expiry_check в ответе), но служит признаком журнала.
@@ -164,19 +207,49 @@ def find_upcoming(text: str, today: date) -> list[tuple[date, str]]:
             continue
         if parsed > today + MAX_HORIZON:
             continue
-        future.setdefault(phrase, {}).setdefault(parsed, _snippet(text, match.end()))
+        entries.setdefault(phrase, {}).setdefault(parsed, (row, _snippet(text, match.end())))
 
     found: dict[date, str] = {}
-    for phrase, dates in future.items():
-        if history.get(phrase) and len(dates) > 1:
-            latest = max(dates)
-            found[latest] = dates[latest]
-            logger.info(
-                "Сроки под «%s» выглядят журналом: оставлен %s, перекрыты %s",
-                phrase, latest, ", ".join(str(d) for d in sorted(dates) if d != latest),
-            )
+    for phrase, dates in entries.items():
+        if not history.get(phrase):
+            # Истории нет — это не журнал, а разные документы. Все сроки
+            # живые, схлопывать нельзя (см. докстринг выше).
+            found.update({d: snippet for d, (_, snippet) in dates.items()})
             continue
-        found.update(dates)
+
+        # Журнал: жив срок из записи с самым поздним обслуживанием.
+        #
+        # Почему именно так, а не «самый поздний срок». Живой случай 12.10:
+        # фото 20260822_132310.jpg — ФРАГМЕНТ той же книжки, четыре строки:
+        #   14.03.2024 → 14.03.2025     10.12.2024 → 10.12.2026
+        #   12.12.2024 → 12.12.2025     02.07.2025 → 02.07.2026
+        # Самый поздний СРОК здесь 10.12.2026, и о нём пришло напоминание.
+        # Но он из записи от 10.12.2024, а машину обслуживали позже — 02.07.2025,
+        # и тот срок (02.07.2026) уже прошёл. То есть живого срока в этом
+        # фрагменте нет вовсе, а 10.12.2026 — бумажный хвост.
+        latest_row = newest_row.get(phrase)
+        if latest_row is None:
+            # Журнал есть (под формулировкой лежат прошедшие сроки), а дат
+            # записей не нашлось — текст не табличный. Тогда откатываемся
+            # к более грубому, но ЗАМЕРЕННОМУ правилу: жив самый поздний
+            # срок. Оно верно для последовательности одного и того же
+            # обязательства, а разные документы сюда не попадают — у них
+            # истории под формулировкой нет вовсе (ветка выше).
+            latest = max(dates)
+            live = {latest: dates[latest][1]}
+        else:
+            live = {
+                d: snippet for d, (row, snippet) in dates.items()
+                if row is None or row >= latest_row
+            }
+        dropped = [str(d) for d in sorted(dates) if d not in live]
+        if dropped:
+            logger.info(
+                "Сроки под «%s» — журнал (последняя запись %s): оставлено %s, перекрыто %s",
+                phrase, latest_row, ", ".join(str(d) for d in sorted(live)) or "ничего",
+                ", ".join(dropped),
+            )
+        found.update(live)
     return sorted(found.items())
 
 
@@ -188,7 +261,7 @@ async def _scan_once() -> int:
         # Заметки — вместе с автором и с исключением сейфа.
         notes = (
             await db.execute(
-                select(Item.id, Item.author_id, Item.title, Item.content)
+                select(Item.id, Item.author_id, Item.title, Item.content, Item.space_id)
                 .join(Space, Space.id == Item.space_id)
                 .where(
                     Item.deleted_at.is_(None),
@@ -209,8 +282,8 @@ async def _scan_once() -> int:
                 )
             )
         ).all()
-        sources: list[tuple[uuid.UUID, uuid.UUID, str, str]] = [
-            (i, a, t or "Без названия", c or "") for i, a, t, c in notes
+        sources: list[tuple[uuid.UUID, uuid.UUID, str, str, uuid.UUID]] = [
+            (i, a, t or "Без названия", c or "", sp) for i, a, t, c, sp in notes
         ]
 
         # Файлы — их извлечённый текст. Привязываем к заметке, в которой
@@ -223,12 +296,12 @@ async def _scan_once() -> int:
             )
         ).all()
         for upload_id, filename, transcript in uploads:
-            host = next(((i, a, t) for i, a, t, c in sources if str(upload_id) in c), None)
+            host = next(((i, a, t, sp) for i, a, t, c, sp in sources if str(upload_id) in c), None)
             if host is None:
                 continue
-            sources.append((host[0], host[1], filename or host[2], transcript))
+            sources.append((host[0], host[1], filename or host[2], transcript, host[3]))
 
-        for item_id, author_id, title, text in sources:
+        for item_id, author_id, title, text, space_id in sources:
             for expires_on, snippet in find_upcoming(text, today):
                 key = f"{item_id}:{expires_on.isoformat()}"
                 exists = (
@@ -251,7 +324,20 @@ async def _scan_once() -> int:
                         type=NOTIFICATION_TYPE,
                         title=f"Срок истекает {expires_on:%d.%m.%Y}: {title[:80]}",
                         body=snippet,
-                        payload={"key": key, "item_id": str(item_id), "expires_on": expires_on.isoformat()},
+                        # space_id ОБЯЗАТЕЛЕН, хотя кажется лишним: без него
+                        # напоминание в «Активности» не кликабельно вовсе —
+                        # ActivityView.tsx делает карточку кликабельной только
+                        # при наличии ОБОИХ, space_id и item_id. Жалоба
+                        # владельца 12.10: «не могу на это кликнуть в отличии
+                        # от всего другого и попасть на нужную заметку». Все
+                        # пять заведённых к тому дню напоминаний о сроках были
+                        # мёртвыми ссылками.
+                        payload={
+                            "key": key,
+                            "item_id": str(item_id),
+                            "space_id": str(space_id),
+                            "expires_on": expires_on.isoformat(),
+                        },
                         trigger_at=trigger_at.replace(tzinfo=timezone.utc),
                     )
                 )

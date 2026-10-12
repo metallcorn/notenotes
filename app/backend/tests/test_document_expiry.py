@@ -362,3 +362,62 @@ class TestПерекрытыеСроки:
         got = document_expiry.find_upcoming(text, date(2026, 10, 11))
 
         assert [d for d, _ in got] == [date(2027, 8, 25)]
+
+    FRAGMENT = """
+    | 14.03.2024 | 11203 | Warunki trudne X | do 56 000 km lub do dnia 14.03.2025 |
+    | 12.12.2024 | 53110 | Warunki trudne X | do 73 000 km lub do dnia 12.12.2025 |
+    | 10.12.2024 |       | Warunki normalne | do 73 000 km lub do dnia 10.12.2026 |
+    | 02.07.2025 | 69000 | Warunki trudne X | do 90 000 km lub do dnia 02.07.2026 |
+    """
+
+    def test_живой_срок_определяет_последняя_ЗАПИСЬ_а_не_поздняя_дата(self):
+        """Живой случай 12.10: фото 20260822_132310.jpg — фрагмент той же
+        книжки. Самый поздний СРОК в нём 10.12.2026, и о нём пришло
+        напоминание. Но он из записи от 10.12.2024, а машину обслуживали
+        позже — 02.07.2025, и тот срок (02.07.2026) уже прошёл. Значит
+        живого срока во фрагменте нет вовсе, а 10.12.2026 — бумажный
+        хвост.
+        """
+        from datetime import date
+
+        got = document_expiry.find_upcoming(self.FRAGMENT, date(2026, 10, 12))
+
+        assert got == []
+
+    def test_запись_строки_читается_из_её_же_строки(self):
+        from datetime import date
+        import re
+
+        from app.expiry_check import _CLAIM_RE
+
+        match = next(m for m in _CLAIM_RE.finditer(self.FRAGMENT) if "10.12.2026" in m.group(0))
+
+        assert document_expiry._row_date(self.FRAGMENT, match) == date(2024, 12, 10)
+        assert isinstance(match, re.Match)
+
+    def test_без_даты_записи_срок_не_выбрасывается(self):
+        """Если строку журнала распознали без её даты, лучше предупредить
+        лишний раз, чем промолчать о настоящем сроке."""
+        from datetime import date
+
+        text = "do dnia 03.10.2024\nNastępny przegląd do dnia 25.08.2027\n"
+
+        got = [d for d, _ in document_expiry.find_upcoming(text, date(2026, 10, 12))]
+
+        assert got == [date(2027, 8, 25)]
+
+
+class TestСсылкаИзНапоминания:
+    async def test_в_payload_есть_и_item_и_space(self, base, db_session, monkeypatch):
+        """Жалоба владельца 12.10: «не могу на это кликнуть в отличии от
+        всего другого». ActivityView.tsx делает карточку кликабельной
+        только при наличии ОБОИХ — space_id и item_id, — а мы кладли
+        только второй, и все пять напоминаний о сроках были мёртвыми
+        ссылками."""
+        await base.note("Paszport ważny do 10.08.2027", title="Паспорт")
+
+        found = await _scan(db_session, monkeypatch)
+
+        assert len(found) == 1
+        assert found[0].payload.get("item_id")
+        assert found[0].payload.get("space_id") == str(base.space.id)
