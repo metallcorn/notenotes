@@ -433,3 +433,26 @@ class TestСсылкаИзНапоминания:
         # ДД.ММ.ГГГГ: так дату пишут в польских и русских документах, и
         # она переживает рендер, в отличие от разметки исходника.
         assert found[0].payload["find"] == "10.08.2027"
+
+    async def test_срок_из_файла_ведёт_к_вложению(self, base, db_session, monkeypatch):
+        """Живой случай 12.10: «Техосмотр Citroën», дата 11.03.2027 есть в
+        распознанном тексте ФОТОГРАФИИ и отсутствует в content заметки —
+        искать её там нечего, прокручивать надо к самому вложению.
+
+        Поэтому в find кладётся id загрузки, а не дата; различает их
+        фронтенд (lib/findInDoc.ts)."""
+        note = await base.note("Техосмотр, фото ниже", title="Техосмотр Citroën")
+        upload = await base.file_in(note, "Następny przegląd do dnia 11.03.2027", filename="фото.jpg")
+
+        found = await _scan(db_session, monkeypatch)
+
+        assert len(found) == 1
+        assert found[0].payload["find"] == str(upload.id), "дата в заметке отсутствует — ведём к файлу"
+
+    async def test_срок_из_самой_заметки_ведёт_к_дате(self, base, db_session, monkeypatch):
+        """Контроль к тесту выше: когда срок в тексте заметки, ищем дату."""
+        await base.note("Paszport ważny do 10.08.2027", title="Паспорт")
+
+        found = await _scan(db_session, monkeypatch)
+
+        assert found[0].payload["find"] == "10.08.2027"

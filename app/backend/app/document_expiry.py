@@ -282,8 +282,8 @@ async def _scan_once() -> int:
                 )
             )
         ).all()
-        sources: list[tuple[uuid.UUID, uuid.UUID, str, str, uuid.UUID]] = [
-            (i, a, t or "Без названия", c or "", sp) for i, a, t, c, sp in notes
+        sources: list[tuple[uuid.UUID, uuid.UUID, str, str, uuid.UUID, uuid.UUID | None]] = [
+            (i, a, t or "Без названия", c or "", sp, None) for i, a, t, c, sp in notes
         ]
 
         # Файлы — их извлечённый текст. Привязываем к заметке, в которой
@@ -296,12 +296,20 @@ async def _scan_once() -> int:
             )
         ).all()
         for upload_id, filename, transcript in uploads:
-            host = next(((i, a, t, sp) for i, a, t, c, sp in sources if str(upload_id) in c), None)
+            # sources теперь шестиэлементный (добавился id загрузки) —
+            # распаковка должна совпадать, иначе ValueError на первом же
+            # файле. Поймано тестом.
+            host = next(((i, a, t, sp) for i, a, t, c, sp, _u in sources if str(upload_id) in c), None)
             if host is None:
                 continue
-            sources.append((host[0], host[1], filename or host[2], transcript, host[3]))
+            # Пятым элементом спейс, шестым — id ЗАГРУЗКИ. Он нужен, чтобы
+            # прокрутить человека к самому файлу: срок из распознанного
+            # текста в заметке отсутствует, искать его там нечего.
+            # Живой случай 12.10: «Техосмотр Citroën», 11.03.2027 есть в
+            # transcript фотографии и нет в content заметки.
+            sources.append((host[0], host[1], filename or host[2], transcript, host[3], upload_id))
 
-        for item_id, author_id, title, text, space_id in sources:
+        for item_id, author_id, title, text, space_id, from_upload in sources:
             for expires_on, snippet in find_upcoming(text, today):
                 key = f"{item_id}:{expires_on.isoformat()}"
                 exists = (
@@ -350,7 +358,13 @@ async def _scan_once() -> int:
                             # markdown-разметки и HTML-сущностей
                             # исходника. Не нашлась — заметка просто
                             # откроется, без прокрутки.
-                            "find": f"{expires_on:%d.%m.%Y}",
+                            # Дата — когда срок лежит в тексте самой
+                            # заметки. Если он пришёл из распознанного
+                            # текста файла, в заметке его нет вовсе, и
+                            # прокручивать надо к вложению — тогда здесь
+                            # id загрузки. Одно поле на две стратегии,
+                            # различает их фронтенд (lib/findInDoc.ts).
+                            "find": str(from_upload) if from_upload else f"{expires_on:%d.%m.%Y}",
                         },
                         trigger_at=trigger_at.replace(tzinfo=timezone.utc),
                     )

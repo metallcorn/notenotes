@@ -88,3 +88,45 @@ describe("поиск места в заметке", () => {
     expect(parent.scrollIntoView).toHaveBeenCalled();
   });
 });
+
+describe("вторая стратегия: прокрутка к вложению", () => {
+  // Срок документа находится не только в тексте заметки, но и в
+  // РАСПОЗНАННОМ ТЕКСТЕ ФАЙЛА — он хранится на загрузке, а не внутри
+  // заметки. Живой случай 12.10: «Техосмотр Citroën», дата 11.03.2027
+  // есть в transcript фотографии и отсутствует в content заметки.
+  function editorWithDom(dom: HTMLElement) {
+    return {
+      state: { doc: { descendants: () => {} } },
+      view: { domAtPos: vi.fn((): { node: Node } => ({ node: dom })), dom },
+    };
+  }
+
+  const UPLOAD = "a9c5661d-e386-44d6-942b-bd3b6a5684d9";
+
+  it("находит картинку по id загрузки", () => {
+    const root = document.createElement("div");
+    const img = document.createElement("img");
+    img.setAttribute("src", `/api/uploads/${UPLOAD}`);
+    img.scrollIntoView = vi.fn();
+    root.appendChild(img);
+
+    expect(scrollToText(editorWithDom(root), UPLOAD)).toBe(true);
+    expect(img.scrollIntoView).toHaveBeenCalled();
+  });
+
+  it("находит блок документа по data-url", () => {
+    const root = document.createElement("div");
+    const block = document.createElement("div");
+    block.setAttribute("data-url", `/api/uploads/${UPLOAD}`);
+    block.scrollIntoView = vi.fn();
+    root.appendChild(block);
+
+    expect(scrollToText(editorWithDom(root), UPLOAD)).toBe(true);
+  });
+
+  it("нет ни текста, ни вложения — false, и заметка просто открыта", () => {
+    const root = document.createElement("div");
+
+    expect(scrollToText(editorWithDom(root), UPLOAD)).toBe(false);
+  });
+});

@@ -19,7 +19,7 @@
 
 type MinimalEditor = {
   state: { doc: { descendants: (fn: (node: DocNode, pos: number) => void) => void } };
-  view: { domAtPos: (pos: number) => { node: Node } };
+  view: { domAtPos: (pos: number) => { node: Node }; dom?: HTMLElement };
 };
 
 type DocNode = { isText?: boolean; text?: string | null };
@@ -37,6 +37,26 @@ export function findTextPosition(editor: MinimalEditor, needle: string): number 
 }
 
 /**
+ * Элемент вложения по id загрузки.
+ *
+ * ЗАЧЕМ ВТОРАЯ СТРАТЕГИЯ. Срок документа находится не только в тексте
+ * заметки, но и в РАСПОЗНАННОМ ТЕКСТЕ ФАЙЛА — он хранится на загрузке, а
+ * не внутри заметки. Живой случай 12.10: «Техосмотр Citroën», дата
+ * 11.03.2027 есть в transcript фотографии 1000016704.jpg и отсутствует в
+ * content заметки, так что поиск по строке не нашёл бы ничего.
+ *
+ * В таком случае прокручивать надо к самому вложению: человек хотел
+ * попасть к документу, а документ — это картинка или PDF в заметке.
+ */
+function findAttachmentElement(editor: MinimalEditor, uploadId: string): HTMLElement | null {
+  const root = (editor as { view: { dom?: HTMLElement } }).view.dom;
+  if (!root || !uploadId) return null;
+  // src — у картинок и видео, data-url — у блока документа
+  // (serialize_document_attachment).
+  return root.querySelector<HTMLElement>(`[src*="${uploadId}"], [data-url*="${uploadId}"]`);
+}
+
+/**
  * Прокрутить к найденному и подсветить на пару секунд.
  *
  * Фокус в редактор НЕ переводим намеренно: на телефоне это открыло бы
@@ -44,11 +64,17 @@ export function findTextPosition(editor: MinimalEditor, needle: string): number 
  * прокрутили.
  */
 export function scrollToText(editor: MinimalEditor, needle: string): boolean {
+  // Сначала текст, потом вложение. Одно поле `find` на две стратегии —
+  // чтобы не плодить второй параметр через всю цепочку (бэкенд → payload
+  // → ссылка → URL → AppShell → ItemView → редактор). Строка-дата и
+  // UUID загрузки не пересекаются, спутать их нельзя.
   const position = findTextPosition(editor, needle);
-  if (position === null) return false;
-
-  const { node } = editor.view.domAtPos(position);
-  const element = (node.nodeType === Node.TEXT_NODE ? node.parentElement : (node as HTMLElement)) ?? null;
+  const element = position === null
+    ? findAttachmentElement(editor, needle)
+    : (() => {
+        const { node } = editor.view.domAtPos(position);
+        return (node.nodeType === Node.TEXT_NODE ? node.parentElement : (node as HTMLElement)) ?? null;
+      })();
   if (!element) return false;
 
   element.scrollIntoView({ behavior: "smooth", block: "center" });
