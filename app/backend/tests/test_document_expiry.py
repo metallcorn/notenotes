@@ -421,3 +421,15 @@ class TestСсылкаИзНапоминания:
         assert len(found) == 1
         assert found[0].payload.get("item_id")
         assert found[0].payload.get("space_id") == str(base.space.id)
+
+    async def test_в_payload_есть_куда_прокрутить(self, base, db_session, monkeypatch):
+        """Жалоба владельца 12.10: «не могу перейти к тому месту, где эта
+        дата». Заметка открывалась целиком — а это 12 554 символа
+        распознанной сервисной книжки."""
+        await base.note("Paszport ważny do 10.08.2027", title="Паспорт")
+
+        found = await _scan(db_session, monkeypatch)
+
+        # ДД.ММ.ГГГГ: так дату пишут в польских и русских документах, и
+        # она переживает рендер, в отличие от разметки исходника.
+        assert found[0].payload["find"] == "10.08.2027"

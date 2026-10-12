@@ -12,6 +12,7 @@ export default function ItemView({
   onBack,
   highlightEntryId,
   highlightAnchorId,
+  findText,
   onOpenItem,
 }: {
   itemId: string;
@@ -19,6 +20,7 @@ export default function ItemView({
   onBack: () => void;
   highlightEntryId?: string | null;
   highlightAnchorId?: string | null;
+  findText?: string | null;
   onOpenItem?: (id: string) => void;
 }) {
   const { data: item } = useItem(itemId);
@@ -60,6 +62,7 @@ export default function ItemView({
       onDeleted={onDeleted}
       onBack={onBack}
       highlightAnchorId={highlightAnchorId}
+      findText={findText}
       onOpenItem={onOpenItem}
     />
   );

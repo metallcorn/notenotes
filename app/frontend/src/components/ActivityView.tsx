@@ -83,7 +83,7 @@ function NotificationRow({
   onOpen,
 }: {
   notification: Notification;
-  onOpen: (spaceId: string, itemId: string, entryId?: string, notificationId?: string) => void;
+  onOpen: (spaceId: string, itemId: string, entryId?: string, notificationId?: string, findText?: string) => void;
 }) {
   const resolve = useResolveNotification();
   const unresolve = useUnresolveNotification();
@@ -96,6 +96,7 @@ function NotificationRow({
   const resolved = !!notification.resolved_at;
   const overdue = !resolved && !!notification.trigger_at && new Date(notification.trigger_at).getTime() <= Date.now();
   const repeat = repeatLabel(notification.repeat_rule);
+  const findText = notification.payload.find as string | undefined;
 
   return (
     <div
@@ -116,7 +117,11 @@ function NotificationRow({
       <button
         onClick={() => {
           if (!notification.read_at) markRead.mutate(notification.id);
-          if (clickable) onOpen(spaceId!, itemId!, entryId, notification.id);
+          // find — текст, к которому редактор прокрутит (payload
+          // напоминания о сроке документа, document_expiry.py). У
+          // остальных уведомлений его нет, и тогда заметка просто
+          // открывается, как раньше.
+          if (clickable) onOpen(spaceId!, itemId!, entryId, notification.id, findText);
         }}
         disabled={!clickable}
         className={`min-w-0 flex-1 text-left ${clickable ? "cursor-pointer hover:opacity-80" : "cursor-default"}`}
@@ -171,7 +176,7 @@ function DetectedEventRow({
   onOpen,
 }: {
   event: DetectedEvent;
-  onOpen: (spaceId: string, itemId: string, entryId?: string, notificationId?: string) => void;
+  onOpen: (spaceId: string, itemId: string, entryId?: string, notificationId?: string, findText?: string) => void;
 }) {
   const dismiss = useDismissDetectedEvent();
 
@@ -215,7 +220,7 @@ function ActivityEntryRow({
   onOpen,
 }: {
   entry: ActivityEntry;
-  onOpen: (spaceId: string, itemId: string, entryId?: string, notificationId?: string) => void;
+  onOpen: (spaceId: string, itemId: string, entryId?: string, notificationId?: string, findText?: string) => void;
 }) {
   if (entry.kind === "event") {
     return <DetectedEventRow event={entry.event} onOpen={onOpen} />;
@@ -230,7 +235,7 @@ function activityEntryKey(entry: ActivityEntry): string {
 function NotificationsTab({
   onOpen,
 }: {
-  onOpen: (spaceId: string, itemId: string, entryId?: string, notificationId?: string) => void;
+  onOpen: (spaceId: string, itemId: string, entryId?: string, notificationId?: string, findText?: string) => void;
 }) {
   const { data, isLoading: notificationsLoading } = useAllNotifications();
   const { data: eventsData, isLoading: eventsLoading } = useDetectedEvents();
@@ -425,7 +430,7 @@ export default function ActivityView({
   onOpenDialog,
 }: {
   onBack: () => void;
-  onOpenReminder: (spaceId: string, itemId: string, entryId?: string, notificationId?: string) => void;
+  onOpenReminder: (spaceId: string, itemId: string, entryId?: string, notificationId?: string, findText?: string) => void;
   onOpenItem: (spaceId: string, itemId: string) => void;
   onOpenDialog: (id: string) => void;
 }) {

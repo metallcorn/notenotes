@@ -54,6 +54,7 @@ import Spinner from "./Spinner";
 import ConfirmDialog from "./ConfirmDialog";
 import MoveItemModal from "./MoveItemModal";
 import ReminderModal from "./ReminderModal";
+import { scrollToText } from "../lib/findInDoc";
 import NoteAssistantModal from "./NoteAssistantModal";
 import ShareNoteModal from "./ShareNoteModal";
 import RecordingPanel from "./RecordingPanel";
@@ -312,6 +313,7 @@ export default function NoteEditor({
   onDeleted,
   onBack,
   highlightAnchorId,
+  findText,
   onOpenItem,
 }: {
   itemId: string;
@@ -325,6 +327,8 @@ export default function NoteEditor({
   // (см. ReminderAnchor.ts) — прокрутить и подсветить, тот же приём, что
   // highlightEntryId у ListEditor.tsx.
   highlightAnchorId?: string | null;
+  /** Текст, к которому надо прокрутить и подсветить (lib/findInDoc.ts). */
+  findText?: string | null;
 }) {
   const { data: item, isError, refetch: refetchItem } = useItem(itemId);
   const updateItem = useUpdateItem();
@@ -972,6 +976,27 @@ export default function NoteEditor({
     el.classList.add("reminder-anchor-highlight");
     setTimeout(() => el.classList.remove("reminder-anchor-highlight"), 2500);
   }, [editor, highlightAnchorId, item]);
+
+  // Прокрутка к месту, где стоит найденная дата (напоминание о сроке
+  // документа). Тот же приём с ref, что у подсветки якоря выше: иначе
+  // каждый фоновый refetch заметки прокручивал бы экран заново, пока
+  // человек её читает.
+  const scrolledToRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!editor || !findText || !item) return;
+    const marker = `${item.id}:${findText}`;
+    if (scrolledToRef.current === marker) return;
+    // Документ мог ещё не отрисоваться к моменту первого прохода —
+    // пробуем сразу и один раз чуть позже, без бесконечных попыток.
+    if (scrollToText(editor, findText)) {
+      scrolledToRef.current = marker;
+      return;
+    }
+    const retry = setTimeout(() => {
+      if (scrollToText(editor, findText)) scrolledToRef.current = marker;
+    }, 400);
+    return () => clearTimeout(retry);
+  }, [editor, findText, item]);
 
   // Ту же заметку могли обновить в фоне, пока она открыта — например,
   // распознавание PDF/картинки/видео закончилось и плейсхолдер

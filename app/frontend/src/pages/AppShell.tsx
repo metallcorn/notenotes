@@ -75,6 +75,7 @@ export default function AppShell() {
   const [selectedItemId, setSelectedItemIdState] = useState<string | null>(null);
   const [highlightEntryId, setHighlightEntryId] = useState<string | null>(null);
   const [highlightAnchorId, setHighlightAnchorId] = useState<string | null>(null);
+  const [findText, setFindText] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [viewMode, setViewModeState] = useState<ViewMode>(() => uiStorage.getViewMode());
   const [selectedDialogId, setSelectedDialogId] = useState<string | null>(null);
@@ -271,6 +272,12 @@ export default function AppShell() {
         else if (listParam) setViewModeState("notes");
         setSelectedItemIdState(itemParam);
         setSelectedDialogId(dialogParam);
+        // find приходит ИЗ URL, когда заметку открыли кнопкой из
+        // Telegram (notification_dispatch.py кладёт его в ссылку). Внутри
+        // приложения его ставит openReminder напрямую — но и тот и этот
+        // путь должны работать, потому что в Telegram человек попадает
+        // по холодной ссылке, без нашего состояния.
+        setFindText(searchParams.get("find"));
         setMobileView(nextMobileView);
       },
       // Реальная жалоба: этот переход двигает только мобильный стек
@@ -398,12 +405,22 @@ export default function AppShell() {
     uiStorage.setActiveSelection({ spaceId, folderId });
   }
 
-  function openReminder(spaceId: string, itemId: string, entryId?: string, notificationId?: string) {
+  function openReminder(
+    spaceId: string,
+    itemId: string,
+    entryId?: string,
+    notificationId?: string,
+    findText?: string,
+  ) {
     setViewMode("notes");
     setActiveSpaceId(spaceId);
     setActiveFolderId(null);
     setTagId(null);
     setHighlightEntryId(entryId ?? null);
+    // Текст, к которому надо прокрутить. У напоминаний о СРОКЕ документа
+    // якоря в заметке нет (сроки находит код по распознанному тексту, их
+    // никто не вставлял руками) — поэтому ищем по самой дате.
+    setFindText(findText ?? null);
     // Список — подсветка по entryId (пункт списка). Заметка — по id самого
     // уведомления (см. ReminderAnchor.ts): якорь в заметке хранит именно
     // его, отдельный id для якоря не заводили, незачем.
@@ -818,6 +835,7 @@ export default function AppShell() {
                   onBack={closeItemView}
                   highlightEntryId={highlightEntryId}
                   highlightAnchorId={highlightAnchorId}
+                  findText={findText}
                   onOpenItem={(id) => {
                     setViewMode("notes");
                     setActiveFolderId(null);

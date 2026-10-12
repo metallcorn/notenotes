@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import datetime, timezone
+from urllib.parse import quote
 
 from sqlalchemy import delete, select
 
@@ -45,10 +46,18 @@ async def _dispatch_one(notification: Notification, db) -> None:
         # тут ссылка холодная (?item=), без подсветки конкретного пункта
         # списка/якоря в заметке, но открывает нужную заметку/список сразу.
         reply_markup = None
-        item_id = (notification.payload or {}).get("item_id")
+        payload = notification.payload or {}
+        item_id = payload.get("item_id")
         if item_id:
             base_url = get_settings().public_base_url.rstrip("/")
-            reply_markup = {"inline_keyboard": [[{"text": "Открыть", "url": f"{base_url}/?item={item_id}"}]]}
+            url = f"{base_url}/?item={item_id}"
+            # find — куда прокрутить внутри заметки (см. document_expiry.py).
+            # quote обязателен: дата с точками безопасна, но параметр
+            # общий, и однажды сюда попадёт текст с пробелами.
+            find = payload.get("find")
+            if find:
+                url += f"&find={quote(str(find))}"
+            reply_markup = {"inline_keyboard": [[{"text": "Открыть", "url": url}]]}
         await telegram_bot.send_message(link, text, reply_markup=reply_markup)
 
     subscriptions = (

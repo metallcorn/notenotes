@@ -117,3 +117,80 @@ async def test_mark_all_read(auth_client):
     assert r.status_code == 204
     r = await auth_client.get("/api/notifications?scope=all")
     assert all(n["read_at"] is not None for n in r.json())
+
+
+async def test_кнопка_в_телеграме_ведёт_к_месту_в_заметке(db_session, test_user, monkeypatch):
+    """Напоминание о сроке документа должно открывать заметку НА ТОМ МЕСТЕ,
+    где дата. Для этого в ссылку добавляется find (document_expiry.py)."""
+    import uuid as _uuid
+    from datetime import datetime, timezone
+
+    from app import notification_dispatch, telegram_bot
+    from app.models import Notification, TelegramLink
+
+    sent: list = []
+
+    async def fake_send(chat_id, text, reply_markup=None):
+        sent.append((chat_id, text, reply_markup))
+
+    monkeypatch.setattr(telegram_bot, "send_message", fake_send)
+
+    from app.models import Space, SpaceMember
+
+    space = Space(name="Личное", owner_id=test_user.id)
+    db_session.add(space)
+    await db_session.flush()
+    db_session.add(SpaceMember(space_id=space.id, user_id=test_user.id))
+    item_id = str(_uuid.uuid4())
+    db_session.add(TelegramLink(user_id=test_user.id, chat_id=424242, space_id=space.id))
+    notification = Notification(
+        user_id=test_user.id, type="document_expiry",
+        title="Срок истекает 10.12.2026: Сервисная книжка", body="",
+        payload={"item_id": item_id, "space_id": str(space.id), "find": "10.12.2026"},
+        trigger_at=datetime.now(timezone.utc),
+    )
+    db_session.add(notification)
+    await db_session.commit()
+
+    await notification_dispatch._dispatch_one(notification, db_session)
+
+    assert len(sent) == 1
+    url = sent[0][2]["inline_keyboard"][0][0]["url"]
+    assert f"?item={item_id}" in url
+    assert "find=10.12.2026" in url
+
+
+async def test_без_find_ссылка_как_раньше(db_session, test_user, monkeypatch):
+    """У обычных напоминаний прокручивать некуда — лишнего параметра быть
+    не должно."""
+    import uuid as _uuid
+    from datetime import datetime, timezone
+
+    from app import notification_dispatch, telegram_bot
+    from app.models import Notification, TelegramLink
+
+    sent: list = []
+
+    async def fake_send(chat_id, text, reply_markup=None):
+        sent.append(reply_markup)
+
+    monkeypatch.setattr(telegram_bot, "send_message", fake_send)
+
+    from app.models import Space, SpaceMember
+
+    space = Space(name="Личное", owner_id=test_user.id)
+    db_session.add(space)
+    await db_session.flush()
+    db_session.add(SpaceMember(space_id=space.id, user_id=test_user.id))
+    db_session.add(TelegramLink(user_id=test_user.id, chat_id=424243, space_id=space.id))
+    notification = Notification(
+        user_id=test_user.id, type="reminder", title="Полить цветы", body="",
+        payload={"item_id": str(_uuid.uuid4())},
+        trigger_at=datetime.now(timezone.utc),
+    )
+    db_session.add(notification)
+    await db_session.commit()
+
+    await notification_dispatch._dispatch_one(notification, db_session)
+
+    assert "find=" not in sent[0]["inline_keyboard"][0][0]["url"]
