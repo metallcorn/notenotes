@@ -78,7 +78,7 @@ export default function CreateSpaceButton({ onCreated }: { onCreated: (spaceId: 
 
   if (step === "password") {
     return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={reset}>
+      <div className="modal-in fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={reset}>
         <form
           onClick={(e) => e.stopPropagation()}
           onSubmit={submitVaultPassword}

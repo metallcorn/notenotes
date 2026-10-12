@@ -157,7 +157,7 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
   const coreSkills = (skills ?? []).filter((s) => !s.toggleable);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
+    <div className="modal-in fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
       <div
         onClick={(e) => e.stopPropagation()}
         className="flex max-h-[88vh] w-full max-w-3xl flex-col overflow-hidden rounded-lg bg-surface shadow-xl"

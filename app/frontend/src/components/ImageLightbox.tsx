@@ -107,7 +107,7 @@ export default function ImageLightbox({
       onClick={onClose}
       onTouchStart={handleTouchStart}
       onTouchEnd={handleTouchEnd}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"
+      className="modal-in fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"
     >
       <img
         src={current.src}

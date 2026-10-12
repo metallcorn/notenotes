@@ -98,7 +98,11 @@ function NotificationRow({
   const repeat = repeatLabel(notification.repeat_rule);
 
   return (
-    <div className={`flex items-start gap-2 border-b px-4 py-3 ${!resolved && !notification.read_at ? "bg-muted" : ""}`}>
+    <div
+      className={`row-fade-in flex items-start gap-2 border-b px-4 py-3 ${
+        !resolved && !notification.read_at ? "bg-muted" : ""
+      }`}
+    >
       <button
         title={resolved ? "Вернуть в активные" : "Отметить выполненным"}
         onClick={() => (resolved ? unresolve.mutate(notification.id) : resolve.mutate(notification.id))}
@@ -172,7 +176,7 @@ function DetectedEventRow({
   const dismiss = useDismissDetectedEvent();
 
   return (
-    <div className="flex items-start gap-2 border-b bg-brand/10 px-4 py-3">
+    <div className="row-fade-in flex items-start gap-2 border-b bg-brand/10 px-4 py-3">
       <Calendar size={14} className="mt-0.5 shrink-0 text-brand" />
       <button
         onClick={() => onOpen(event.space_id, event.item_id)}
@@ -302,9 +306,21 @@ function NotificationsTab({
               </button>
             ))}
           </div>
-          {filteredActive.map((e) => (
-            <ActivityEntryRow key={activityEntryKey(e)} entry={e} onOpen={onOpen} />
-          ))}
+          {/* key={horizon} на обёртке — чтобы смена горизонта («Все» /
+              «3 дня» / «Неделя») переигрывала анимацию строк. Жалоба
+              владельца 12.10: «переключение горизонта активности не
+              делает анимации так же».
+
+              Без обёртки строки, попавшие в оба среза, React
+              переиспользовал бы по их key — и список менялся бы рывком:
+              часть строк исчезает, остальные стоят на месте. С новой
+              обёрткой узлы строк создаются заново, и срез приезжает
+              целиком. */}
+          <div key={horizon} className="row-fade-in">
+            {filteredActive.map((e) => (
+              <ActivityEntryRow key={activityEntryKey(e)} entry={e} onOpen={onOpen} />
+            ))}
+          </div>
         </>
       )}
       {resolved.length > 0 && (
@@ -386,7 +402,7 @@ function RecentTab({
           <button
             key={`${e.kind}-${e.id}`}
             onClick={() => (e.kind === "dialog" ? onOpenDialog(e.id) : onOpenItem(e.spaceId, e.id))}
-            className="flex w-full items-center gap-2.5 border-b px-4 py-2.5 text-left hover:bg-muted-hover"
+            className="row-fade-in flex w-full items-center gap-2.5 border-b px-4 py-2.5 text-left hover:bg-muted-hover"
           >
             <Icon size={15} className="shrink-0 text-subtle" />
             <div className="min-w-0 flex-1">

@@ -81,3 +81,32 @@ describe("переключение вкладок Активности", () => {
     expect(container.querySelector(".animate-spin")).toBeNull();
   });
 });
+
+describe("переключение горизонта активности", () => {
+  // Жалоба владельца 12.10: «переключение горизонта активности Все, 3 дня
+  // и так далее не делает анимации так же».
+  function withActive() {
+    hooks.useAllNotifications.mockReturnValue({
+      data: [
+        {
+          id: "n1", type: "reminder", title: "Дело", body: "", payload: {},
+          read_at: null, created_at: "2026-10-12T08:00:00Z",
+          trigger_at: "2026-10-20T08:00:00Z", resolved_at: null, repeat_rule: null,
+        },
+      ],
+      isLoading: false,
+    });
+  }
+
+  it("срез приезжает заново при смене горизонта", async () => {
+    withActive();
+    const { container } = view();
+
+    const before = container.querySelector(".row-fade-in");
+    await userEvent.click(screen.getByRole("button", { name: "3 дня" }));
+    const after = container.querySelector(".row-fade-in");
+
+    expect(before).not.toBeNull();
+    expect(after).not.toBe(before);
+  });
+});

@@ -42,7 +42,7 @@ export default function InsertTableModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onCancel}>
+    <div className="modal-in fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onCancel}>
       <div onClick={(e) => e.stopPropagation()} className="w-full max-w-sm rounded-lg bg-surface p-4 shadow-xl">
         <div className="mb-3 flex items-center gap-2 text-sm font-medium text-primary">
           <TableIcon size={16} className="text-subtle" />

@@ -43,7 +43,7 @@ export default function TrashView({ spaceId, onBack }: { spaceId: string | undef
         {isLoading && <ListSkeleton rows={5} withIcon={false} />}
         {!isLoading && (items ?? []).length === 0 && <div className="p-4 text-sm text-subtle">Корзина пуста</div>}
         {(items ?? []).map((item) => (
-          <div key={item.id} className="flex items-center justify-between gap-2 border-b px-4 py-3">
+          <div key={item.id} className="row-fade-in flex items-center justify-between gap-2 border-b px-4 py-3">
             <div className="min-w-0">
               <div className="truncate text-sm text-primary">{item.title || "Без названия"}</div>
               <div className="truncate text-xs text-subtle">

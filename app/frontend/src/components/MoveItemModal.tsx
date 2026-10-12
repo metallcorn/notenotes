@@ -87,7 +87,7 @@ export default function MoveItemModal({
   const roots = (folders ?? []).filter((f) => f.parent_id === null);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
+    <div className="modal-in fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
       <div
         onClick={(e) => e.stopPropagation()}
         className="flex max-h-[80vh] w-full max-w-sm flex-col overflow-hidden rounded-lg bg-surface shadow-xl"

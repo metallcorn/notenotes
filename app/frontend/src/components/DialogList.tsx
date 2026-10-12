@@ -59,7 +59,7 @@ export default function DialogList({
         {(dialogs ?? []).map((d) => (
           <div
             key={d.id}
-            className={`flex items-center border-b ${
+            className={`row-fade-in flex items-center border-b ${
               selectedId === d.id ? "bg-muted-hover" : "hover:bg-muted-hover"
             }`}
           >

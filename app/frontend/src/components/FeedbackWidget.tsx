@@ -67,7 +67,7 @@ export default function FeedbackWidget() {
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setOpen(false)}>
+    <div className="modal-in fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setOpen(false)}>
       <div
         ref={widgetRef}
         onClick={(e) => e.stopPropagation()}

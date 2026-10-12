@@ -565,7 +565,10 @@
   .tab-slide-forward,
   .tab-slide-back,
   .panel-slide-in,
-  .message-fade-in {
+  .message-fade-in,
+  .modal-in,
+  .modal-in > *,
+  .row-fade-in {
     animation: none;
   }
   .skeleton {
@@ -576,4 +579,46 @@
   ::view-transition-new(root) {
     animation: none;
   }
+}
+
+/* Появление модалок. Жалоба владельца 12.10: всё без анимаций — модалки
+   возникали мгновенно, что на тёмной подложке читается как вспышка.
+
+   ОДИН КЛАСС НА ПОДЛОЖКУ, а панель ловится дочерним селектором: иначе
+   пришлось бы править по два места в каждом из восемнадцати мест, где
+   открывается модалка, и половина со временем разъехалась бы. Подложка
+   проявляется чуть быстрее панели — так глаз сначала видит затемнение, а
+   потом содержимое, а не наоборот.
+
+   Панели с собственной анимацией (NoteAssistantModal, RecordingPanel —
+   .panel-slide-in) сюда не входят: у них своя подложка без этого класса,
+   и двойной анимации не возникает. */
+@keyframes modal-backdrop-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes modal-panel-in {
+  from { transform: translateY(8px) scale(0.98); opacity: 0; }
+  to { transform: none; opacity: 1; }
+}
+.modal-in {
+  animation: modal-backdrop-in 0.14s ease-out;
+}
+.modal-in > * {
+  animation: modal-panel-in 0.19s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+/* Появление строки в списке. Тот же принцип, что у .message-fade-in в
+   чате, и та же оговорка: срабатывает только на РЕАЛЬНО новых DOM-узлах.
+   React при стабильном key={item.id} переиспользует узлы уже
+   отрисованных строк, поэтому обновление списка не переигрывает
+   анимацию на всех строках заново. Если где-то key окажется индексом —
+   строки начнут мерцать при каждой перерисовке, и это будет видно
+   сразу. */
+@keyframes row-fade-in {
+  from { transform: translateY(4px); opacity: 0; }
+  to { transform: none; opacity: 1; }
+}
+.row-fade-in {
+  animation: row-fade-in 0.16s ease-out;
 }

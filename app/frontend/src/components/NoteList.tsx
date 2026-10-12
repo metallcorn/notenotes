@@ -226,7 +226,11 @@ function NoteRow({ item, selected, onSelect }: { item: Item; selected: boolean; 
   const isTable = item.material_type === "table";
   const preview = isList ? listProgress(item.content) : previewText(item.content);
   return (
-    <li>
+    // row-fade-in — на корне строки. Срабатывает только на новых узлах:
+    // при стабильном key={item.id} React переиспользует уже отрисованные
+    // строки, и обновление списка не переигрывает анимацию на всех
+    // (см. комментарий к .row-fade-in в index.css).
+    <li className="row-fade-in">
       <button
         onClick={() => onSelect(item.id)}
         className={`block w-full border-b px-3 py-2 text-left ${selected ? "bg-muted-hover" : "hover:bg-muted-hover"}`}

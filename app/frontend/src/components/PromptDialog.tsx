@@ -18,7 +18,7 @@ export default function PromptDialog({
   return (
     // position: fixed, а не absolute — не зависит от overflow ближайшего
     // скроллящегося родителя (см. баг с всплывающими окнами в сайдбаре).
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onCancel}>
+    <div className="modal-in fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onCancel}>
       <form
         onClick={(e) => e.stopPropagation()}
         onSubmit={(e) => {

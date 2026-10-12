@@ -785,7 +785,7 @@ function ChatTicketPreviewOverlay({ uploadId, onClose }: { uploadId: string; onC
   }, [onClose]);
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-black/80 p-2 sm:p-6">
+    <div className="modal-in fixed inset-0 z-50 flex flex-col bg-black/80 p-2 sm:p-6">
       <button
         onClick={onClose}
         title="Закрыть (Esc)"

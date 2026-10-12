@@ -199,7 +199,7 @@ export default function SpaceSection({
         // есть заметки/папки"), не закрывая диалог, а общий ConfirmDialog
         // такого не умеет.
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          className="modal-in fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
           onClick={() => setConfirmingDelete(false)}
         >
           <div onClick={(e) => e.stopPropagation()} className="w-full max-w-sm rounded-lg bg-surface p-4 shadow-xl">
