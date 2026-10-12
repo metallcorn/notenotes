@@ -14,6 +14,7 @@ import {
 import type { DialogSummary, Item } from "../api/types";
 import ConfirmDialog from "./ConfirmDialog";
 import Spinner from "./Spinner";
+import { ListSkeleton } from "./Skeleton";
 
 // Тот же портал-в-body паттерн, что только что сделан для FolderMenu в
 // FolderTree.tsx — список заметок тоже живёт внутри overflow-y-auto,
@@ -406,8 +407,10 @@ export default function NoteList({
           </li>
         )}
         {isLoading && (
-          <li className="flex items-center gap-2 p-3 text-sm text-subtle">
-            <Spinner /> Загрузка…
+          // Скелет вместо спиннера: он занимает площадь будущих строк, и
+          // экран не прыгает в момент подстановки данных.
+          <li>
+            <ListSkeleton rows={7} withIcon={false} />
           </li>
         )}
         {!isLoading && (items ?? []).length === 0 && (

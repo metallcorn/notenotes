@@ -1,4 +1,5 @@
 import { useItemVersions, useRevertVersion } from "../api/hooks";
+import { ListSkeleton } from "./Skeleton";
 
 export default function VersionHistoryPanel({ itemId, onClose }: { itemId: string; onClose: () => void }) {
   const { data: versions, isLoading } = useItemVersions(itemId);
@@ -12,7 +13,7 @@ export default function VersionHistoryPanel({ itemId, onClose }: { itemId: strin
           ×
         </button>
       </div>
-      {isLoading && <p className="text-sm text-subtle">Загрузка…</p>}
+      {isLoading && <ListSkeleton rows={4} withIcon={false} />}
       {!isLoading && (versions ?? []).length === 0 && (
         <p className="text-sm text-subtle">Изменений пока не было</p>
       )}

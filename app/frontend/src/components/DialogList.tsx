@@ -5,6 +5,7 @@ import { useCreateDialog, useDeleteItem, useDialogs } from "../api/hooks";
 import type { DialogSummary } from "../api/types";
 import ConfirmDialog from "./ConfirmDialog";
 import Spinner from "./Spinner";
+import { ListSkeleton } from "./Skeleton";
 
 export default function DialogList({
   selectedId,
@@ -37,7 +38,7 @@ export default function DialogList({
         </button>
       </div>
       <div className="flex-1 overflow-y-auto">
-        {isLoading && <div className="p-3 text-sm text-subtle">Загрузка…</div>}
+        {isLoading && <ListSkeleton rows={5} />}
         {/* isError отдельно от "диалогов правда нет" — раньше сбой сети
             (например, на телефоне при слабом сигнале) выглядел неотличимо
             от пустого списка: dialogs просто оставался undefined, и текст

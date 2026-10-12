@@ -519,3 +519,61 @@
   margin-top: 0.25rem;
   padding-left: 1.5rem;
 }
+
+/* Скелетная подгрузка (components/Skeleton.tsx). Жалоба владельца 12.10:
+   «подгрузки списков не скелетные, а просто родинокий спинер». Цвет — тот
+   же токен, что у приглушённого фона, чтобы скелет не выглядел дырой в
+   тёмной теме. */
+@keyframes skeleton-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+.skeleton {
+  /* Токен, а не фиксированный серый: в тёмной теме он переопределён, и
+     скелет не выглядит светлой дырой (index.css, :root[data-theme]). */
+  background-color: rgb(var(--color-bg-muted-active) / 1);
+  animation: skeleton-pulse 1.4s ease-in-out infinite;
+}
+
+/* Переключение вкладок внутри экрана («Уведомления» ↔ «Недавнее» в
+   Активности). Жалоба владельца 12.10: «перехожу на недавние вкладку, а
+   анимации перехода скольжения слева направо и наоборот нет».
+
+   ПОЧЕМУ CSS, А НЕ VIEW TRANSITIONS, которыми сделаны переходы между
+   экранами. withViewTransition намеренно НЕ работает в standalone-режиме
+   PWA — там три инцидента подряд с гонками самого API (см.
+   lib/viewTransition.ts). А владелец смотрит именно из установленного
+   приложения, то есть у него переходы через тот API не показались бы
+   вовсе. Обычная CSS-анимация работает везде одинаково и ничего не
+   знает про снимки документа. */
+@keyframes tab-slide-from-right {
+  from { transform: translateX(16px); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+@keyframes tab-slide-from-left {
+  from { transform: translateX(-16px); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+.tab-slide-forward { animation: tab-slide-from-right 0.2s ease-out; }
+.tab-slide-back { animation: tab-slide-from-left 0.2s ease-out; }
+
+/* Уважаем системную настройку «меньше движения»: до сих пор её не
+   учитывал ни один из наших keyframes, а это и доступность, и спасение
+   для слабых устройств. Пульсацию скелета гасим в статичный фон, а не
+   выключаем совсем — иначе пропадает сам признак «ещё грузится». */
+@media (prefers-reduced-motion: reduce) {
+  .tab-slide-forward,
+  .tab-slide-back,
+  .panel-slide-in,
+  .message-fade-in {
+    animation: none;
+  }
+  .skeleton {
+    animation: none;
+    opacity: 0.7;
+  }
+  ::view-transition-old(root),
+  ::view-transition-new(root) {
+    animation: none;
+  }
+}

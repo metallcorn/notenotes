@@ -4,6 +4,7 @@ import { useEmptyTrash, usePermanentDeleteItem, useRestoreItem, useTrash } from 
 import type { Item } from "../api/types";
 import ConfirmDialog from "./ConfirmDialog";
 import Spinner from "./Spinner";
+import { ListSkeleton } from "./Skeleton";
 
 export default function TrashView({ spaceId, onBack }: { spaceId: string | undefined; onBack: () => void }) {
   const { data: items, isLoading } = useTrash(spaceId);
@@ -39,7 +40,7 @@ export default function TrashView({ spaceId, onBack }: { spaceId: string | undef
         </div>
       )}
       <div className="flex-1 overflow-y-auto">
-        {isLoading && <div className="p-4 text-sm text-subtle">Загрузка…</div>}
+        {isLoading && <ListSkeleton rows={5} withIcon={false} />}
         {!isLoading && (items ?? []).length === 0 && <div className="p-4 text-sm text-subtle">Корзина пуста</div>}
         {(items ?? []).map((item) => (
           <div key={item.id} className="flex items-center justify-between gap-2 border-b px-4 py-3">

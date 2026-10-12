@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Bot, Check, Copy, Plug, Plus, Send, Settings2, Share2, Trash2, X } from "lucide-react";
 import {
   useAddMemory,
@@ -143,6 +143,15 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
   }
 
   const [active, setActive] = useState<SectionKey>("assistant");
+  // Предыдущая секция — только чтобы знать направление. В ref, не в
+  // state: от него не должен зависеть рендер, иначе лишний проход.
+  const previousSection = useRef<SectionKey>("assistant");
+  const order = (key: SectionKey) => SECTIONS.findIndex((s) => s.key === key);
+  const sectionSlide =
+    order(active) >= order(previousSection.current) ? "tab-slide-forward" : "tab-slide-back";
+  useEffect(() => {
+    previousSection.current = active;
+  }, [active]);
 
   const toggleableSkills = (skills ?? []).filter((s) => s.toggleable);
   const coreSkills = (skills ?? []).filter((s) => !s.toggleable);
@@ -183,7 +192,12 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
             ))}
           </nav>
 
-          <div className="min-w-0 flex-1 overflow-y-auto p-4">
+          {/* Скольжение при смене секции — то же, что у вкладок
+              Активности. Направление по порядку в SECTIONS: вниз по
+              списку приезжает справа, вверх — слева. key={active}
+              обязателен, иначе React переиспользует узел и анимация не
+              переигрывается. */}
+          <div key={active} className={`min-w-0 flex-1 overflow-y-auto p-4 ${sectionSlide}`}>
           {active === "assistant" && (
             <>
           <div className="mb-6">

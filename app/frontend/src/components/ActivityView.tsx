@@ -27,7 +27,7 @@ import {
 } from "../api/hooks";
 import type { DetectedEvent, Notification } from "../api/types";
 import { repeatLabel } from "../lib/recurrence";
-import Spinner from "./Spinner";
+import { ListSkeleton } from "./Skeleton";
 
 type Tab = "notifications" | "recent";
 
@@ -262,11 +262,7 @@ function NotificationsTab({
   const filteredActive = useMemo(() => active.filter((e) => matchesHorizon(horizon, e.at)), [active, horizon]);
 
   if (notificationsLoading || eventsLoading) {
-    return (
-      <div className="flex items-center gap-2 p-4 text-sm text-subtle">
-        <Spinner /> Загрузка…
-      </div>
-    );
+    return <ListSkeleton rows={6} />;
   }
 
   if (today.length === 0 && active.length === 0 && resolved.length === 0) {
@@ -375,11 +371,7 @@ function RecentTab({
   }, [items, dialogs, spaces]);
 
   if (itemsLoading || dialogsLoading) {
-    return (
-      <div className="flex items-center gap-2 p-4 text-sm text-subtle">
-        <Spinner /> Загрузка…
-      </div>
-    );
+    return <ListSkeleton rows={6} />;
   }
 
   if (entries.length === 0) {
@@ -423,6 +415,12 @@ export default function ActivityView({
 }) {
   const [tab, setTab] = useState<Tab>("notifications");
 
+  // Направление скольжения. «Уведомления» слева, «Недавнее» справа —
+  // переход вправо приезжает справа, обратный слева, как при листании.
+  // Жалоба владельца 12.10: «перехожу на недавние вкладку, а анимации
+  // перехода скольжения слева направо и наоборот нет».
+  const slide = tab === "recent" ? "tab-slide-forward" : "tab-slide-back";
+
   return (
     <div className="flex h-full w-full flex-col">
       <div className="flex items-center gap-1 border-b p-3">
@@ -452,7 +450,11 @@ export default function ActivityView({
           <CalendarClock size={14} /> Недавнее
         </button>
       </div>
-      <div className="flex-1 overflow-y-auto">
+      {/* key={tab} обязателен: без него React переиспользует узел при
+          смене вкладки, и CSS-анимация не переигрывается — класс уже
+          висит на том же элементе. С key узел новый, анимация идёт с
+          начала (тот же приём, что у message-fade-in в чате). */}
+      <div key={tab} className={`flex-1 overflow-y-auto ${slide}`}>
         {tab === "notifications" ? <NotificationsTab onOpen={onOpenReminder} /> : <RecentTab onOpenItem={onOpenItem} onOpenDialog={onOpenDialog} />}
       </div>
     </div>
