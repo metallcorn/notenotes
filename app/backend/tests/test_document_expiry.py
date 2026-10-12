@@ -32,7 +32,7 @@ class TestРазборСроков:
         ]
         for text in cases:
             found = document_expiry.find_upcoming(text, TODAY)
-            assert [d for d, _ in found] == [soon], text
+            assert [d for d, _, _ in found] == [soon], text
 
     def test_прошедшее_не_берём(self):
         """Им занимается expiry_check в самом ответе ассистента."""
@@ -51,7 +51,7 @@ class TestРазборСроков:
     def test_пояснение_объясняет_о_чём_речь(self):
         """Названия бывают бесполезны («CamScanner 29.05.2025 07.31.pdf»),
         а строка из документа объясняет всё."""
-        _, snippet = document_expiry.find_upcoming("PESEL 90010112345 Paszport 75 1234567 ważny do 10.08.2027", TODAY)[0]
+        _, snippet, _literal = document_expiry.find_upcoming("PESEL 90010112345 Paszport 75 1234567 ważny do 10.08.2027", TODAY)[0]
         assert "Paszport" in snippet
 
     def test_дубли_по_дате_схлопнуты(self):
@@ -301,7 +301,7 @@ class TestПерекрытыеСроки:
 
         got = document_expiry.find_upcoming(self.SERVICE_BOOK, date(2026, 10, 11))
 
-        assert [d for d, _ in got] == [date(2027, 8, 25)]
+        assert [d for d, _, _ in got] == [date(2027, 8, 25)]
 
     def test_разные_документы_в_одном_скане_остаются_оба(self):
         """ПРАВИЛО ВЫБРАЛИ ДАННЫЕ. Очевидное «оставляем самый поздний под
@@ -322,7 +322,7 @@ class TestПерекрытыеСроки:
 
         got = document_expiry.find_upcoming(scan, date(2026, 10, 11))
 
-        assert [d for d, _ in got] == [date(2027, 8, 10), date(2027, 10, 20)]
+        assert [d for d, _, _ in got] == [date(2027, 8, 10), date(2027, 10, 20)]
 
     def test_слишком_далёкий_срок_по_прежнему_ждёт(self):
         """Горизонт в 400 дней никуда не делся — и именно он, а не новое
@@ -348,7 +348,7 @@ class TestПерекрытыеСроки:
             "Karta pobytu ważny do 20.10.2027\n"
         )
 
-        got = [d for d, _ in document_expiry.find_upcoming(mixed, date(2026, 10, 11))]
+        got = [d for d, _, _ in document_expiry.find_upcoming(mixed, date(2026, 10, 11))]
 
         assert date(2027, 8, 25) in got and date(2026, 12, 10) not in got, "журнал схлопнут"
         assert date(2027, 8, 10) in got and date(2027, 10, 20) in got, "паспорта не тронуты"
@@ -361,7 +361,7 @@ class TestПерекрытыеСроки:
 
         got = document_expiry.find_upcoming(text, date(2026, 10, 11))
 
-        assert [d for d, _ in got] == [date(2027, 8, 25)]
+        assert [d for d, _, _ in got] == [date(2027, 8, 25)]
 
     FRAGMENT = """
     | 14.03.2024 | 11203 | Warunki trudne X | do 56 000 km lub do dnia 14.03.2025 |
@@ -402,7 +402,7 @@ class TestПерекрытыеСроки:
 
         text = "do dnia 03.10.2024\nNastępny przegląd do dnia 25.08.2027\n"
 
-        got = [d for d, _ in document_expiry.find_upcoming(text, date(2026, 10, 12))]
+        got = [d for d, _, _ in document_expiry.find_upcoming(text, date(2026, 10, 12))]
 
         assert got == [date(2027, 8, 25)]
 
@@ -456,3 +456,27 @@ class TestСсылкаИзНапоминания:
         found = await _scan(db_session, monkeypatch)
 
         assert found[0].payload["find"] == "10.08.2027"
+
+    def test_буквальное_написание_даты_сохраняется(self):
+        """По этой строке редактор прокручивает к месту, и
+        переформатировать её нельзя. Живой случай 12.10: напоминание про
+        техосмотр никуда не прокручивало, потому что в payload лежало
+        «11.03.2027», а в заметке написано «11 марта 2027 года»."""
+        from datetime import date
+
+        # Текст ровно как в живой заметке «Техосмотр Citroën C4»:
+        # совпадает фраза «истекает», а дата написана словами.
+        got = document_expiry.find_upcoming(
+            "Срок техосмотра истекает 11 марта 2027 года", date(2026, 10, 12)
+        )
+
+        assert len(got) == 1
+        assert got[0][0] == date(2027, 3, 11)
+        assert got[0][2] == "11 марта 2027"
+
+    def test_числовая_дата_тоже_как_написана(self):
+        from datetime import date
+
+        got = document_expiry.find_upcoming("ważny do 10.08.2027", date(2026, 10, 12))
+
+        assert got[0][2] == "10.08.2027"

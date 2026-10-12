@@ -153,8 +153,25 @@ def _row_date(text: str, match: re.Match[str]) -> date | None:
         return None
 
 
-def find_upcoming(text: str, today: date) -> list[tuple[date, str]]:
-    """Будущие сроки с пояснением. Дубли по дате схлопнуты, перекрытые убраны.
+def _literal_date(match: re.Match[str]) -> str:
+    """Дата ровно так, как она написана в документе.
+
+    ЗАЧЕМ. По этой строке редактор прокручивает к нужному месту
+    (lib/findInDoc.ts), и переформатировать её нельзя. Живой случай
+    12.10: напоминание про техосмотр никуда не прокручивало, потому что
+    в payload лежало «11.03.2027», а в заметке написано «11 марта 2027
+    года». Код даты не придумывает — он берёт то, что совпало.
+    """
+    phrase = _PHRASE_RE.match(match.group(0))
+    tail = match.group(0)[len(phrase.group(0)):] if phrase else match.group(0)
+    return tail.strip(" *_«\"'\t")
+
+
+def find_upcoming(text: str, today: date) -> list[tuple[date, str, str]]:
+    """Будущие сроки: (дата, пояснение, дата-как-написана-в-тексте).
+
+    Третий элемент — буквальное написание, по нему редактор прокручивает
+    к месту; см. _literal_date.
 
     ПЕРЕКРЫТЫЕ СРОКИ. Жалоба владельца 11.10: пришло напоминание «Срок
     истекает 10.12.2026: Сервисная книжка», а срок давно не актуален.
@@ -207,14 +224,16 @@ def find_upcoming(text: str, today: date) -> list[tuple[date, str]]:
             continue
         if parsed > today + MAX_HORIZON:
             continue
-        entries.setdefault(phrase, {}).setdefault(parsed, (row, _snippet(text, match.end())))
+        entries.setdefault(phrase, {}).setdefault(
+            parsed, (row, _snippet(text, match.end()), _literal_date(match))
+        )
 
-    found: dict[date, str] = {}
+    found: dict[date, tuple[str, str]] = {}
     for phrase, dates in entries.items():
         if not history.get(phrase):
             # Истории нет — это не журнал, а разные документы. Все сроки
             # живые, схлопывать нельзя (см. докстринг выше).
-            found.update({d: snippet for d, (_, snippet) in dates.items()})
+            found.update({d: (snippet, literal) for d, (_, snippet, literal) in dates.items()})
             continue
 
         # Журнал: жив срок из записи с самым поздним обслуживанием.
@@ -236,10 +255,10 @@ def find_upcoming(text: str, today: date) -> list[tuple[date, str]]:
             # обязательства, а разные документы сюда не попадают — у них
             # истории под формулировкой нет вовсе (ветка выше).
             latest = max(dates)
-            live = {latest: dates[latest][1]}
+            live = {latest: (dates[latest][1], dates[latest][2])}
         else:
             live = {
-                d: snippet for d, (row, snippet) in dates.items()
+                d: (snippet, literal) for d, (row, snippet, literal) in dates.items()
                 if row is None or row >= latest_row
             }
         dropped = [str(d) for d in sorted(dates) if d not in live]
@@ -250,7 +269,7 @@ def find_upcoming(text: str, today: date) -> list[tuple[date, str]]:
                 ", ".join(dropped),
             )
         found.update(live)
-    return sorted(found.items())
+    return [(d, snippet, literal) for d, (snippet, literal) in sorted(found.items())]
 
 
 async def _scan_once() -> int:
@@ -310,7 +329,7 @@ async def _scan_once() -> int:
             sources.append((host[0], host[1], filename or host[2], transcript, host[3], upload_id))
 
         for item_id, author_id, title, text, space_id, from_upload in sources:
-            for expires_on, snippet in find_upcoming(text, today):
+            for expires_on, snippet, literal in find_upcoming(text, today):
                 key = f"{item_id}:{expires_on.isoformat()}"
                 exists = (
                     await db.execute(
@@ -364,7 +383,7 @@ async def _scan_once() -> int:
                             # прокручивать надо к вложению — тогда здесь
                             # id загрузки. Одно поле на две стратегии,
                             # различает их фронтенд (lib/findInDoc.ts).
-                            "find": str(from_upload) if from_upload else f"{expires_on:%d.%m.%Y}",
+                            "find": str(from_upload) if from_upload else literal,
                         },
                         trigger_at=trigger_at.replace(tzinfo=timezone.utc),
                     )
