@@ -51,9 +51,33 @@ export function findTextPosition(editor: MinimalEditor, needle: string): number 
 function findAttachmentElement(editor: MinimalEditor, uploadId: string): HTMLElement | null {
   const root = (editor as { view: { dom?: HTMLElement } }).view.dom;
   if (!root || !uploadId) return null;
-  // src — у картинок и видео, data-url — у блока документа
-  // (serialize_document_attachment).
-  return root.querySelector<HTMLElement>(`[src*="${uploadId}"], [data-url*="${uploadId}"]`);
+  // ЧЕТЫРЕ АТРИБУТА, И КАЖДЫЙ НУЖЕН.
+  //
+  //   src              картинки и видео в заметке;
+  //   href             карточка документа — DocumentAttachmentCard
+  //                    рисует <a href="/api/uploads/…">;
+  //   data-upload-id   карточка распознанного текста картинки (vision.py);
+  //   data-url         так сериализуется блок документа В ТЕКСТЕ заметки.
+  //
+  // Последнего в живом DOM может не быть вовсе: карточка рисуется через
+  // ReactNodeViewRenderer, и атрибуты из renderHTML приходят пропсом, а
+  // не попадают на узел. Оставлен, потому что ничего не стоит, а href
+  // покрывает тот же случай надёжно. Поймано ревью — до него селектор
+  // держался только на src и data-url, и для .docx-вложения без превью
+  // не находилось ничего.
+  //
+  // CSS.escape обязателен: значение приходит из URL, и кавычка в нём
+  // уронила бы querySelector исключением — React пересобрасывает его на
+  // ErrorBoundary, и человек вместо «не прокрутилось» получал бы
+  // развалившийся экран заметки.
+  const safe = typeof CSS !== "undefined" && CSS.escape ? CSS.escape(uploadId) : uploadId;
+  try {
+    return root.querySelector<HTMLElement>(
+      `[src*="${safe}"], [href*="${safe}"], [data-upload-id*="${safe}"], [data-url*="${safe}"]`,
+    );
+  } catch {
+    return null;
+  }
 }
 
 /**

@@ -75,7 +75,9 @@ export default function AppShell() {
   const [selectedItemId, setSelectedItemIdState] = useState<string | null>(null);
   const [highlightEntryId, setHighlightEntryId] = useState<string | null>(null);
   const [highlightAnchorId, setHighlightAnchorId] = useState<string | null>(null);
-  const [findText, setFindText] = useState<string | null>(null);
+  // Сам параметр читается из URL (см. setSelectedItemId) — отдельного
+  // состояния нет намеренно, иначе оно расходится с адресом.
+  const findText = searchParams.get("find");
   const [query, setQuery] = useState("");
   const [viewMode, setViewModeState] = useState<ViewMode>(() => uiStorage.getViewMode());
   const [selectedDialogId, setSelectedDialogId] = useState<string | null>(null);
@@ -272,12 +274,6 @@ export default function AppShell() {
         else if (listParam) setViewModeState("notes");
         setSelectedItemIdState(itemParam);
         setSelectedDialogId(dialogParam);
-        // find приходит ИЗ URL, когда заметку открыли кнопкой из
-        // Telegram (notification_dispatch.py кладёт его в ссылку). Внутри
-        // приложения его ставит openReminder напрямую — но и тот и этот
-        // путь должны работать, потому что в Telegram человек попадает
-        // по холодной ссылке, без нашего состояния.
-        setFindText(searchParams.get("find"));
         setMobileView(nextMobileView);
       },
       // Реальная жалоба: этот переход двигает только мобильный стек
@@ -304,7 +300,7 @@ export default function AppShell() {
     uiStorage.setViewMode(mode);
   }
 
-  function setSelectedItemId(id: string | null, options?: { forcePush?: boolean }) {
+  function setSelectedItemId(id: string | null, options?: { forcePush?: boolean; find?: string | null }) {
     // Тот же принцип, что в openListView: уже открыта заметка (десктоп,
     // клик по другой заметке в списке прямо из открытого редактора,
     // обычный рабочий процесс) — replace, а не push, иначе каждый такой
@@ -326,8 +322,23 @@ export default function AppShell() {
           next.set("item", id);
           next.set("list", "1");
           next.delete("dialog");
+          // find — ТОЛЬКО в URL, и это единственный его источник.
+          //
+          // Первая версия держала его отдельным состоянием, и
+          // внутриприложенческий путь не работал вовсе: openReminder
+          // ставил состояние, тут же менял searchParams, а эффект
+          // синхронизации по [searchParams] перезаписывал состояние
+          // значением из URL, то есть null. Работала только холодная
+          // ссылка из Telegram. Поймано ревью.
+          //
+          // Переход на ДРУГУЮ заметку параметр стирает: иначе, придя из
+          // Telegram на ?item=A&find=10.12.2026 и щёлкнув заметку B, в
+          // B подсвечивалась бы та же дата.
+          if (options?.find) next.set("find", options.find);
+          else next.delete("find");
         } else {
           next.delete("item");
+          next.delete("find");
         }
         return next;
       },
@@ -346,6 +357,9 @@ export default function AppShell() {
     setSearchParams((prev) => {
       const next = new URLSearchParams(prev);
       next.delete("item");
+      // find привязан к конкретной заметке: уходим с неё — стираем,
+      // иначе подсветка даты всплывёт на следующей открытой.
+      next.delete("find");
       next.delete("dialog");
       return next;
     }, { replace: true });
@@ -366,6 +380,9 @@ export default function AppShell() {
       (prev) => {
         const next = new URLSearchParams(prev);
         next.delete("item");
+        // find привязан к конкретной заметке: уходим с неё — стираем,
+        // иначе подсветка даты всплывёт на следующей открытой.
+        next.delete("find");
         next.delete("dialog");
         next.set("list", "1");
         // screen — маркер для Активности/Корзины (полноэкранные разделы без
@@ -389,6 +406,9 @@ export default function AppShell() {
     setSearchParams((prev) => {
       const next = new URLSearchParams(prev);
       next.delete("item");
+      // find привязан к конкретной заметке: уходим с неё — стираем,
+      // иначе подсветка даты всплывёт на следующей открытой.
+      next.delete("find");
       next.delete("dialog");
       next.delete("list");
       next.delete("screen");
@@ -417,15 +437,13 @@ export default function AppShell() {
     setActiveFolderId(null);
     setTagId(null);
     setHighlightEntryId(entryId ?? null);
-    // Текст, к которому надо прокрутить. У напоминаний о СРОКЕ документа
-    // якоря в заметке нет (сроки находит код по распознанному тексту, их
-    // никто не вставлял руками) — поэтому ищем по самой дате.
-    setFindText(findText ?? null);
     // Список — подсветка по entryId (пункт списка). Заметка — по id самого
     // уведомления (см. ReminderAnchor.ts): якорь в заметке хранит именно
     // его, отдельный id для якоря не заводили, незачем.
     setHighlightAnchorId(entryId ? null : (notificationId ?? null));
-    setSelectedItemId(itemId, { forcePush: true });
+    // findText уходит в URL вместе с item — см. комментарий в
+    // setSelectedItemId про то, почему не в состояние.
+    setSelectedItemId(itemId, { forcePush: true, find: findText ?? null });
   }
 
   function selectTag(id: string | null) {
@@ -477,6 +495,9 @@ export default function AppShell() {
           next.set("dialog", id);
           next.set("list", "1");
           next.delete("item");
+          // find привязан к конкретной заметке: уходим с неё — стираем,
+          // иначе подсветка даты всплывёт на следующей открытой.
+          next.delete("find");
           // Реальный найденный баг: чат ассистента по папке/заметке
           // открывается ИЗНУТРИ обычного просмотра заметок (viewMode
           // "notes"), а не с вкладки "Ассистент" — но эффект синхронизации

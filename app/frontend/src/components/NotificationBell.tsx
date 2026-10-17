@@ -7,7 +7,7 @@ export default function NotificationBell({
   onOpenReminder,
 }: {
   updateAvailable: boolean;
-  onOpenReminder: (spaceId: string, itemId: string, entryId?: string, notificationId?: string) => void;
+  onOpenReminder: (spaceId: string, itemId: string, entryId?: string, notificationId?: string, findText?: string) => void;
 }) {
   const [open, setOpen] = useState(false);
   const { data: notifications } = useNotifications();
@@ -82,7 +82,11 @@ export default function NotificationBell({
                     if (!n.read_at) markRead.mutate(n.id);
                     if (spaceId && itemId) {
                       setOpen(false);
-                      onOpenReminder(spaceId, itemId, entryId, n.id);
+                      // find — куда прокрутить внутри заметки (payload
+                      // напоминания о сроке). Колокольчик — самый частый
+                      // вход в приложении, и без этого аргумента он
+                      // единственный не прокручивал бы.
+                      onOpenReminder(spaceId, itemId, entryId, n.id, n.payload.find as string | undefined);
                     }
                   }}
                   className={`block w-full border-b px-3 py-2 text-left text-sm ${n.read_at ? "text-subtle" : "bg-muted font-medium text-primary"}`}

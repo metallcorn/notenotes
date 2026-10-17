@@ -130,3 +130,49 @@ describe("вторая стратегия: прокрутка к вложени�
     expect(scrollToText(editorWithDom(root), UPLOAD)).toBe(false);
   });
 });
+
+describe("устойчивость селектора вложений", () => {
+  // Найдено ревью 17.10: селектор держался на src и data-url, а карточка
+  // документа рисуется через ReactNodeViewRenderer — атрибуты из
+  // renderHTML приходят пропсом и на узел не попадают. Для .docx-вложения
+  // без превью не находилось ничего.
+  function editorWithDom(dom: HTMLElement) {
+    return {
+      state: { doc: { descendants: () => {} } },
+      view: { domAtPos: vi.fn((): { node: Node } => ({ node: dom })), dom },
+    };
+  }
+
+  const UPLOAD = "34560123-42a6-440f-8663-db90e963f853";
+
+  it("находит карточку документа по href", () => {
+    const root = document.createElement("div");
+    const link = document.createElement("a");
+    link.setAttribute("href", `/api/uploads/${UPLOAD}`);
+    link.scrollIntoView = vi.fn();
+    root.appendChild(link);
+
+    expect(scrollToText(editorWithDom(root), UPLOAD)).toBe(true);
+    expect(link.scrollIntoView).toHaveBeenCalled();
+  });
+
+  it("находит карточку распознанного текста по data-upload-id", () => {
+    const root = document.createElement("div");
+    const card = document.createElement("div");
+    card.setAttribute("data-upload-id", UPLOAD);
+    card.scrollIntoView = vi.fn();
+    root.appendChild(card);
+
+    expect(scrollToText(editorWithDom(root), UPLOAD)).toBe(true);
+  });
+
+  it("кривое значение из URL не роняет экран", () => {
+    // Значение приходит из адреса; кавычка в нём уронила бы querySelector
+    // исключением, а React пересбросил бы его на ErrorBoundary — человек
+    // вместо «не прокрутилось» получил бы развалившуюся заметку.
+    const root = document.createElement("div");
+
+    expect(() => scrollToText(editorWithDom(root), '"]')).not.toThrow();
+    expect(scrollToText(editorWithDom(root), '"]')).toBe(false);
+  });
+});

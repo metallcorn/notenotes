@@ -480,3 +480,47 @@ class TestСсылкаИзНапоминания:
         got = document_expiry.find_upcoming("ważny do 10.08.2027", date(2026, 10, 12))
 
         assert got[0][2] == "10.08.2027"
+
+    def test_дата_внутри_вложения_ведёт_к_файлу(self):
+        """ЗАМЕР 17.10, после ревью: из четырёх живых напоминаний
+        прокручивалось ОДНО. В трёх дата лежит внутри атрибута data-text
+        блока вложения — распознанный текст файла, — и в самом тексте
+        заметки её нет вовсе."""
+        content = (
+            "Аннекс к договору, см. вложение\n\n"
+            '<div data-url="/api/uploads/34560123-42a6-440f-8663-db90e963f853" '
+            'data-filename="aneks.pdf" data-text="przedłużyć do dnia 14.07.2027"></div>\n'
+        )
+
+        assert document_expiry.scroll_anchor(content, "14.07.2027") == "34560123-42a6-440f-8663-db90e963f853"
+
+    def test_карточка_распознанной_картинки_тоже(self):
+        content = (
+            "Сервисная книжка\n\n"
+            '<div data-image-ocr-result data-text="do dnia 25.08.2027" '
+            'data-upload-id="684c27cb-dd3b-4700-9577-2e19155dee56"></div>\n'
+        )
+
+        assert document_expiry.scroll_anchor(content, "25.08.2027") == "684c27cb-dd3b-4700-9577-2e19155dee56"
+
+    def test_видимая_дата_остаётся_литералом(self):
+        """Заметка «Техосмотр Citroën» — единственная из четырёх, где дата
+        в обычном тексте; её прокрутка работала и должна работать так же."""
+        content = "Крайний срок прохождения техосмотра — **11 марта 2027 года**."
+
+        assert document_expiry.scroll_anchor(content, "11 марта 2027") == "11 марта 2027"
+
+    def test_дата_в_нескольких_вложениях_берёт_первое(self):
+        content = (
+            '<div data-url="/api/uploads/11111111-1111-1111-1111-111111111111" data-text="do dnia 25.08.2027"></div>\n'
+            '<div data-url="/api/uploads/22222222-2222-2222-2222-222222222222" data-text="do dnia 25.08.2027"></div>\n'
+        )
+
+        assert document_expiry.scroll_anchor(content, "25.08.2027").startswith("11111111")
+
+    def test_нет_ни_там_ни_там_отдаём_литерал(self):
+        """Прокрутка не сработает, но заметка откроется — это лучше, чем
+        ничего."""
+        content = '<div data-url="/api/uploads/11111111-1111-1111-1111-111111111111" data-text="другой текст"></div>'
+
+        assert document_expiry.scroll_anchor(content, "25.08.2027") == "25.08.2027"

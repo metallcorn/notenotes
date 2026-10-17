@@ -272,6 +272,49 @@ def find_upcoming(text: str, today: date) -> list[tuple[date, str, str]]:
     return [(d, snippet, literal) for d, (snippet, literal) in sorted(found.items())]
 
 
+
+# Куда прокручивать, если дата лежит НЕ в видимом тексте заметки.
+#
+# ЗАМЕР 17.10, после ревью: из четырёх живых напоминаний о сроках
+# прокручивалось ОДНО. В трёх остальных дата находится внутри атрибута
+# data-text блока вложения — там хранится распознанный текст файла, и в
+# самом тексте заметки этой даты нет вовсе:
+#
+#   CamScanner 29.05.2025        дата только в data-text (PDF)
+#   Сервисная книжка             дата только в data-text (фото 1000016776)
+#   Przedłużenie umowy najmu     дата только в data-text, transcript файла ПУСТ
+#
+# Последний случай и определил решение. Напрашивалось «не искать в
+# атрибутах вовсе, пусть сработает проход по файлам» — но у этого файла
+# текст извлечён текстовым слоем прямо при загрузке и вшит в блок
+# заметки, а на самой загрузке transcript пустой. Выкинув атрибуты, мы
+# потеряли бы срок целиком.
+#
+# Поэтому: дата не видна в тексте — находим вложение, в чьём data-text
+# она лежит, и прокручиваем к файлу. Ничего не теряется, и человек
+# попадает туда, где документ.
+_TAG_RE = re.compile(r"<[^>]+>")
+_DIV_RE = re.compile(r"<div[^>]*>")
+_DATA_TEXT_RE = re.compile(r'data-text="([^"]*)"')
+_UPLOAD_REF_RE = re.compile(r'/api/uploads/([0-9a-fA-F-]{36})|data-upload-id="([0-9a-fA-F-]{36})"')
+
+
+def scroll_anchor(content: str, literal: str) -> str:
+    """Литерал, если он виден в тексте; иначе id вложения с этим текстом."""
+    if literal in _TAG_RE.sub(" ", content or ""):
+        return literal
+    for tag in _DIV_RE.finditer(content or ""):
+        body = tag.group(0)
+        text_attr = _DATA_TEXT_RE.search(body)
+        if text_attr is None or literal not in text_attr.group(1):
+            continue
+        ref = _UPLOAD_REF_RE.search(body)
+        if ref is not None:
+            return ref.group(1) or ref.group(2)
+    # Не нашли вложение — отдаём литерал: прокрутка не сработает, но
+    # заметка откроется, и это лучше, чем ничего.
+    return literal
+
 async def _scan_once() -> int:
     """Завести недостающие напоминания. Возвращает, сколько добавлено."""
     today = date.today()
@@ -383,7 +426,7 @@ async def _scan_once() -> int:
                             # прокручивать надо к вложению — тогда здесь
                             # id загрузки. Одно поле на две стратегии,
                             # различает их фронтенд (lib/findInDoc.ts).
-                            "find": str(from_upload) if from_upload else literal,
+                            "find": str(from_upload) if from_upload else scroll_anchor(text, literal),
                         },
                         trigger_at=trigger_at.replace(tzinfo=timezone.utc),
                     )
