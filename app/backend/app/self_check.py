@@ -225,12 +225,61 @@ def inspect_dialog(dialog_id: str, title: str, records: list[dict], *, now: date
     return found
 
 
+# --- здоровье хоста: своп ------------------------------------------------
+#
+# ПОЧЕМУ ЭТО ЗДЕСЬ, А НЕ В ЖУРНАЛЕ. 17.10.2026 после ребута на новое ядро
+# zram не поднялся (модуль лежит в linux-modules-extra, а тот был
+# поставлен по номеру старого ядра — см. roles/baseline). Сервер остался
+# со свопом ТОЛЬКО в файле внутри LUKS — ровно тот путь, который 19.08 и
+# 11.09 вешал машину на шесть часов (kswapd → dm-crypt → loop → page
+# cache → kswapd).
+#
+# Отказ zramswap.service был в журнале с первой секунды загрузки, и
+# существующий notenotes-alert тоже пишет только в журнал. Журнал никто
+# не читает, пока не случится беда. Самопроверка же уходит в утреннюю
+# сводку — то есть пропажу zram человек увидит наутро, а не по зависанию.
+#
+# /proc/swaps не изолирован в контейнере: это своп хоста.
+
+def inspect_host_swap(swaps_text: str) -> Finding | None:
+    """Замечание, если дисковый своп есть, а zram перед ним — нет."""
+    lines = [line.split() for line in (swaps_text or "").splitlines()[1:] if line.strip()]
+    has_zram = any(parts and "zram" in parts[0] for parts in lines)
+    has_disk = any(len(parts) > 1 and parts[1] == "file" for parts in lines)
+    if has_disk and not has_zram:
+        return Finding(
+            kind="нет_zram",
+            dialog_id="",
+            dialog_title="сервер",
+            text=(
+                "zram не поднят: своп остался только в файле внутри LUKS — тот же путь, "
+                "что вешал сервер 19.08 и 11.09. Проверь linux-modules-extra для текущего ядра."
+            ),
+        )
+    return None
+
+
+def _read_proc_swaps() -> str:
+    try:
+        with open("/proc/swaps", encoding="utf-8") as handle:
+            return handle.read()
+    except OSError:
+        # Нет доступа — молчим: самопроверка не должна сама становиться
+        # источником ложных тревог.
+        return ""
+
+
 async def collect_findings(db) -> list[Finding]:
     """Пройти по всем живым диалогам. Порядок — сначала самые большие."""
     dialogs = (
         await db.execute(select(Item).where(Item.material_type == "dialog", Item.deleted_at.is_(None)))
     ).scalars().all()
     findings: list[Finding] = []
+    # Хост — первым: если сервер под угрозой зависания, это важнее любого
+    # промаха ассистента.
+    swap = inspect_host_swap(_read_proc_swaps())
+    if swap is not None:
+        findings.append(swap)
     for item in dialogs:
         records = item.properties.get("messages") or []
         findings.extend(inspect_dialog(str(item.id), item.title or "", records))

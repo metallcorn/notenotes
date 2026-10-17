@@ -219,3 +219,46 @@ class TestУстойчивость:
 
         assert as_dict["диалог"] == "Тренировки"
         assert "что" in as_dict
+
+
+class TestСвопХоста:
+    """17.10.2026 после ребута на новое ядро zram не поднялся, и сервер
+    остался со свопом только в файле внутри LUKS — тот путь, что вешал
+    машину на шесть часов 19.08 и 11.09. Отказ был в журнале, но журнал
+    никто не читает; самопроверка уходит в утреннюю сводку."""
+
+    HEALTHY = (
+        "Filename\t\t\t\tType\t\tSize\t\tUsed\t\tPriority\n"
+        "/srv/encrypted/swapfile                 file\t\t2097148\t\t12\t\t10\n"
+        "/dev/zram0                              partition\t2002612\t\t0\t\t100\n"
+    )
+    NO_ZRAM = (
+        "Filename\t\t\t\tType\t\tSize\t\tUsed\t\tPriority\n"
+        "/srv/encrypted/swapfile                 file\t\t2097148\t\t12\t\t10\n"
+    )
+
+    def test_ровно_тот_случай_17_10(self):
+        from app.self_check import inspect_host_swap
+
+        finding = inspect_host_swap(self.NO_ZRAM)
+
+        assert finding is not None
+        assert finding.kind == "нет_zram"
+        assert "modules-extra" in finding.text, "надо сказать, что проверять"
+
+    def test_здоровый_своп_молчит(self):
+        from app.self_check import inspect_host_swap
+
+        assert inspect_host_swap(self.HEALTHY) is None
+
+    def test_до_unlock_свопа_нет_вовсе_и_это_не_тревога(self):
+        """До разблокировки тома дискового свопа нет совсем — это штатное
+        состояние, а не поломка zram."""
+        from app.self_check import inspect_host_swap
+
+        assert inspect_host_swap("Filename\tType\tSize\tUsed\tPriority\n") is None
+
+    def test_пустой_или_недоступный_файл_не_роняет(self):
+        from app.self_check import inspect_host_swap
+
+        assert inspect_host_swap("") is None
