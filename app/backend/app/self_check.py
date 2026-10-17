@@ -60,7 +60,7 @@ from sqlalchemy import select
 
 from app.db import async_session
 from app.dialog_tool_window import MAX_RESULT_CHARS, fold_stale_tool_results
-from app.models import Item
+from app.models import DebugLog, Item
 from app.tools.web_search import OWN_BASE_KEY
 
 logger = logging.getLogger(__name__)
@@ -269,6 +269,42 @@ def _read_proc_swaps() -> str:
         return ""
 
 
+# --- офлайн-правки: пора ли шагу 2 --------------------------------------
+#
+# Шаг 1 офлайн-редактирования (lib/offlineQueue.ts) при конфликте не
+# затирает чужое, а сохраняет правку рядом копией «(офлайн-правка)». Шаг 2
+# заменил бы копию слиянием — но на 17.10, за пятнадцать дней работы шага
+# 1, конфликтов не было ни одного, и строить самый рискованный код в
+# проекте ради несуществующей проблемы не стали.
+#
+# Это правило — сигнал, что проблема появилась. Пока конфликтов нет,
+# молчит; появились — значит пора, и уже по правильной схеме:
+# трёхстороннее слияние по тексту Markdown, НЕ через Yjs (комнаты
+# эфемерны, и слияние офлайн-документа в свежезасеянную комнату удвоило
+# бы весь текст заметки).
+
+async def inspect_offline_conflicts(db) -> Finding | None:
+    since = datetime.now(timezone.utc) - LOOKBACK
+    rows = (
+        await db.execute(
+            select(DebugLog.data).where(DebugLog.event == "offline_flush", DebugLog.created_at >= since)
+        )
+    ).scalars().all()
+    conflicts = sum(int((data or {}).get("conflict") or 0) for data in rows)
+    if conflicts == 0:
+        return None
+    return Finding(
+        kind="офлайн_конфликты",
+        dialog_id="",
+        dialog_title="офлайн-правки",
+        text=(
+            f"Офлайн-правки {conflicts} раз(а) за неделю ушли копией из-за конфликта — "
+            "пора делать слияние вместо копий (трёхстороннее, по тексту, не через Yjs)."
+        ),
+        details={"конфликтов": conflicts, "отправок": len(rows)},
+    )
+
+
 async def collect_findings(db) -> list[Finding]:
     """Пройти по всем живым диалогам. Порядок — сначала самые большие."""
     dialogs = (
@@ -280,6 +316,9 @@ async def collect_findings(db) -> list[Finding]:
     swap = inspect_host_swap(_read_proc_swaps())
     if swap is not None:
         findings.append(swap)
+    offline = await inspect_offline_conflicts(db)
+    if offline is not None:
+        findings.append(offline)
     for item in dialogs:
         records = item.properties.get("messages") or []
         findings.extend(inspect_dialog(str(item.id), item.title or "", records))

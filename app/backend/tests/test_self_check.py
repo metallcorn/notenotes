@@ -262,3 +262,64 @@ class TestСвопХоста:
         from app.self_check import inspect_host_swap
 
         assert inspect_host_swap("") is None
+
+
+class TestОфлайнКонфликты:
+    """Шаг 1 офлайн-редактирования при конфликте сохраняет правку копией.
+    На 17.10 за пятнадцать дней конфликтов не было ни одного, и шаг 2
+    (слияние вместо копии) отложили. Это правило — сигнал, что пора."""
+
+    async def _flush(self, db_session, test_user, *, saved=0, conflict=0, failed=0, days_ago=0):
+        import uuid as _uuid
+        from datetime import datetime, timedelta, timezone
+
+        from app.models import DebugLog
+
+        db_session.add(DebugLog(
+            id=_uuid.uuid4(), user_id=test_user.id, event="offline_flush",
+            data={"saved": saved, "conflict": conflict, "failed": failed},
+            created_at=datetime.now(timezone.utc) - timedelta(days=days_ago),
+        ))
+        await db_session.commit()
+
+    async def test_без_конфликтов_молчит(self, db_session, test_user):
+        """Офлайн правили, всё дошло — это не проблема, а норма."""
+        from app.self_check import inspect_offline_conflicts
+
+        await self._flush(db_session, test_user, saved=3)
+        await self._flush(db_session, test_user, saved=1)
+
+        assert await inspect_offline_conflicts(db_session) is None
+
+    async def test_конфликт_всплывает(self, db_session, test_user):
+        from app.self_check import inspect_offline_conflicts
+
+        await self._flush(db_session, test_user, saved=2, conflict=1)
+        await self._flush(db_session, test_user, conflict=2)
+
+        finding = await inspect_offline_conflicts(db_session)
+
+        assert finding is not None
+        assert finding.details["конфликтов"] == 3
+        assert finding.details["отправок"] == 2
+        assert "не через Yjs" in finding.text, "надо сразу сказать, по какой схеме делать"
+
+    async def test_старые_конфликты_не_нагоняют(self, db_session, test_user):
+        """Та же неделя, что у остальных проверок: разобранное прошлое не
+        должно висеть в сводке вечно."""
+        from app.self_check import LOOKBACK, inspect_offline_conflicts
+
+        await self._flush(db_session, test_user, conflict=5, days_ago=LOOKBACK.days + 2)
+
+        assert await inspect_offline_conflicts(db_session) is None
+
+    async def test_кривые_данные_не_роняют(self, db_session, test_user):
+        import uuid as _uuid
+
+        from app.models import DebugLog
+        from app.self_check import inspect_offline_conflicts
+
+        db_session.add(DebugLog(id=_uuid.uuid4(), user_id=test_user.id, event="offline_flush", data={}))
+        await db_session.commit()
+
+        assert await inspect_offline_conflicts(db_session) is None

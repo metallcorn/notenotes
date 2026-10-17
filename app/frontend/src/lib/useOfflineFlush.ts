@@ -1,6 +1,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api/client";
+import { diagnosticLog } from "./diagnostics";
 import { flushQueue, readQueue, type FlushOutcome } from "./offlineQueue";
 import type { Item } from "../api/types";
 
@@ -47,6 +48,20 @@ export function useOfflineFlush(): FlushOutcome[] {
           },
         });
         if (results.length) {
+          // Счётчик: сколько офлайн-правок дошло, сколько ушло копией из-за
+          // конфликта, сколько не дошло.
+          //
+          // ЗАЧЕМ. На 17.10 шаг 1 работал пятнадцать дней и не создал ни
+          // одной конфликтной копии — но это ещё не значит, что офлайн
+          // никто не правил: правка без конфликта выглядит как обычное
+          // сохранение и следа не оставляет. Решение о шаге 2 (слияние
+          // вместо копии) зависит ровно от этих чисел, и угадывать их
+          // нельзя. Конфликты всплывают в самопроверке (self_check.py).
+          diagnosticLog("offline_flush", {
+            saved: results.filter((r) => r.status === "saved").length,
+            conflict: results.filter((r) => r.status === "conflict").length,
+            failed: results.filter((r) => r.status === "failed").length,
+          });
           setOutcomes(results);
           // Свежие данные с сервера: мы только что их изменили.
           qc.invalidateQueries({ queryKey: ["items"] });
