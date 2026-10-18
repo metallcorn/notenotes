@@ -3,12 +3,34 @@
 #   git config core.hooksPath scripts/git-hooks
 #
 # 1. Персональные данные во ВСЕХ уходящих коммитах — и в коде, и в
-#    сообщениях (scripts/pii_guard.py). Первым: это секунды, и найденное
-#    после пуша уже публично — откатить нельзя, только переписывать историю.
-# 2. Сборка + pytest.
+#    сообщениях (scripts/pii_guard.py). Всегда и первым: это секунды, а
+#    найденное после пуша уже публично.
+# 2. Сборка + тесты — только если этот коммит ещё не проверен.
+#
+# Почему не всегда. Git открывает SSH-соединение с GitHub ДО запуска хука,
+# а прогон идёт ~10 минут — соединение простаивает и рвётся, и пуш падает
+# с SIGPIPE (код 141) уже после зелёных тестов. Поймано 18.10. Поэтому
+# порядок такой: scripts/build-and-test.sh (или deploy.sh) на чистом
+# дереве оставляет отметку о проверенном коммите, и пуш после него
+# проходит за секунды.
 set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+GIT_DIR="$(git -C "$REPO_ROOT" rev-parse --git-dir)"
+REFS="$(cat)"
+
 echo "pre-push: проверка на персональные данные…"
-python3 "$REPO_ROOT/scripts/pii_guard.py" push
-echo "pre-push: сборка + pytest перед отправкой…"
-"$REPO_ROOT/scripts/build-and-test.sh"
+printf '%s\n' "$REFS" | python3 "$REPO_ROOT/scripts/pii_guard.py" push
+
+untested=0
+while read -r _local_ref local_sha _remote_ref _remote_sha; do
+  [ -z "${local_sha:-}" ] && continue
+  [ "$local_sha" = "0000000000000000000000000000000000000000" ] && continue
+  [ -f "$GIT_DIR/notenotes-tested-$local_sha" ] || untested=1
+done <<< "$REFS"
+
+if [ "$untested" = 1 ]; then
+  echo "pre-push: коммит не проверен — сначала scripts/build-and-test.sh, потом push." >&2
+  echo "  (прогон внутри хука рвёт SSH-соединение с GitHub, см. комментарий в хуке)" >&2
+  exit 1
+fi
+echo "pre-push: коммит уже проверен тестами — отправляю."

@@ -20,6 +20,14 @@ trap 'sudo docker buildx prune -af >/dev/null 2>&1 || true' EXIT
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
+# Какой коммит проверяем — только если рабочее дерево чистое: тесты гоняют
+# то, что лежит на диске, и отметка «коммит X проверен» при незакоммиченных
+# правках была бы враньём. Отметку читает pre-push (см. там, зачем).
+TESTED_SHA=""
+if [ -z "$(git -C "$REPO_ROOT" status --porcelain)" ]; then
+  TESTED_SHA="$(git -C "$REPO_ROOT" rev-parse HEAD)"
+fi
+
 echo "==> Синхронизация кода в /srv/notenotes/app"
 sudo rsync -a --delete \
   --exclude=node_modules --exclude=dist --exclude=__pycache__ --exclude=.venv --exclude='*.pyc' \
@@ -67,3 +75,6 @@ echo "==> Тесты на СОБРАННОМ образе, изолирован�
     backend -c "pip install --quiet -r requirements-dev.txt && python3 -m pytest -q"
 )
 echo "==> Тесты прошли"
+if [ -n "$TESTED_SHA" ]; then
+  touch "$(git -C "$REPO_ROOT" rev-parse --git-dir)/notenotes-tested-$TESTED_SHA"
+fi
