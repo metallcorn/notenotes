@@ -12,6 +12,9 @@ from starlette.responses import FileResponse
 from app.core.config import get_settings
 from app.db import get_db
 from app.deps import ensure_space_access, get_current_user, is_vault_space
+from app import realtime
+from app.attachment_text import remember_extracted_text, set_transcript
+from app.embeddings import reindex_items_with_upload
 from app.models import Upload, User
 from app.schemas.upload import UploadOut
 from app.upload_dedup import content_hash, find_anywhere, find_in_space, link_or_write
@@ -377,6 +380,11 @@ async def create_upload(
         # версию пользователь получит по клику «Распознать».
         pdf_text = text_layer
 
+    # Текст, который карточка раньше несла в заметке, — теперь в самой
+    # загрузке (app/attachment_text.py). pdf_text/preview_text по-прежнему
+    # отдаются клиенту: чат ассистента кладёт их в контекст сообщения.
+    remember_extracted_text(upload, pdf_text or preview_text)
+
     await db.commit()
 
     if auto and content_type.startswith("video/"):
@@ -563,9 +571,11 @@ async def update_upload_transcript(
     """Ручная правка распознанного текста — реальный запрос: OCR иногда
     ошибается (перепутанная цифра в дате, опечатка), и пользователь должен
     уметь поправить руками, не гоняя распознавание заново. Работает для
-    любого источника карточки data-image-ocr-result (картинка/PDF/видео-
-    аудио-расшифровка/голосовая запись в заметке) — формат тега одинаковый
-    везде, см. vision.serialize_image_ocr_result."""
+    любого источника карточки — картинки, PDF, документа, расшифровки.
+
+    С 18.10 текст живёт только в загрузке, заметку правка не трогает:
+    карточки перечитывают текст по сигналу спейса. Прежний текст уходит в
+    upload_transcript_versions — раньше его хранила история заметки."""
     upload = await db.get(Upload, upload_id)
     if upload is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Файл не найден")
@@ -577,12 +587,30 @@ async def update_upload_transcript(
     if not text:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Текст не может быть пустым")
 
-    upload.transcript = text
+    set_transcript(db, upload, text, author_id=user.id)
+    space_id = upload.space_id
     await db.commit()
 
-    new_card = vision_module.serialize_image_ocr_result(upload.id, text, upload.content_type)
-    await vision_module.replace_recognized_text_card(upload.id, None, new_card, snapshot_version=True)
+    await realtime.notify_space(space_id, "items")
+    await reindex_items_with_upload(upload_id)
     return {"status": "ok"}
+
+
+@router.get("/{upload_id}/text")
+async def get_upload_text(
+    upload_id: uuid.UUID, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+) -> dict:
+    """Распознанный текст файла — для карточки вложения в заметке.
+
+    Отдельно от самого файла и от заметки: текст в заметке больше не
+    хранится (app/attachment_text.py), а тащить его вместе с каждой
+    заметкой в списках незачем — карточка просит его сама, когда видна.
+    """
+    upload = await db.get(Upload, upload_id)
+    if upload is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Файл не найден")
+    await ensure_space_access(db, upload.space_id, user.id)
+    return {"text": upload.transcript or "", "status": upload.transcription_status}
 
 
 @router.post("/{upload_id}/describe-now")

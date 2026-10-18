@@ -11,6 +11,8 @@ import httpx
 from sqlalchemy import select
 
 from app import collab, realtime
+from app.attachment_text import set_transcript
+from app.embeddings import reindex_items_with_upload
 from app.core.config import get_settings
 from app.db import async_session
 from app.document_reflow import reflow_document_text
@@ -130,7 +132,7 @@ def placeholder_text(upload_id: uuid.UUID) -> str:
     return f"⏳ Описание изображения {upload_id} обрабатывается…"
 
 
-def serialize_image_ocr_result(upload_id: uuid.UUID, text: str, content_type: str = "") -> str:
+def serialize_image_ocr_result(upload_id: uuid.UUID, content_type: str = "") -> str:
     """Тот же формат, что сериализует ImageOcrResult.ts на фронте — раньше
     результат распознавания вставлялся голым абзацем прямо в заметку
     (реальная жалоба: засоряет заметку, особенно у картинок с таблицами/
@@ -140,19 +142,19 @@ def serialize_image_ocr_result(upload_id: uuid.UUID, text: str, content_type: st
 
     upload_id — реальная жалоба: карточка не знала, из какого upload она
     получена, поэтому не было ни кнопки "распознать заново", ни ручной
-    правки текста, если распознавание ошиблось. content_type определяет
+    правки текста, если распознавание ошиблось.
+
+    Самого текста в теге больше нет: он в uploads.transcript, карточка
+    берёт его по upload_id (см. app/attachment_text.py). content_type определяет
     data-can-reprocess: /api/uploads/{id}/reprocess сейчас умеет только
     image/video/pdf — для аудио (расшифровка голосовых записей,
     note_recording.py — отдельный пайплайн, не через этот эндпоинт) кнопку
     "распознать заново" не показываем, чтобы не предлагать нерабочее
     действие; ручная правка текста работает для всех одинаково."""
 
-    def esc(s: str) -> str:
-        return s.replace("&", "&amp;").replace("\n", "&#10;").replace('"', "&quot;")
-
     can_reprocess = content_type.startswith(("image/", "video/")) or content_type == "application/pdf"
     reprocess_attr = ' data-can-reprocess="1"' if can_reprocess else ""
-    return f'<div data-image-ocr-result data-text="{esc(text)}" data-upload-id="{upload_id}"{reprocess_attr}></div>'
+    return f'<div data-image-ocr-result data-upload-id="{upload_id}"{reprocess_attr}></div>'
 
 
 def enqueue_vision(upload_id: uuid.UUID) -> None:
@@ -336,7 +338,8 @@ async def _process(upload_id: uuid.UUID) -> None:
         upload = await db.get(Upload, upload_id)
         if upload is None:
             return
-        upload.transcript = description
+        if description.strip():
+            set_transcript(db, upload, description)
         # Билет остаётся "processing" — финальный статус (done/failed)
         # проставит tickets.py, когда закончит структурированное
         # извлечение; плейсхолдер в заметке (тот же самый) висит до тех пор.
@@ -358,8 +361,9 @@ async def _process(upload_id: uuid.UUID) -> None:
         await replace_recognized_text_card(upload_id, placeholder_text(upload_id), _EMPTY_MESSAGE)
         return
 
-    formatted = serialize_image_ocr_result(upload_id, description, content_type)
+    formatted = serialize_image_ocr_result(upload_id, content_type)
     await replace_recognized_text_card(upload_id, placeholder_text(upload_id), formatted)
+    await reindex_items_with_upload(upload_id)
 
 
 async def run_worker() -> None:
@@ -419,5 +423,5 @@ async def resume_stuck_replacements() -> None:
         if upload.transcription_status != "done" or not (upload.transcript or "").strip():
             continue
         logger.info("Довершаю зависшую замену плейсхолдера для %s (найдено при старте)", upload.id)
-        formatted = serialize_image_ocr_result(upload.id, upload.transcript, upload.content_type)
+        formatted = serialize_image_ocr_result(upload.id, upload.content_type)
         await replace_recognized_text_card(upload.id, placeholder_text(upload.id), formatted)

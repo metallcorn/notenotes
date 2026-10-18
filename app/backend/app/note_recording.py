@@ -8,6 +8,7 @@ from pathlib import Path
 from sqlalchemy import select
 
 from app import collab, realtime
+from app.attachment_text import set_transcript
 from app.asr.deepgram import DeepgramClient
 from app.core.config import get_settings
 from app.db import async_session
@@ -132,7 +133,8 @@ async def _process(upload_id: uuid.UUID) -> None:
         upload = await db.get(Upload, upload_id)
         if upload is None:
             return
-        upload.transcript = transcript
+        if transcript.strip():
+            set_transcript(db, upload, transcript)
         upload.transcription_status = "done" if transcript.strip() else STATUS_EMPTY
         await db.commit()
 
@@ -147,7 +149,7 @@ async def _process(upload_id: uuid.UUID) -> None:
     # (ImageOcrResult.ts/ImageOcrResultCard.tsx): формат карточки ничего
     # не знает про картинки конкретно, просто сворачиваемый текст, поэтому
     # переиспользуем как есть, без нового узла на фронте.
-    card = f'<audio src="{url}" data-filename="{_esc(filename)}"></audio>\n\n{serialize_image_ocr_result(upload_id, transcript, content_type)}'
+    card = f'<audio src="{url}" data-filename="{_esc(filename)}"></audio>\n\n{serialize_image_ocr_result(upload_id, content_type)}'
     await _replace_in_referencing_items(upload_id, placeholder_text(upload_id), card)
 
 

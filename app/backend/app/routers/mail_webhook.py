@@ -16,6 +16,7 @@ from app.models import EmailInbox, Folder, Item, Upload, User
 from app.pdf_processing import AUTO_OCR_MAX_PDF_BYTES
 from app.pdf_processing import enqueue_ocr as enqueue_pdf_ocr
 from app.pdf_processing import extract_text as extract_pdf_text
+from app.attachment_text import remember_extracted_text
 from app.pdf_processing import serialize_document_attachment
 from app.routers.items import create_item_row
 from app.routers.uploads import MAX_GENERIC_UPLOAD_BYTES, _extract_text_preview, _upload_path, save_upload_deduplicated
@@ -96,7 +97,7 @@ def _existing_attachment_block(upload: Upload) -> str:
     if upload.content_type.startswith("image/"):
         return f"![]({url})\n\n_Этот файл уже был в базе — показан тот же._\n"
     return (
-        f"{serialize_document_attachment(url, upload.filename, (upload.transcript or '')[:4000])}\n\n"
+        f"{serialize_document_attachment(url, upload.filename)}\n\n"
         "_Этот файл уже был в базе — приложен тот же._\n"
     )
 
@@ -194,15 +195,17 @@ async def _attachment_block(upload: Upload, data: bytes, auto_process: bool) -> 
         if auto_process and (text_layer or len(data) <= AUTO_OCR_MAX_PDF_BYTES):
             upload.transcription_status = "pending"
             enqueue_pdf_ocr(upload.id)
-            return f"{serialize_document_attachment(url, upload.filename, '', processing=True)}\n"
-        return f"{serialize_document_attachment(url, upload.filename, text_layer or '')}\n"
+            return f"{serialize_document_attachment(url, upload.filename, processing=True)}\n"
+        remember_extracted_text(upload, text_layer)
+        return f"{serialize_document_attachment(url, upload.filename)}\n"
 
     text_preview = None
     try:
         text_preview = _extract_text_preview(_upload_path(upload.id), content_type, upload.filename)
     except Exception:
         logger.exception("Не удалось извлечь текст из вложения письма %s (id=%s)", upload.filename, upload.id)
-    return f"{serialize_document_attachment(url, upload.filename, text_preview or '')}\n"
+    remember_extracted_text(upload, text_preview)
+    return f"{serialize_document_attachment(url, upload.filename)}\n"
 
 
 @router.post("/webhook")

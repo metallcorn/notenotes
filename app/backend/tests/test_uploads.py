@@ -173,7 +173,7 @@ async def _make_note_with_ocr_card(auth_client, db_session, test_user, content_t
     upload = Upload(space_id=uuid.UUID(space_id), author_id=test_user.id, filename="x.jpg", content_type=content_type)
     db_session.add(upload)
     await db_session.flush()
-    card = serialize_image_ocr_result(upload.id, "старый текст с опечаткой", content_type)
+    card = serialize_image_ocr_result(upload.id, content_type)
     r = await auth_client.post("/api/items", json={"space_id": space_id, "title": "T", "content": card})
     return r.json()["id"], upload.id
 

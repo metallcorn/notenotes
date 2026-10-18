@@ -133,3 +133,21 @@ async def get_public_upload(token: str, upload_id: uuid.UUID, db: AsyncSession =
     return FileResponse(
         path, media_type=upload.content_type, filename=upload.filename, content_disposition_type=disposition
     )
+
+
+@router.get("/{token}/uploads/{upload_id}/text")
+async def get_public_upload_text(token: str, upload_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> dict:
+    """Распознанный текст вложения опубликованной заметки — для карточки
+    файла на публичной странице. С 18.10 текст в заметке не хранится
+    (app/attachment_text.py), без этого маршрута аноним видел бы карточку
+    без текста. Те же проверки, что у самого файла выше."""
+    item = await _get_shared_item(db, token)
+    if str(upload_id) not in _UPLOAD_URL_RE.findall(item.content):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Файл не найден")
+
+    from app.models import Upload
+
+    upload = await db.get(Upload, upload_id)
+    if upload is None or upload.space_id != item.space_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Файл не найден")
+    return {"text": upload.transcript or "", "status": upload.transcription_status}

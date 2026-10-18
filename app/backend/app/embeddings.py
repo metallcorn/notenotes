@@ -27,6 +27,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.db import async_session
+from app.attachment_text import readable_content
 from app.models import Item, ItemEmbedding, Space, SpaceMember
 
 logger = logging.getLogger(__name__)
@@ -183,7 +184,13 @@ async def index_item(db: AsyncSession, item: Item) -> int:
 
     title = item.title or ""
     content = item.content or ""
-    chunks = split_into_chunks(f"{title}\n\n{content}" if title else content)
+    # Векторы строятся по заметке с раскрытыми вложениями: распознанный
+    # текст файлов живёт в загрузках (app/attachment_text.py), а искать по
+    # смыслу «скан паспорта» надо и по нему. Хэш — по самому content, чтобы
+    # совпадал с SQL в find_stale_item_ids; смену текста файла ловит
+    # reindex_items_with_upload.
+    readable = await readable_content(db, content)
+    chunks = split_into_chunks(f"{title}\n\n{readable}" if title else readable)
     if not chunks:
         await _drop_embeddings(db, item.id)
         return 0
@@ -212,6 +219,24 @@ async def index_item(db: AsyncSession, item: Item) -> int:
         )
     await db.commit()
     return len(chunks)
+
+
+async def reindex_items_with_upload(upload_id: uuid.UUID) -> None:
+    """Распознанный текст файла изменился — пересчитать векторы заметок,
+    в которые он вложен. Сама заметка при этом не меняется (текст в
+    загрузке), и по content_hash _process счёл бы её свежей, поэтому
+    старые векторы сначала сбрасываются."""
+    async with async_session() as db:
+        ids = (
+            await db.execute(
+                select(Item.id).where(Item.content.like(f"%{upload_id}%"), Item.deleted_at.is_(None))
+            )
+        ).scalars().all()
+        for item_id in ids:
+            await _drop_embeddings(db, item_id)
+        await db.commit()
+    for item_id in ids:
+        enqueue_embedding(item_id)
 
 
 async def _drop_embeddings(db: AsyncSession, item_id: uuid.UUID) -> None:

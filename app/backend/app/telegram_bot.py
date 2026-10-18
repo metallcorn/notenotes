@@ -24,6 +24,7 @@ from app.routers.calendar import build_ics
 from app.pdf_processing import AUTO_OCR_MAX_PDF_BYTES
 from app.pdf_processing import enqueue_ocr as enqueue_pdf_ocr
 from app.pdf_processing import extract_text as extract_pdf_text
+from app.attachment_text import remember_extracted_text
 from app.pdf_processing import serialize_document_attachment
 from app.routers.dialogs import run_dialog_turn
 from app.routers.items import create_item_row
@@ -586,12 +587,13 @@ async def _handle_document(db: AsyncSession, message: dict, space_id: uuid.UUID,
         user = await db.get(User, author_id)
         auto = user is not None and user.auto_process_uploads
         if auto and (text_layer or len(content_bytes) <= AUTO_OCR_MAX_PDF_BYTES):
-            content = f"{body}{serialize_document_attachment(attachment_url, filename, '', processing=True)}\n"
+            content = f"{body}{serialize_document_attachment(attachment_url, filename, processing=True)}\n"
             pdf_ocr_queued = True
         elif text_layer:
-            content = f"{body}{serialize_document_attachment(attachment_url, filename, text_layer)}\n"
+            remember_extracted_text(upload, text_layer)
+            content = f"{body}{serialize_document_attachment(attachment_url, filename)}\n"
         else:
-            content = f"{body}{serialize_document_attachment(attachment_url, filename, '')}\n"
+            content = f"{body}{serialize_document_attachment(attachment_url, filename)}\n"
     else:
         # Реальная жалоба: docx/xlsx/pptx, присланные в Telegram, никогда не
         # распознавались — извлечение текста для этих форматов (python-docx/
@@ -605,7 +607,8 @@ async def _handle_document(db: AsyncSession, message: dict, space_id: uuid.UUID,
             text_preview = _extract_text_preview(_upload_path(upload.id), mime_type, filename)
         except Exception:
             logger.exception("Не удалось извлечь текст из %s (Telegram, id=%s)", filename, upload.id)
-        content = f"{body}{serialize_document_attachment(attachment_url, filename, text_preview or '')}\n"
+        remember_extracted_text(upload, text_preview)
+        content = f"{body}{serialize_document_attachment(attachment_url, filename)}\n"
 
     title = _derive_title(caption, fallback=filename)
     item = await create_item_row(
@@ -836,13 +839,14 @@ async def _handle_forward_batch(
                 user = await db.get(User, author_id)
                 auto = user is not None and user.auto_process_uploads
                 if auto and (text_layer or len(content_bytes) <= AUTO_OCR_MAX_PDF_BYTES):
-                    parts.append(f"{body}{serialize_document_attachment(attachment_url, filename, '', processing=True)}")
+                    parts.append(f"{body}{serialize_document_attachment(attachment_url, filename, processing=True)}")
                     upload.transcription_status = "pending"
                     deferred.append((enqueue_pdf_ocr, upload.id))
                 elif text_layer:
-                    parts.append(f"{body}{serialize_document_attachment(attachment_url, filename, text_layer)}")
+                    remember_extracted_text(upload, text_layer)
+                    parts.append(f"{body}{serialize_document_attachment(attachment_url, filename)}")
                 else:
-                    parts.append(f"{body}{serialize_document_attachment(attachment_url, filename, '')}")
+                    parts.append(f"{body}{serialize_document_attachment(attachment_url, filename)}")
             else:
                 # Тот же экстрактор, что в _handle_document — реальная
                 # жалоба касалась именно пересланных документов.
@@ -851,7 +855,8 @@ async def _handle_forward_batch(
                     text_preview = _extract_text_preview(_upload_path(upload.id), mime_type, filename)
                 except Exception:
                     logger.exception("Не удалось извлечь текст из %s (Telegram, id=%s)", filename, upload.id)
-                parts.append(f"{body}{serialize_document_attachment(attachment_url, filename, text_preview or '')}")
+                remember_extracted_text(upload, text_preview)
+                parts.append(f"{body}{serialize_document_attachment(attachment_url, filename)}")
 
     if not parts:
         return False

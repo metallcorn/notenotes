@@ -2,7 +2,9 @@ import { useRef, useState } from "react";
 import { NodeViewWrapper } from "@tiptap/react";
 import type { NodeViewProps } from "@tiptap/react";
 import { ChevronDown, ChevronUp, Pencil, RotateCw } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useReprocessUpload, useUpdateUploadTranscript } from "../api/hooks";
+import { useAttachmentText } from "../lib/attachmentText";
 import { ExpandedTextPanel, ReadFullscreenButton, RecognizedTextCopyButtons } from "./RecognizedTextView";
 import Spinner from "./Spinner";
 
@@ -18,12 +20,16 @@ import Spinner from "./Spinner";
 // эндпоинт /reprocess не умеет чистое аудио, поэтому canReprocess=false для
 // голосовых записей и видео-аудио-расшифровок), и ручная правка текста —
 // та работает для ЛЮБого источника этой карточки одинаково.
-export default function ImageOcrResultCard({ node }: NodeViewProps) {
-  const { text, uploadId, canReprocess } = node.attrs as {
+export default function ImageOcrResultCard({ node, updateAttributes }: NodeViewProps) {
+  const { text: inlineText, uploadId, canReprocess } = node.attrs as {
     text: string;
     uploadId: string | null;
     canReprocess: boolean;
   };
+  // Текст — из загрузки (lib/attachmentText.ts); data-text в узле есть
+  // только у блоков старого формата.
+  const { text } = useAttachmentText(uploadId, inlineText);
+  const queryClient = useQueryClient();
   const [expanded, setExpanded] = useState(false);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(text);
@@ -44,6 +50,11 @@ export default function ImageOcrResultCard({ node }: NodeViewProps) {
     const value = draft.trim();
     if (!value) return;
     await updateTranscript.mutateAsync({ uploadId, text: value });
+    // Блок старого формата держит свою копию текста в атрибуте, и она
+    // главнее загрузки — после правки её надо убрать, иначе карточка
+    // так и показывала бы прежний текст.
+    if (inlineText) updateAttributes({ text: "" });
+    await queryClient.invalidateQueries({ queryKey: ["upload-text", uploadId] });
     setEditing(false);
   }
 

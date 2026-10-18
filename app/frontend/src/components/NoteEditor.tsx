@@ -1326,7 +1326,8 @@ export default function NoteEditor({
     // Аудио — сразу готовый плеер, без плейсхолдера: расшифровка для
     // отдельно загруженных аудиофайлов не подключена (только для видео),
     // плеер сам по себе и есть превью, ждать нечего.
-    const previewText = uploaded.pdf_text ?? uploaded.preview_text ?? "";
+    // Текст файла (pdf_text/preview_text) в узел больше не кладём: бэкенд
+    // сохранил его в загрузку, карточка возьмёт оттуда (lib/attachmentText.ts).
     let nextPos = typeof pos === "number" ? pos : pos.from;
     if (mode === "wysiwyg" && editor) {
       if (isVideo) {
@@ -1354,7 +1355,6 @@ export default function NoteEditor({
             attrs: {
               url: uploaded.url,
               filename: uploaded.filename,
-              text: uploaded.pdf_ocr_queued ? "" : previewText,
               processing: uploaded.pdf_ocr_queued,
             },
           })
@@ -1374,7 +1374,7 @@ export default function NoteEditor({
     } else {
       setContent(
         (c) =>
-          `${c}\n\n${serializeDocumentAttachment(uploaded.url, uploaded.filename, uploaded.pdf_ocr_queued ? "" : previewText, uploaded.pdf_ocr_queued)}\n`,
+          `${c}\n\n${serializeDocumentAttachment(uploaded.url, uploaded.filename, "", uploaded.pdf_ocr_queued)}\n`,
       );
     }
     return nextPos;

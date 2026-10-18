@@ -409,6 +409,25 @@ class Upload(Base):
     size_bytes: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
 
 
+class UploadTranscriptVersion(Base):
+    """Прежний распознанный текст файла — перед каждой его перезаписью.
+
+    Пока текст жил в атрибуте data-text внутри заметки, его история
+    приходила бесплатно, вместе с историей заметки. С 18.10 текст живёт
+    только в uploads.transcript (app/attachment_text.py), и без этой
+    таблицы ручная правка OCR или «распознать заново» стирали бы прежний
+    результат безвозвратно — а история версий у нас обязательна (CLAUDE.md).
+    """
+
+    __tablename__ = "upload_transcript_versions"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    upload_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("uploads.id", ondelete="CASCADE"), index=True)
+    transcript: Mapped[str] = mapped_column(Text)
+    author_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class ItemVersion(Base):
     __tablename__ = "item_versions"
 

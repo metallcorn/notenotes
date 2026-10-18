@@ -14,6 +14,7 @@ from app.llm.base import ToolDefinition
 from app.models import Folder, Item, ItemTag, ItemVersion, Space, SpaceMember, Tag
 from app.note_formatting import linkify_notes_content
 from app.routers.items import create_item_row
+from app.attachment_text import attachment_texts, readable_content
 from app.identifier_ambiguity import ambiguity_warning
 from app.tools.registry import ToolContext, ToolError
 
@@ -167,6 +168,12 @@ GET_NOTE = ToolDefinition(
 )
 
 
+# Потолок текста одного файла в get_note. Раньше текст PDF приходил в
+# content целиком (до 20000 символов) — ровно то, от чего тонул контекст
+# ассистента. Дальше — get_file.
+_FILE_TEXT_CHARS = 8000
+
+
 async def get_note(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
     item = await _get_item_cross_space(ctx, args.get("item_id"))
     _require_note_like(item)
@@ -180,9 +187,24 @@ async def get_note(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
         # основной источник ответа.
         result["material_type"] = "ticket"
         result["properties"] = item.properties
+    # Распознанный текст вложений — отдельным полем, а не внутри content.
+    # С 18.10 его нет в заметке (app/attachment_text.py); раскрывать его в
+    # сам content нельзя: модель переписывает заметку через update_note
+    # целиком, и вместо тега карточки в заметку лёг бы голый текст файла.
+    files = []
+    for t in await attachment_texts(ctx.db, item.content or ""):
+        entry: dict[str, Any] = {"filename": t.filename, "text": t.text[:_FILE_TEXT_CHARS]}
+        if t.attachment.upload_id is not None:
+            entry["file_id"] = str(t.attachment.upload_id)
+        if len(t.text) > _FILE_TEXT_CHARS:
+            entry["text_truncated"] = "полный текст — get_file по file_id"
+        files.append(entry)
+    if files:
+        result["files"] = files
     # Несколько разных номеров в одном документе — модель обязана узнать
     # об этом до того, как назовёт один из них (identifier_ambiguity.py).
-    warning = ambiguity_warning(item.content or "")
+    # По заметке ВМЕСТЕ с текстом файлов: номера живут в сканах.
+    warning = ambiguity_warning(await readable_content(ctx.db, item.content or ""))
     if warning:
         result["чьи_номера"] = warning
     return result

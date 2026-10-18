@@ -62,12 +62,12 @@ def test_ticket_fallback_does_not_trigger_on_unrelated_mention():
 
 def test_serialize_image_ocr_result_includes_upload_id():
     uid = uuid.uuid4()
-    html = serialize_image_ocr_result(uid, "текст", "image/jpeg")
+    html = serialize_image_ocr_result(uid, "image/jpeg")
     assert f'data-upload-id="{uid}"' in html
 
 
 def test_serialize_image_ocr_result_can_reprocess_for_image():
-    html = serialize_image_ocr_result(uuid.uuid4(), "текст", "image/jpeg")
+    html = serialize_image_ocr_result(uuid.uuid4(), "image/jpeg")
     assert 'data-can-reprocess="1"' in html
 
 
@@ -75,7 +75,7 @@ def test_serialize_image_ocr_result_no_reprocess_for_audio():
     # /api/uploads/{id}/reprocess не умеет чистое аудио (голосовые записи
     # note_recording.py — отдельный пайплайн) — не показываем кнопку,
     # которая гарантированно вернёт 400.
-    html = serialize_image_ocr_result(uuid.uuid4(), "текст", "audio/ogg")
+    html = serialize_image_ocr_result(uuid.uuid4(), "audio/ogg")
     assert "data-can-reprocess" not in html
 
 
@@ -126,7 +126,7 @@ async def test_replace_recognized_text_card_replaces_placeholder():
     uid = uuid.uuid4()
     item_id, user_id = await _make_real_item(f"![]( /x )\n\n{placeholder_text(uid)}\n")
     try:
-        new_card = serialize_image_ocr_result(uid, "распознанный текст", "image/jpeg")
+        new_card = serialize_image_ocr_result(uid, "image/jpeg")
         ok = await replace_recognized_text_card(uid, placeholder_text(uid), new_card)
         assert ok is True
 
@@ -147,10 +147,11 @@ async def test_replace_recognized_text_card_replaces_existing_card_not_just_plac
     # замена молча ничего не находила. Теперь ищем ЛИБО плейсхолдер, ЛИБО
     # существующую карточку этого upload_id по data-upload-id.
     uid = uuid.uuid4()
-    old_card = serialize_image_ocr_result(uid, "старый текст с опечаткой", "image/jpeg")
+    # Карточка старого формата — с текстом в атрибуте (до 18.10).
+    old_card = f'<div data-image-ocr-result data-text="старый текст с опечаткой" data-upload-id="{uid}"></div>'
     item_id, user_id = await _make_real_item(f"![]( /x )\n\n{old_card}\n")
     try:
-        new_card = serialize_image_ocr_result(uid, "исправленный текст", "image/jpeg")
+        new_card = serialize_image_ocr_result(uid, "image/jpeg")
         ok = await replace_recognized_text_card(uid, placeholder_text(uid), new_card)
         assert ok is True
 
@@ -159,7 +160,7 @@ async def test_replace_recognized_text_card_replaces_existing_card_not_just_plac
         async with real_async_session() as db:
             item = await db.get(Item, item_id)
             assert "старый текст с опечаткой" not in item.content
-            assert "исправленный текст" in item.content
+            assert new_card in item.content
     finally:
         await _cleanup_real_item(item_id, user_id)
 
@@ -171,10 +172,10 @@ async def test_replace_recognized_text_card_snapshot_version():
     from app.models import ItemVersion
 
     uid = uuid.uuid4()
-    old_card = serialize_image_ocr_result(uid, "старый текст", "image/jpeg")
+    old_card = f'<div data-image-ocr-result data-text="старый текст" data-upload-id="{uid}"></div>'
     item_id, user_id = await _make_real_item(old_card)
     try:
-        new_card = serialize_image_ocr_result(uid, "новый текст", "image/jpeg")
+        new_card = serialize_image_ocr_result(uid, "image/jpeg")
         await replace_recognized_text_card(uid, None, new_card, snapshot_version=True)
 
         async with real_async_session() as db:

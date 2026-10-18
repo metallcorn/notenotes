@@ -17,6 +17,7 @@ import { TicketAttachment } from "../extensions/TicketAttachment";
 import { InlineLinkFavicon } from "../extensions/InlineLinkFavicon";
 import { DataRecognition } from "../extensions/DataRecognition";
 import { ImageOcrResult } from "../extensions/ImageOcrResult";
+import { AttachmentTextPathContext } from "../lib/attachmentText";
 
 const lowlight = createLowlight(common);
 
@@ -51,7 +52,7 @@ const PUBLIC_VIEW_EXTENSIONS = [
   Markdown.configure({ html: true, transformPastedText: true }),
 ];
 
-export default function PublicNoteView({ content }: { content: string }) {
+export default function PublicNoteView({ content, token }: { content: string; token: string }) {
   // PUBLIC_VIEW_EXTENSIONS — модульная константа, стабильная сама по
   // себе (та же причина стабильности важна, что у editorExtensions в
   // NoteEditor.tsx, просто здесь для этого не нужен useMemo). Компонент
@@ -64,9 +65,13 @@ export default function PublicNoteView({ content }: { content: string }) {
     editable: false,
   });
 
+  // Текст вложений — через токен шаринга: у анонима нет доступа к
+  // /uploads (lib/attachmentText.ts).
   return (
-    <div className="prose prose-sm max-w-none">
-      <EditorContent editor={editor} />
-    </div>
+    <AttachmentTextPathContext.Provider value={(id) => `/public/${token}/uploads/${id}/text`}>
+      <div className="prose prose-sm max-w-none">
+        <EditorContent editor={editor} />
+      </div>
+    </AttachmentTextPathContext.Provider>
   );
 }

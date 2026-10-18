@@ -138,6 +138,11 @@ def _build_properties(upload_id: uuid.UUID, data: dict, code: str | None) -> dic
         "flight_number": data.get("flight_number") or None,
         "code": code,
         "upload_id": str(upload_id),
+        # Обиходные слова для поиска («авиабилет», «жд билет») — см.
+        # _SEARCH_SYNONYMS. Раньше их приклеивали перед OCR-текстом в
+        # data-text карточки; теперь — отдельное поле, его индексирует
+        # routers/search.py::_document.
+        "search_keywords": _SEARCH_SYNONYMS.get(ticket_type, ""),
     }
 
 
@@ -222,7 +227,7 @@ _TICKET_LABELS: dict[str, str] = {
 }
 
 
-def _serialize_ticket_card(url: str, filename: str, data: dict, raw_text: str, code: str | None) -> str:
+def _serialize_ticket_card(url: str, filename: str, data: dict, code: str | None) -> str:
     parts = [f'data-url="{_esc(url)}"']
     if filename:
         parts.append(f'data-filename="{_esc(filename)}"')
@@ -243,17 +248,9 @@ def _serialize_ticket_card(url: str, filename: str, data: dict, raw_text: str, c
             parts.append(f'{attr}="{_esc(str(value))}"')
     if code:
         parts.append(f'data-code="{_esc(code)}"')
-    if raw_text:
-        # data-text, не data-raw-text: полнотекстовый поиск (миграция 0015,
-        # notenotes_extract_attr_text) вытаскивает для индекса только
-        # атрибут ИМЕННО с этим именем — тот же приём, что у карточки PDF
-        # (DocumentAttachmentCard/data-text), билет тоже должен находиться
-        # поиском по месту/дате/тексту. Синонимы (_SEARCH_SYNONYMS выше)
-        # добавляем ПЕРЕД текстом, а не вместо него — сам OCR-текст всё
-        # равно нужен для поиска по месту/имени/дате.
-        synonyms = _SEARCH_SYNONYMS.get(ticket_type, "")
-        text_for_index = f"{synonyms}\n\n{raw_text}" if synonyms else raw_text
-        parts.append(f'data-text="{_esc(text_for_index)}"')
+    # Распознанного текста в теге нет — он в uploads.transcript, и поиск
+    # находит билет через него (routers/search.py). Синонимы типа билета —
+    # в properties.search_keywords (_build_properties).
     return f"<div data-ticket-attachment {' '.join(parts)}></div>"
 
 
@@ -423,13 +420,13 @@ async def _process(upload_id: uuid.UUID) -> None:
         # Не удалось извлечь структуру — не оставляем заметку висеть на
         # плейсхолдере вечно: показываем как обычное распознанное
         # изображение, тем же путём, что vision.py для не-билетов.
-        formatted = serialize_image_ocr_result(upload_id, transcript, content_type)
+        formatted = serialize_image_ocr_result(upload_id, content_type)
         await _replace_in_referencing_items(upload_id, image_placeholder_text(upload_id), formatted)
         return
 
     code = _decode_code(upload_id)
     properties = _build_properties(upload_id, data, code)
-    card = _serialize_ticket_card(f"/api/uploads/{upload_id}", filename, data, transcript, code)
+    card = _serialize_ticket_card(f"/api/uploads/{upload_id}", filename, data, code)
     title = str(data.get("title") or "").strip()[:60] or None
     await _finalize_ticket_item(upload_id, image_placeholder_text(upload_id), card, properties, title)
 

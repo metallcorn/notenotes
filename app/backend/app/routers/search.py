@@ -2,12 +2,12 @@ import re
 import uuid
 
 from fastapi import APIRouter, Depends
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_db
 from app.deps import get_current_user
-from app.models import Item, Space, SpaceMember, User
+from app.models import Item, Space, SpaceMember, Upload, User
 from app.routers.items import _serialize
 from app.schemas.item import ItemOut, SemanticHit
 from app.embeddings import search_semantic
@@ -36,6 +36,15 @@ def _document():
     # отдельными словами, поэтому "zalando" её не находил. Выражение здесь
     # ДОЛЖНО совпадать с индексом ix_items_search байт в байт, иначе
     # postgres не сможет им воспользоваться.
+    #
+    # properties.search_keywords (миграция 0038) — обиходные слова билета
+    # («авиабилет», «жд билет», tickets.py::_SEARCH_SYNONYMS). Раньше их
+    # приклеивали перед OCR-текстом в data-text карточки.
+    #
+    # Распознанный текст файлов здесь НЕ индексируется — с 18.10 его нет в
+    # заметке (app/attachment_text.py), он ищется в загрузках
+    # (_upload_document) и приводит к заметке, где файл лежит.
+    # extract_attr_text остаётся ради блоков старого формата.
     title = func.coalesce(Item.title, "")
     content = func.coalesce(Item.content, "")
     return func.to_tsvector(
@@ -48,8 +57,26 @@ def _document():
             + func.notenotes_extract_attr_text(content)
             + " "
             + func.notenotes_urlsplit(title + " " + content)
+            + " "
+            + func.coalesce(Item.properties["search_keywords"].astext, "")
         ),
     )
+
+
+def _upload_document():
+    # Совпадает с индексом ix_uploads_search (миграция 0038) байт в байт.
+    return func.to_tsvector(
+        "simple",
+        func.notenotes_immutable_unaccent(
+            func.coalesce(Upload.filename, "") + " " + func.coalesce(Upload.transcript, "")
+        ),
+    )
+
+
+# Потолок файлов, совпавших по тексту, на один запрос: каждый становится
+# условием «content содержит id». На живой базе ~400 файлов всего, так что
+# потолок — страховка, а не ограничение.
+_MAX_MATCHED_UPLOADS = 200
 
 
 async def search_items(
@@ -97,6 +124,22 @@ async def search_items(
     document = _document()
     rank = func.ts_rank(document, tsquery).label("rank")
 
+    # Заметка находится и по тексту своих файлов. Сначала файлы — по их
+    # собственному индексу, потом заметки, где они лежат: обратный порядок
+    # (для каждой заметки перебрать все файлы) считал бы to_tsvector
+    # каждого файла столько раз, сколько заметок.
+    matched_upload_ids = (
+        await db.execute(
+            select(Upload.id)
+            .join(SpaceMember, SpaceMember.space_id == Upload.space_id)
+            .where(SpaceMember.user_id == user_id, _upload_document().op("@@")(tsquery))
+            .limit(_MAX_MATCHED_UPLOADS)
+        )
+    ).scalars().all()
+    text_match = document.op("@@")(tsquery)
+    if matched_upload_ids:
+        text_match = or_(text_match, *[Item.content.contains(str(uid)) for uid in matched_upload_ids])
+
     query = (
         select(Item)
         .join(SpaceMember, SpaceMember.space_id == Item.space_id)
@@ -105,7 +148,7 @@ async def search_items(
             SpaceMember.user_id == user_id,
             Item.material_type.in_(material_types),
             Item.deleted_at.is_(None),
-            document.op("@@")(tsquery),
+            text_match,
             # Сейф — сервер хранит только шифротекст, искать в нём нечего
             # (не "не положено", а физически бессмысленно). Фильтр
             # действует ДАЖЕ если space_id ниже явно указывает на сейф.

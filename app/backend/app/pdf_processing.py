@@ -10,6 +10,8 @@ import pymupdf
 from sqlalchemy import select
 
 from app import collab, realtime
+from app.attachment_text import set_transcript
+from app.embeddings import reindex_items_with_upload
 from app.core.config import get_settings
 from app.db import async_session
 from app.document_reflow import reflow_document_text
@@ -49,16 +51,12 @@ def _upload_path(upload_id: uuid.UUID) -> Path:
     return Path(get_settings().upload_dir) / str(upload_id)
 
 
-def serialize_document_attachment(url: str, filename: str, text: str, processing: bool = False) -> str:
-    """Тот же формат (один самодостаточный тег на одной строке, текст в
-    атрибуте), что сериализует фронтенд-нода DocumentAttachment.ts —
-    чтобы карточка после автоматического OCR выглядела так же, как у
-    файлов, распознанных сразу при загрузке. Экранирование в том же
-    порядке: & -> &amp;, реальные переносы строк -> &#10; (чтобы весь тег
-    остался на одной строке — иначе markdown-it оборвал бы html_block на
-    первой пустой строке внутри многостраничного текста), потом " ->
-    &quot;. Браузерный DOMParser декодирует сущности обратно при чтении
-    атрибута, ничего вручную на фронте разбирать не нужно.
+def serialize_document_attachment(url: str, filename: str, processing: bool = False) -> str:
+    """Тот же формат (один самодостаточный тег на одной строке), что
+    сериализует фронтенд-нода DocumentAttachment.ts.
+
+    Распознанного текста в теге больше нет — он живёт в uploads.transcript,
+    карточка берёт его оттуда (см. app/attachment_text.py, почему).
 
     processing — реальная жалоба: раньше на время распознавания карточка
     файла целиком заменялась отдельным текстовым плейсхолдером
@@ -74,8 +72,6 @@ def serialize_document_attachment(url: str, filename: str, text: str, processing
     parts = [f'data-url="{esc(url)}"']
     if filename:
         parts.append(f'data-filename="{esc(filename)}"')
-    if text:
-        parts.append(f'data-text="{esc(text)}"')
     if processing:
         parts.append('data-processing=""')
     return f"<div data-doc-attachment {' '.join(parts)}></div>"
@@ -257,7 +253,7 @@ async def _process(upload_id: uuid.UUID) -> None:
             else:
                 fname = filename
         if fname:
-            await _replace_document_card(upload_id, serialize_document_attachment(url, fname, ""))
+            await _replace_document_card(upload_id, serialize_document_attachment(url, fname))
 
     if not settings.llm_api_key:
         logger.error("LLM_API_KEY не задан — OCR PDF %s невозможен", upload_id)
@@ -322,7 +318,8 @@ async def _process(upload_id: uuid.UUID) -> None:
         upload = await db.get(Upload, upload_id)
         if upload is None:
             return
-        upload.transcript = result
+        if result.strip():
+            set_transcript(db, upload, result)
         upload.transcription_status = "done" if result.strip() else STATUS_EMPTY
         await db.commit()
 
@@ -331,8 +328,9 @@ async def _process(upload_id: uuid.UUID) -> None:
         await _fail(filename)
         return
 
-    formatted = serialize_document_attachment(url, filename, result)
+    formatted = serialize_document_attachment(url, filename)
     await _replace_document_card(upload_id, formatted)
+    await reindex_items_with_upload(upload_id)
 
 
 async def run_worker() -> None:

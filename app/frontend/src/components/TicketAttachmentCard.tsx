@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { NodeViewWrapper } from "@tiptap/react";
 import type { NodeViewProps } from "@tiptap/react";
 import QRCode from "qrcode";
+import { attachmentTextId, useAttachmentText } from "../lib/attachmentText";
 import {
   AlarmClock,
   Armchair,
@@ -175,7 +176,7 @@ export default function TicketAttachmentCard({ node, editor, getPos }: NodeViewP
     locationTo,
     seat,
     title,
-    rawText,
+    rawText: inlineText,
     code,
   } = node.attrs as TicketAttachmentData;
   const [expanded, setExpanded] = useState(false);
@@ -192,6 +193,8 @@ export default function TicketAttachmentCard({ node, editor, getPos }: NodeViewP
   const Icon = TICKET_ICONS[ticketType] ?? Ticket;
   const label = TICKET_LABELS[ticketType] ?? TICKET_LABELS.other;
   const uploadId = url.match(UPLOAD_ID_RE)?.[1] ?? null;
+  // Распознанный текст билета — из загрузки (lib/attachmentText.ts).
+  const { text: rawText } = useAttachmentText(attachmentTextId(url), inlineText);
 
   // Реальный найденный баг: у карточки билета не было способа попросить
   // распознать заново, в отличие от документов/картинок в заметке

@@ -28,6 +28,10 @@ export function useSpaceSync(spaceId: string | undefined) {
           // тем же самым устаревшим текстом затирал готовый результат
           // обратно на сервере.
           qc.invalidateQueries({ queryKey: ["item"] });
+          // Распознанный текст файла живёт в загрузке, а не в заметке
+          // (lib/attachmentText.ts): готовое распознавание или ручная
+          // правка на другом устройстве меняют только его.
+          qc.invalidateQueries({ queryKey: ["upload-text"] });
         } else if (data.kind === "folders") {
           qc.invalidateQueries({ queryKey: ["folders"] });
         } else if (data.kind === "dialogs") {

@@ -10,6 +10,8 @@ from pathlib import Path
 from sqlalchemy import select
 
 from app import collab, realtime
+from app.attachment_text import set_transcript
+from app.embeddings import reindex_items_with_upload
 from app.asr.deepgram import DeepgramClient
 from app.core.config import get_settings
 from app.db import async_session
@@ -164,7 +166,8 @@ async def _process(upload_id: uuid.UUID) -> None:
         upload = await db.get(Upload, upload_id)
         if upload is None:
             return
-        upload.transcript = transcript
+        if transcript.strip():
+            set_transcript(db, upload, transcript)
         upload.transcription_status = "done" if transcript.strip() else STATUS_EMPTY
         await db.commit()
 
@@ -179,8 +182,9 @@ async def _process(upload_id: uuid.UUID) -> None:
     # markdown-абзац, из всех источников распознанного текста только видео/
     # голосовые в Telegram выглядели иначе. Суть та же самая (текст,
     # извлечённый из медиа) — вид тоже должен быть тот же.
-    formatted = serialize_image_ocr_result(upload_id, transcript, content_type)
+    formatted = serialize_image_ocr_result(upload_id, content_type)
     await _replace_in_referencing_items(upload_id, placeholder_text(upload_id), formatted)
+    await reindex_items_with_upload(upload_id)
 
 
 async def run_worker() -> None:

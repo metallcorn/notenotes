@@ -3,6 +3,7 @@ import { NodeViewWrapper } from "@tiptap/react";
 import type { NodeViewProps } from "@tiptap/react";
 import { ChevronDown, ChevronUp, Download, File, FileText, RotateCw, X } from "lucide-react";
 import { useReprocessUpload } from "../api/hooks";
+import { attachmentTextId, useAttachmentText } from "../lib/attachmentText";
 import { ExpandedTextPanel, ReadFullscreenButton, RecognizedTextCopyButtons } from "./RecognizedTextView";
 import Spinner from "./Spinner";
 
@@ -40,7 +41,7 @@ function PdfPreviewOverlay({ url, onClose }: { url: string; onClose: () => void 
 }
 
 export default function DocumentAttachmentCard({ node, editor }: NodeViewProps) {
-  const { url, filename, text, processing } = node.attrs as {
+  const { url, filename, text: inlineText, processing } = node.attrs as {
     url: string;
     filename: string;
     text: string;
@@ -54,6 +55,8 @@ export default function DocumentAttachmentCard({ node, editor }: NodeViewProps) 
 
   const isPdf = filename.toLowerCase().endsWith(".pdf");
   const uploadId = url.match(UPLOAD_ID_RE)?.[1] ?? null;
+  // Текст файла — из загрузки, а не из заметки (lib/attachmentText.ts).
+  const { text, loading } = useAttachmentText(attachmentTextId(url), inlineText);
   // documentAttachment — блочный atom-узел (extensions/DocumentAttachment.ts,
   // group: "block"), у него физически не бывает текста слева/справа на той
   // же строке — только соседние абзацы сверху/снизу, которые сюда не
@@ -168,7 +171,7 @@ export default function DocumentAttachmentCard({ node, editor }: NodeViewProps) 
         )}
         {text && expanded && <ExpandedTextPanel anchorRef={cardRef} text={text} />}
 
-        {!processing && !text && isPdf && uploadId && (
+        {!processing && !loading && !text && isPdf && uploadId && (
           <div className="border-t px-3 py-1.5">
             <button
               onClick={handleReprocess}

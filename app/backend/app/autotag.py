@@ -15,6 +15,7 @@ from app.llm.base import Message
 from app.llm.factory import get_llm_client
 from app.models import Item, ItemTag, Tag, User
 from app.user_timezone import assume_default_timezone, resolve_timezone
+from app.attachment_text import readable_content
 
 logger = logging.getLogger(__name__)
 
@@ -203,7 +204,10 @@ async def _process(item_id: uuid.UUID) -> None:
         tz_name = author.timezone if author else None
 
         try:
-            names, events, addresses = await _classify(item.title, item.content, list(existing), tz_name)
+            # С раскрытыми вложениями: о чём скан или PDF, видно только по
+            # его тексту, а он с 18.10 живёт в загрузке (app/attachment_text.py).
+            readable = await readable_content(db, item.content or "")
+            names, events, addresses = await _classify(item.title, readable, list(existing), tz_name)
         except Exception:
             logger.exception("Ошибка автотегирования для заметки %s", item_id)
             return

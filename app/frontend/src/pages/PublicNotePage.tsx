@@ -115,7 +115,7 @@ export default function PublicNotePage() {
                 {state.note.title || "Без названия"}
               </h1>
             </div>
-            <PublicNoteView content={rewriteUploadUrls(state.note.content, token)} />
+            <PublicNoteView content={rewriteUploadUrls(state.note.content, token)} token={token!} />
           </div>
         )}
       </div>
