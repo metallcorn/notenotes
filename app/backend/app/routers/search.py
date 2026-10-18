@@ -2,7 +2,7 @@ import re
 import uuid
 
 from fastapi import APIRouter, Depends
-from sqlalchemy import func, or_, select
+from sqlalchemy import case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_db
@@ -128,17 +128,26 @@ async def search_items(
     # собственному индексу, потом заметки, где они лежат: обратный порядок
     # (для каждой заметки перебрать все файлы) считал бы to_tsvector
     # каждого файла столько раз, сколько заметок.
-    matched_upload_ids = (
+    upload_document = _upload_document()
+    matched_uploads = (
         await db.execute(
-            select(Upload.id)
+            select(Upload.id, func.ts_rank(upload_document, tsquery))
             .join(SpaceMember, SpaceMember.space_id == Upload.space_id)
-            .where(SpaceMember.user_id == user_id, _upload_document().op("@@")(tsquery))
+            .where(SpaceMember.user_id == user_id, upload_document.op("@@")(tsquery))
             .limit(_MAX_MATCHED_UPLOADS)
         )
-    ).scalars().all()
+    ).all()
     text_match = document.op("@@")(tsquery)
-    if matched_upload_ids:
-        text_match = or_(text_match, *[Item.content.contains(str(uid)) for uid in matched_upload_ids])
+    if matched_uploads:
+        contains = [(Item.content.contains(str(uid)), float(r)) for uid, r in matched_uploads]
+        text_match = or_(text_match, *[c for c, _ in contains])
+        # Вклад файла в ранг заметки. Пока текст лежал в data-text, он
+        # входил в ранг сам; без этого заметка, найденная только через
+        # файл, всегда стояла бы в хвосте выдачи.
+        rank = (
+            func.ts_rank(document, tsquery)
+            + func.greatest(0.0, *[case((c, r), else_=0.0) for c, r in contains])
+        ).label("rank")
 
     query = (
         select(Item)
