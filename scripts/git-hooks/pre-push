@@ -1,8 +1,14 @@
 #!/usr/bin/env bash
-# Гейт перед push — блокирует его, если бэкенд не собирается или тесты
-# не проходят. Установка (один раз на чекаут):
+# Гейт перед push. Установка (один раз на чекаут):
 #   git config core.hooksPath scripts/git-hooks
+#
+# 1. Персональные данные во ВСЕХ уходящих коммитах — и в коде, и в
+#    сообщениях (scripts/pii_guard.py). Первым: это секунды, и найденное
+#    после пуша уже публично — откатить нельзя, только переписывать историю.
+# 2. Сборка + pytest.
 set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+echo "pre-push: проверка на персональные данные…"
+python3 "$REPO_ROOT/scripts/pii_guard.py" push
 echo "pre-push: сборка + pytest перед отправкой…"
 "$REPO_ROOT/scripts/build-and-test.sh"

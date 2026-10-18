@@ -28,7 +28,7 @@ CREATE_MAPS_LINK = ToolDefinition(
                 "type": "string",
                 "description": (
                     "Название и/или адрес места — максимально конкретно, например "
-                    "'Rock Garaż, ul. Kozia 10, Poznań', а не просто 'Rock Garaż' или "
+                    "'Kawiarnia Przykładowa, ul. Przykładowa 10, Warszawa', а не просто 'Rock Garaż' или "
                     "'вокзал'"
                 ),
             }

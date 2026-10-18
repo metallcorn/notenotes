@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# Персональные данные в индексе — коммит не создаётся (scripts/pii_guard.py).
+set -euo pipefail
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+exec python3 "$REPO_ROOT/scripts/pii_guard.py" staged

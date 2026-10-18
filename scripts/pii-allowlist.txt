@@ -1,0 +1,31 @@
+# Выдуманные значения, которые pii_guard.py ловит по шаблону, — разрешены.
+# Только заведомо фальшивое: живое значение сюда класть бессмысленно,
+# оно и так попадёт в публичный репозиторий вместе с этим файлом.
+90010112345
+92071554321
+9 2 0 7 1 5 5 4 3 2 1
+12345678901
+AB7654321
+75 1234567
+1234509876
++48 61 111 22 333
+ul. Przykładowa
+me@gmail.com
+ivan@gmail.com
+Me@Gmail.com
+Ivan@Gmail.com
+abc123@mail.gmail.com
+me@icloud.com
+your@email.com
+a@b.c
+123456789
+1234567890
+ul. Przykładowa 6
+ul. Przykładowa 10
+# Публичное по устройству: домен сайта, бот, адрес сервера (виден в DNS).
+metallcorn
+notenotes_bot
+root@188.68.40.209
+# Почта для Let's Encrypt в infra — лежит в main с первого дня. Убрать её
+# можно только в vault.yml (нужен пароль ansible-vault) — до тех пор разрешена.
+metallcorn@gmail.com

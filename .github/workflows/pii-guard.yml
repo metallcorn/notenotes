@@ -1,0 +1,30 @@
+# Вторая линия после локальных хуков (их можно обойти --no-verify или
+# забыть включить в новом чекауте). Здесь — только общие шаблоны: личного
+# стоп-списка в CI нет и быть не должно, он сам был бы утечкой.
+# Найденное печатается без значений: лог публичный.
+#
+# Честно о пределе: это срабатывает ПОСЛЕ пуша, когда коммит уже виден.
+# Настоящая защита — локальные хуки; это сигнал, что что-то проскочило и
+# надо переписывать историю, пока её не склонировали.
+name: pii-guard
+on:
+  push:
+  pull_request:
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Персональные данные в новых коммитах
+        env:
+          BEFORE: ${{ github.event.before }}
+        run: |
+          if [ -n "$BEFORE" ] && [ "$BEFORE" != "0000000000000000000000000000000000000000" ] && git cat-file -e "$BEFORE" 2>/dev/null; then
+            python3 scripts/pii_guard.py history "$BEFORE..$GITHUB_SHA"
+          else
+            python3 scripts/pii_guard.py history "$GITHUB_SHA"
+          fi
+      - name: Персональные данные в текущем дереве
+        run: python3 scripts/pii_guard.py tree
