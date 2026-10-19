@@ -123,7 +123,7 @@ async def _resolve_space(ctx: ToolContext, raw: Any) -> uuid.UUID:
         for sp in spaces:
             if sp.id == wanted_id:
                 return sp.id
-        raise ToolError(f"Спейс не найден. Спейсы пользователя: {names}")
+        raise ToolError(f"Спейс не найден — назови один из спейсов пользователя: {names}")
 
     key = _space_key(text)
     exact = [sp for sp in spaces if _space_key(sp.name) == key]
@@ -147,7 +147,7 @@ async def _resolve_space(ctx: ToolContext, raw: Any) -> uuid.UUID:
     if close:
         options = ", ".join(f"«{sp.name}»" for sp in close)
         raise ToolError(f"Под «{text}» подходит несколько спейсов: {options} — уточни у пользователя")
-    raise ToolError(f"Спейса «{text}» нет. Спейсы пользователя: {names}")
+    raise ToolError(f"Спейса «{text}» нет — назови один из спейсов пользователя: {names}")
 
 
 async def _get_item_cross_space(ctx: ToolContext, item_id_raw: Any) -> Item:
@@ -342,7 +342,7 @@ async def _move_item(ctx: ToolContext, item: Item, folder_raw: Any, space_raw: A
     try:
         await move_item_space(item.id, ItemMoveSpace(space_id=space_id, folder_id=folder_id), user, ctx.db)
     except HTTPException as e:
-        raise ToolError(f"Перенести не удалось: {e.detail}") from None
+        raise ToolError(f"Перенести не удалось: {e.detail} — проверь папку и спейс через list_folders") from None
     await ctx.db.refresh(item)
 
 
