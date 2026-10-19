@@ -1540,6 +1540,20 @@ export function useResolveNotification() {
   });
 }
 
+// «Отложить» — сработает заново позже. Пресеты считает бэкенд в поясе
+// человека (reminder_actions.py): «завтра утром» значит то же, что
+// кнопка в Telegram.
+export type SnoozePreset = "1h" | "3h" | "tomorrow" | "week";
+
+export function useSnoozeNotification() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, preset }: { id: string; preset: SnoozePreset }) =>
+      api.post<Notification>(`/notifications/${id}/snooze`, { preset }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["notifications"] }),
+  });
+}
+
 export function useUnresolveNotification() {
   const qc = useQueryClient();
   return useMutation({

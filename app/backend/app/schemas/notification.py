@@ -32,3 +32,8 @@ class NotificationCreateIn(BaseModel):
     item_id: str | None = None
     # daily/weekly/monthly/yearly или ничего. Проверяется в роутере.
     repeat: str | None = None
+
+
+class NotificationSnoozeIn(BaseModel):
+    # Ключ из reminder_actions.PRESETS: 1h / 3h / tomorrow / week.
+    preset: str

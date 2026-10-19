@@ -12,6 +12,8 @@ from app.llm.base import ToolDefinition
 from app.models import Folder, Item, Space
 from app.routers.items import create_item_row
 from app.routers.lists import _broadcast, _serialize, _snapshot_version
+from app.tools.notes import SPACE_PARAM
+from app.tools.notes import _resolve_folder as _notes_resolve_folder
 from app.tools.registry import ToolContext, ToolError
 
 logger = logging.getLogger(__name__)
@@ -41,23 +43,9 @@ def _flatten_entries(entries: list[dict]) -> str:
     return "\n".join(f"{'[x]' if e['checked'] else '[ ]'} {e['text']}" for e in entries)
 
 
-async def _resolve_folder(ctx: ToolContext, folder_id_raw: Any) -> tuple[uuid.UUID | None, uuid.UUID]:
-    if not folder_id_raw:
-        return None, ctx.space_id
-    try:
-        folder_id = uuid.UUID(str(folder_id_raw))
-    except ValueError:
-        raise ToolError(f"Некорректный id папки: {folder_id_raw} — нужен UUID из результата list_folders, а не название папки") from None
-    folder = await ctx.db.get(Folder, folder_id)
-    if folder is None:
-        raise ToolError("Папка не найдена — вызови list_folders, чтобы увидеть реальные папки и их id")
-    try:
-        await ensure_space_access(ctx.db, folder.space_id, ctx.user_id)
-    except HTTPException:
-        raise ToolError("Папка не найдена — вызови list_folders, чтобы увидеть реальные папки и их id") from None
-    if await is_vault_space(ctx.db, folder.space_id):
-        raise ToolError("Папка не найдена — вызови list_folders, чтобы увидеть реальные папки и их id")
-    return folder_id, folder.space_id
+# Одна реализация на заметки, списки и таблицы (tools/notes.py): раньше
+# здесь была копия, и параметр space пришлось бы добавлять дважды.
+_resolve_folder = _notes_resolve_folder
 
 
 async def _get_list_item(ctx: ToolContext, list_id_raw: Any) -> Item:
@@ -96,6 +84,7 @@ CREATE_LIST = ToolDefinition(
         "properties": {
             "title": {"type": "string", "description": "Название списка"},
             "folder_id": {"type": "string", "description": "id папки; не указывать — список в корне текущего спейса"},
+            "space": SPACE_PARAM,
             "entries": {
                 "type": "array",
                 "items": {"type": "string"},
@@ -119,7 +108,7 @@ async def create_list(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
     if not title:
         raise ToolError("Название списка не может быть пустым — придумай короткое по смыслу содержимого или спроси у пользователя через suggest_replies")
 
-    folder_id, space_id = await _resolve_folder(ctx, args.get("folder_id"))
+    folder_id, space_id = await _resolve_folder(ctx, args.get("folder_id"), args.get("space"))
 
     entries = [
         {"id": str(uuid.uuid4()), "text": str(t).strip(), "checked": False, "created_at": _now_iso()}

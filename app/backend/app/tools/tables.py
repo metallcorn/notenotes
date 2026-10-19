@@ -14,6 +14,7 @@ from app.models import Item, Space
 from app.routers.items import create_item_row
 from app.routers.tables import _broadcast, _flatten_table, _serialize
 from app.tools.lists import _resolve_folder
+from app.tools.notes import SPACE_PARAM
 from app.tools.registry import ToolContext, ToolError
 
 logger = logging.getLogger(__name__)
@@ -133,6 +134,7 @@ CREATE_TABLE = ToolDefinition(
         "properties": {
             "title": {"type": "string", "description": "Название таблицы"},
             "folder_id": {"type": "string", "description": "id папки; не указывать — таблица в корне текущего спейса"},
+            "space": SPACE_PARAM,
             "columns": {
                 "type": "array",
                 "items": {"type": "string"},
@@ -157,7 +159,7 @@ async def create_table(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]
     if not title:
         raise ToolError("Название таблицы не может быть пустым — придумай короткое по смыслу содержимого или спроси у пользователя через suggest_replies")
 
-    folder_id, space_id = await _resolve_folder(ctx, args.get("folder_id"))
+    folder_id, space_id = await _resolve_folder(ctx, args.get("folder_id"), args.get("space"))
 
     columns = [
         {"id": str(uuid.uuid4()), "name": str(n).strip(), "type": "text"}

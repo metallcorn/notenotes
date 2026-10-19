@@ -14,7 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import realtime
-from app import daily_digest
+from app import daily_digest, reminder_actions
 from app.asr.factory import asr_available, get_asr_client
 from app.core.config import get_settings
 from app.db import async_session
@@ -1077,6 +1077,33 @@ async def _handle_callback_query(callback: dict) -> None:
     await answer_callback_query(callback["id"])
 
     data = callback.get("data", "")
+
+    # Кнопки под самим напоминанием («сделано» / «отложить»). Сообщение не
+    # удаляем и не перерисовываем целиком: дописываем, что с ним сделали, и
+    # снимаем кнопки действий — «Открыть» остаётся.
+    if data.startswith(reminder_actions.CALLBACK_PREFIX):
+        message = callback.get("message") or {}
+        chat_id = (message.get("chat") or {}).get("id")
+        if chat_id is None:
+            return
+        async with async_session() as db:
+            link = (await db.execute(select(TelegramLink).where(TelegramLink.chat_id == chat_id))).scalar_one_or_none()
+            if link is None:
+                return
+            reply = await reminder_actions.handle_callback(db, link.user_id, data)
+            if reply is not None:
+                await realtime.notify_user(link.user_id)
+        if reply is None:
+            return
+        message_id = message.get("message_id")
+        if message_id is None:
+            await send_message(chat_id, reply)
+            return
+        rows = (message.get("reply_markup") or {}).get("inline_keyboard") or []
+        keep = [[b for b in row if "url" in b] for row in rows]
+        keep = [row for row in keep if row]
+        await edit_message(chat_id, message_id, f"{message.get('text', '')}\n\n{reply}", {"inline_keyboard": keep})
+        return
 
     # Кнопки утренней сводки («сделано» / «не актуально») — свой префикс,
     # чтобы не пересечься с вариантами ответа ассистента ниже.

@@ -38,12 +38,14 @@ def item_url(item_id: uuid.UUID | str) -> str:
 # ещё идёт в текущий спейс диалога — если явно не указана папка из другого.
 
 
-async def _resolve_folder(ctx: ToolContext, folder_id_raw: Any) -> tuple[uuid.UUID | None, uuid.UUID]:
-    """Без folder_id — текущий спейс диалога. С folder_id — спейс папки,
-    даже если это не тот же спейс, где идёт диалог (если пользователь там
-    состоит)."""
+async def _resolve_folder(
+    ctx: ToolContext, folder_id_raw: Any, space_raw: Any = None
+) -> tuple[uuid.UUID | None, uuid.UUID]:
+    """Без folder_id — спейс space_raw (или текущий спейс диалога). С
+    folder_id — спейс папки, даже если это не тот же спейс, где идёт диалог
+    (если пользователь там состоит)."""
     if not folder_id_raw:
-        return None, ctx.space_id
+        return None, await _resolve_space(ctx, space_raw)
     try:
         folder_id = uuid.UUID(str(folder_id_raw))
     except ValueError:
@@ -60,7 +62,92 @@ async def _resolve_folder(ctx: ToolContext, folder_id_raw: Any) -> tuple[uuid.UU
     # содержимое: сервер физически не может ничего прочитать в сейфе.
     if await is_vault_space(ctx.db, folder.space_id):
         raise ToolError("Папка не найдена — вызови list_folders, чтобы увидеть реальные папки и их id")
+    if space_raw is not None and str(space_raw).strip():
+        if await _resolve_space(ctx, space_raw) != folder.space_id:
+            raise ToolError("Эта папка в другом спейсе — возьми папку из нужного спейса (list_folders) или не указывай space")
     return folder_id, folder.space_id
+
+
+# Живой случай 19.10 (Telegram, участник семьи): «сделай заметку в
+# семейном спейсе» — трижды подряд заметка создавалась в спейсе «Telegram»,
+# куда привязан бот. Указать спейс было просто нечем: create_note знал
+# только folder_id, create_folder — только текущий спейс, а перенести
+# готовую заметку ассистент не умел вовсе. Теперь спейс можно назвать
+# словами — так, как его называет человек.
+SPACE_PARAM = {
+    "type": "string",
+    "description": (
+        "Спейс — название, как его называет пользователь («Семейный»), или id. "
+        "Не указывать — текущий спейс диалога"
+    ),
+}
+
+
+async def _user_spaces(ctx: ToolContext) -> list[Space]:
+    return list(
+        (
+            await ctx.db.execute(
+                select(Space)
+                .join(SpaceMember, SpaceMember.space_id == Space.id)
+                .where(SpaceMember.user_id == ctx.user_id, Space.is_vault.is_(False))
+                .order_by(Space.created_at, Space.id)
+            )
+        ).scalars().all()
+    )
+
+
+def _space_key(name: str) -> str:
+    key = name.casefold().replace("ё", "е")
+    for noise in ("спейсе", "спейс", "space", "пространстве", "пространство"):
+        key = key.replace(noise, " ")
+    return " ".join(key.split())
+
+
+async def _resolve_space(ctx: ToolContext, raw: Any) -> uuid.UUID:
+    """Спейс по названию или id. Без значения — текущий спейс диалога.
+
+    Название сверяется без регистра, а затем по общему началу слова:
+    человек говорит «в семейном», а спейс называется «Семейный». Сейф не
+    находится никак — тот же ответ, что для несуществующего.
+    """
+    if raw is None or not str(raw).strip():
+        return ctx.space_id
+    spaces = await _user_spaces(ctx)
+    names = ", ".join(f"«{sp.name}»" for sp in spaces)
+    text = str(raw).strip()
+    try:
+        wanted_id = uuid.UUID(text)
+    except ValueError:
+        wanted_id = None
+    if wanted_id is not None:
+        for sp in spaces:
+            if sp.id == wanted_id:
+                return sp.id
+        raise ToolError(f"Спейс не найден. Спейсы пользователя: {names}")
+
+    key = _space_key(text)
+    exact = [sp for sp in spaces if _space_key(sp.name) == key]
+    if len(exact) == 1:
+        return exact[0].id
+    # По словам, с общим началом от 4 букв: «в семейном» ~ «Семейный»,
+    # «личном» ~ «Личное». Предлоги короче трёх букв не в счёт.
+    said = [w for w in key.split() if len(w) >= 3]
+
+    def stem_match(sp: Space) -> bool:
+        for name_word in _space_key(sp.name).split():
+            for word in said:
+                need = min(4, len(name_word), len(word))
+                if name_word[:need] == word[:need] and need >= min(3, len(name_word)):
+                    return True
+        return False
+
+    close = [sp for sp in spaces if stem_match(sp)]
+    if len(close) == 1:
+        return close[0].id
+    if close:
+        options = ", ".join(f"«{sp.name}»" for sp in close)
+        raise ToolError(f"Под «{text}» подходит несколько спейсов: {options} — уточни у пользователя")
+    raise ToolError(f"Спейса «{text}» нет. Спейсы пользователя: {names}")
 
 
 async def _get_item_cross_space(ctx: ToolContext, item_id_raw: Any) -> Item:
@@ -105,16 +192,17 @@ def _require_note_like(item: Item) -> None:
 CREATE_NOTE = ToolDefinition(
     name="create_note",
     description=(
-        "Создать новую заметку. Содержимое — в формате Markdown. Без folder_id создаётся в "
-        "текущем спейсе диалога; с folder_id — в том спейсе, которому принадлежит папка "
-        "(может быть другой спейс пользователя, не только текущий)."
+        "Создать новую заметку. Содержимое — в формате Markdown. Где: space — спейс по названию "
+        "(«в семейном» → space=\"Семейный\"); folder_id — папка (спейс берётся от неё). Ничего "
+        "не указано — корень текущего спейса диалога."
     ),
     parameters={
         "type": "object",
         "properties": {
             "title": {"type": "string", "description": "Заголовок заметки"},
             "content": {"type": "string", "description": "Содержимое в Markdown"},
-            "folder_id": {"type": "string", "description": "id папки; не указывать — заметка в корне текущего спейса"},
+            "folder_id": {"type": "string", "description": "id папки; не указывать — заметка в корне спейса"},
+            "space": SPACE_PARAM,
         },
         "required": ["title", "content"],
     },
@@ -130,7 +218,7 @@ async def create_note(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
     # ссылками выглядели "необработанными" по сравнению с заметками,
     # созданными вручную вставкой ссылки).
     content = linkify_notes_content(str(args.get("content", "")))
-    folder_id, space_id = await _resolve_folder(ctx, args.get("folder_id"))
+    folder_id, space_id = await _resolve_folder(ctx, args.get("folder_id"), args.get("space"))
 
     item = await create_item_row(
         ctx.db,
@@ -220,7 +308,8 @@ UPDATE_NOTE = ToolDefinition(
         "а значит невозможно случайно потерять тег вложения (![](url), <video>, <audio>, "
         "data-url=...) или старую запись при переписывании. Настоящее update_note — для "
         "правки/удаления/реструктуризации уже существующего текста, когда правда нужно "
-        "заменить содержимое целиком."
+        "заменить содержимое целиком. Перенести заметку (или список, таблицу) в другую папку "
+        "или спейс — folder_id и/или space; переносится сама заметка, копию не создавай."
     ),
     parameters={
         "type": "object",
@@ -228,17 +317,56 @@ UPDATE_NOTE = ToolDefinition(
             "item_id": {"type": "string"},
             "title": {"type": "string"},
             "content": {"type": "string"},
+            "folder_id": {"type": "string", "description": "Перенести в эту папку (id из list_folders)"},
+            "space": {**SPACE_PARAM, "description": "Перенести в этот спейс (название или id), в корень, если без folder_id"},
         },
         "required": ["item_id"],
     },
 )
 
 
+async def _move_item(ctx: ToolContext, item: Item, folder_raw: Any, space_raw: Any) -> None:
+    """Перенос тем же кодом, что кнопка «Переместить» в вебе
+    (routers/items.py::move_item_space): у переноса между спейсами есть
+    побочные эффекты (файлы заметки переезжают вместе с ней), и второй
+    реализации им взяться неоткуда."""
+    from app.models import User
+    from app.routers.items import move_item_space
+    from app.schemas.item import ItemMoveSpace
+
+    if folder_raw:
+        folder_id, space_id = await _resolve_folder(ctx, folder_raw, space_raw)
+    else:
+        folder_id, space_id = None, await _resolve_space(ctx, space_raw)
+    user = await ctx.db.get(User, ctx.user_id)
+    try:
+        await move_item_space(item.id, ItemMoveSpace(space_id=space_id, folder_id=folder_id), user, ctx.db)
+    except HTTPException as e:
+        raise ToolError(f"Перенести не удалось: {e.detail}") from None
+    await ctx.db.refresh(item)
+
+
 async def update_note(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
     item = await _get_item_cross_space(ctx, args.get("item_id"))
-    _require_note_like(item)
     new_title = args.get("title")
     new_content = args.get("content")
+    moving = bool(args.get("folder_id")) or bool(str(args.get("space") or "").strip())
+    # Перенос годится и для списка с таблицей — их тоже раскладывают по
+    # папкам. Правка текста — только заметке (см. _require_note_like).
+    if new_title is not None or new_content is not None or not moving:
+        _require_note_like(item)
+    if moving:
+        await _move_item(ctx, item, args.get("folder_id"), args.get("space"))
+        if new_title is None and new_content is None:
+            space = await ctx.db.get(Space, item.space_id)
+            folder = await ctx.db.get(Folder, item.folder_id) if item.folder_id else None
+            return {
+                "id": str(item.id),
+                "title": item.title,
+                "space_name": space.name if space else "",
+                "folder_name": folder.name if folder else None,
+                "url": item_url(item.id),
+            }
     if new_content is not None:
         # Та же причина, что в create_note — ассистент не проходит через
         # paste в редакторе, ссылка сама по себе не станет карточкой без
@@ -270,7 +398,11 @@ async def update_note(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
     # редактировали и в браузере, и через ассистента одновременно.
     if content_changed:
         await collab.invalidate_room(item.id)
-    return {"id": str(item.id), "title": item.title}
+    result: dict[str, Any] = {"id": str(item.id), "title": item.title}
+    if moving:
+        space = await ctx.db.get(Space, item.space_id)
+        result["space_name"] = space.name if space else ""
+    return result
 
 
 APPEND_TO_NOTE = ToolDefinition(
@@ -380,7 +512,10 @@ async def add_tag(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
 
 LIST_FOLDERS = ToolDefinition(
     name="list_folders",
-    description="Список папок пользователя во всех его спейсах — чтобы понимать, куда раскладывать заметки.",
+    description=(
+        "Список спейсов пользователя (spaces — все, даже без папок) и папок во всех них — "
+        "чтобы понимать, куда раскладывать заметки."
+    ),
     parameters={"type": "object", "properties": {}},
 )
 
@@ -402,15 +537,18 @@ async def list_folders(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]
                 "space_name": space_name,
             }
             for folder, space_name in result.all()
-        ]
+        ],
+        # Спейс без единой папки иначе невидим: в списке папок ему просто
+        # не из чего появиться, и модель не знала, что он есть.
+        "spaces": [{"id": str(sp.id), "name": sp.name} for sp in await _user_spaces(ctx)],
     }
 
 
 CREATE_FOLDER = ToolDefinition(
     name="create_folder",
     description=(
-        "Создать новую папку. Без parent_id — в корне текущего спейса диалога; с parent_id — "
-        "вложенная папка (должна принадлежать тому же спейсу, где создаётся). Используй это, "
+        "Создать новую папку. С parent_id — вложенная папка в спейсе родителя; иначе — в корне "
+        "спейса space (название, «в семейном» → \"Семейный\") или текущего спейса диалога. Используй это, "
         "когда пользователь просит разложить заметки по папкам, а не только предполагай, что "
         "папка уже есть — сначала list_folders, и только если её правда нет, создавай."
     ),
@@ -419,6 +557,7 @@ CREATE_FOLDER = ToolDefinition(
         "properties": {
             "name": {"type": "string", "description": "Название папки"},
             "parent_id": {"type": "string", "description": "id родительской папки; не указывать — папка в корне"},
+            "space": SPACE_PARAM,
         },
         "required": ["name"],
     },
@@ -439,23 +578,24 @@ async def create_folder(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any
     if not name:
         raise ToolError("Название папки не может быть пустым — придумай короткое по смыслу содержимого или спроси у пользователя через suggest_replies")
 
-    parent_id_raw = args.get("parent_id")
-    parent_id: uuid.UUID | None = None
-    if parent_id_raw:
-        try:
-            parent_id = uuid.UUID(str(parent_id_raw))
-        except ValueError:
-            raise ToolError(f"Некорректный id родительской папки: {parent_id_raw} — нужен UUID из результата list_folders, а не название папки") from None
-        parent = await ctx.db.get(Folder, parent_id)
-        if parent is None or parent.space_id != ctx.space_id:
-            raise ToolError("Родительская папка не найдена в текущем спейсе — вызови list_folders, чтобы увидеть реальные папки и их id")
+    # Родитель из ЛЮБОГО спейса пользователя, и папка создаётся там же.
+    # Раньше родитель обязан был лежать в текущем спейсе диалога, и 19.10
+    # модель восемь раз подряд получила «родительская папка не найдена» на
+    # настоящую папку из «Семейного» — пока не кончились шаги.
+    parent_id, space_id = await _resolve_folder(ctx, args.get("parent_id"), args.get("space"))
 
-    folder = Folder(space_id=ctx.space_id, parent_id=parent_id, name=name)
+    folder = Folder(space_id=space_id, parent_id=parent_id, name=name)
     ctx.db.add(folder)
     await ctx.db.commit()
     await ctx.db.refresh(folder)
     await realtime.notify_space(folder.space_id, "folders")
-    return {"id": str(folder.id), "name": folder.name, "space_id": str(folder.space_id)}
+    space = await ctx.db.get(Space, folder.space_id)
+    return {
+        "id": str(folder.id),
+        "name": folder.name,
+        "space_id": str(folder.space_id),
+        "space_name": space.name if space else "",
+    }
 
 
 LIST_ITEMS_IN_FOLDER = ToolDefinition(

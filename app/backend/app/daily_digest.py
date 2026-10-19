@@ -15,9 +15,10 @@
    уведомление, которое учат смахивать не глядя; а потом смахнут и то,
    в котором что-то было.
 
-3. Кнопки — только в Telegram, и только два действия: «сделано» для
-   напоминания (resolve) и «не актуально» для распознанного события
-   (dismiss, как в ActivityView). В push кнопок нет — там сводка просто
+3. Кнопки — только в Telegram: «сделано» для напоминания (resolve),
+   «не актуально» для распознанного события (dismiss, как в
+   ActivityView) и «завтра» для висящего с прошлых дней (snooze, см.
+   reminder_actions.py). В push кнопок нет — там сводка просто
    текстом, а действия в приложении.
 
 Воркер проверяет раз в минуту, у кого локальное время совпало с
@@ -158,6 +159,55 @@ def _early_tomorrow(agenda: dict, user: User, now: datetime) -> list[str]:
     return lines
 
 
+# Сколько висящих показывать. Каждое — ряд кнопок, а сводка с двадцатью
+# рядами перестаёт читаться; остальное — строкой «и ещё N».
+_MAX_HANGING = 8
+
+
+async def _hanging(db, user: User, now: datetime) -> tuple[list[str], list[list[dict]]]:
+    """Незакрытое с ПРОШЛЫХ дней — то, что «висит».
+
+    Жалоба 18.10: напоминание сработало в августе, его открыли и забыли —
+    два месяца оно больше ни разу не напомнило о себе, а сводка показывала
+    только то, что впереди. Теперь висящее приходит каждое утро, пока его
+    не закроют или не отложат: ровно этого и просили.
+
+    Только до начала СЕГОДНЯШНЕГО дня по месту человека. Сегодняшнее
+    прошедшее сюда не идёт — оно только что пришло само, с теми же
+    кнопками (reminder_actions.py), и показывать его ещё раз как новость
+    было бы ошибкой 23.09 (см. _format).
+    """
+    from app.reminder_actions import ACTIONABLE_TYPES
+    from app.tools.agenda import _local_midnight_utc
+
+    since = _local_midnight_utc(now, user.timezone)
+    rows = (
+        await db.execute(
+            select(Notification)
+            .where(
+                Notification.user_id == user.id,
+                Notification.resolved_at.is_(None),
+                Notification.type.in_(ACTIONABLE_TYPES),
+                Notification.trigger_at.isnot(None),
+                Notification.trigger_at < since,
+            )
+            .order_by(Notification.trigger_at.asc())
+        )
+    ).scalars().all()
+    tz = ZoneInfo(user.timezone or "UTC")
+    lines: list[str] = []
+    keyboard: list[list[dict]] = []
+    for n in rows[:_MAX_HANGING]:
+        lines.append(f"⏳ с {n.trigger_at.astimezone(tz):%d.%m} {n.title}")
+        keyboard.append([
+            {"text": f"✓ Сделано: {n.title[:24]}", "callback_data": f"{CALLBACK_PREFIX}r:{n.id}"},
+            {"text": "⏰ Завтра", "callback_data": f"{CALLBACK_PREFIX}z:{n.id}"},
+        ])
+    if len(rows) > _MAX_HANGING:
+        lines.append(f"…и ещё {len(rows) - _MAX_HANGING} — в «Активности»")
+    return lines, keyboard
+
+
 async def build_digest(db, user: User) -> tuple[str, list[list[dict]]] | None:
     """Готовая сводка или None, если сказать нечего."""
     now = datetime.now(timezone.utc)
@@ -166,9 +216,13 @@ async def build_digest(db, user: User) -> tuple[str, list[list[dict]]] | None:
     text, keyboard = _format(agenda, user.timezone, now=now)
 
     early = _early_tomorrow(agenda, user, now)
+    hanging, hanging_keyboard = await _hanging(db, user, now)
     parts = []
     if text:
         parts.append(f"Сегодня, {agenda['today']}:\n\n{text}")
+    if hanging:
+        parts.append("Висит, не закрыто:\n\n" + "\n".join(hanging))
+        keyboard = keyboard + hanging_keyboard
     if early:
         # Кнопок к завтрашнему намеренно нет: закрывать то, что ещё не
         # наступило, незачем, а лишние кнопки делают сводку нечитаемой.
@@ -297,6 +351,21 @@ async def handle_callback(db, user_id: uuid.UUID, data: str) -> str | None:
             n.resolved_at = datetime.now(timezone.utc)
             await db.commit()
         return f"Сделано: {n.title}"
+
+    if payload.startswith("z:"):
+        try:
+            reminder_id = uuid.UUID(payload[2:])
+        except ValueError:
+            return None
+        n = await db.get(Notification, reminder_id)
+        if n is None or n.user_id != user_id:
+            return "Напоминание не найдено"
+        from app import reminder_actions
+
+        user = await db.get(User, user_id)
+        reminder_actions.snooze(db, n, reminder_actions.snooze_until("tomorrow", user))
+        await db.commit()
+        return f"Отложено: {n.title}"
 
     if payload.startswith("e:"):
         try:

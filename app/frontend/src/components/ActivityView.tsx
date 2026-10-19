@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import {
+  AlarmClock,
   Bell,
   BellOff,
   Calendar,
@@ -22,9 +23,11 @@ import {
   useMarkNotificationRead,
   useRecentItems,
   useResolveNotification,
+  useSnoozeNotification,
   useSpaces,
   useUnresolveNotification,
 } from "../api/hooks";
+import type { SnoozePreset } from "../api/hooks";
 import type { DetectedEvent, Notification } from "../api/types";
 import { repeatLabel } from "../lib/recurrence";
 import { ListSkeleton } from "./Skeleton";
@@ -78,6 +81,52 @@ function formatWhen(value: string): string {
 // Клик по самой строке — переход к заметке/пункту списка, если ассистент
 // их указал при создании (create_reminder, tools/reminders.py); работает
 // и для уже выполненных — вернуться посмотреть, к чему было напоминание.
+const SNOOZE_OPTIONS: { preset: SnoozePreset; label: string }[] = [
+  { preset: "1h", label: "Через час" },
+  { preset: "3h", label: "Через 3 часа" },
+  { preset: "tomorrow", label: "Завтра утром" },
+  { preset: "week", label: "Через неделю" },
+];
+
+// «Отложить» — жалоба 18.10: открытое и не закрытое напоминание висело
+// месяцами и больше ни разу о себе не напоминало. Отложенное сработает
+// заново (снова придёт в Telegram и колокольчик), а не просто сдвинется.
+function SnoozeButton({ notificationId }: { notificationId: string }) {
+  const [open, setOpen] = useState(false);
+  const snooze = useSnoozeNotification();
+  return (
+    <div className="relative shrink-0">
+      <button
+        title="Отложить"
+        onClick={() => setOpen((v) => !v)}
+        disabled={snooze.isPending}
+        className="flex h-7 w-7 items-center justify-center rounded text-subtle hover:bg-muted-hover hover:text-secondary disabled:opacity-50"
+      >
+        <AlarmClock size={14} />
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-20" onClick={() => setOpen(false)} />
+          <div className="absolute right-0 top-full z-30 mt-1 w-40 rounded border bg-surface py-1 shadow-lg">
+            {SNOOZE_OPTIONS.map((o) => (
+              <button
+                key={o.preset}
+                onClick={() => {
+                  setOpen(false);
+                  snooze.mutate({ id: notificationId, preset: o.preset });
+                }}
+                className="block w-full px-3 py-1.5 text-left text-sm text-secondary hover:bg-muted-hover"
+              >
+                {o.label}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 function NotificationRow({
   notification,
   onOpen,
@@ -156,6 +205,7 @@ function NotificationRow({
           )}
         </div>
       </button>
+      {!resolved && notification.trigger_at && <SnoozeButton notificationId={notification.id} />}
       <button
         title={repeat ? "Удалить и больше не повторять" : "Удалить"}
         onClick={() => del.mutate(notification.id)}

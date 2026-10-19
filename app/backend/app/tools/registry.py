@@ -84,6 +84,7 @@ SKILL_CATALOG: dict[str, dict[str, Any]] = {
     "list_agenda": {"label": "Что впереди", "description": "Показывает напоминания и события, распознанные в заметках", "toggleable": False},
     "self_check": {"label": "Самопроверка", "description": "Отвечает на «что у нас не так» — где ассистент за неделю спотыкался", "toggleable": True},
     "resolve_reminder": {"label": "Отметка напоминаний", "description": "Отмечает напоминание выполненным", "toggleable": False},
+    "snooze_reminder": {"label": "Перенос напоминаний", "description": "Откладывает напоминание — оно сработает заново позже", "toggleable": False},
     "run_python": {"label": "Python-вычисления", "description": "Точные вычисления в изолированной песочнице", "toggleable": True},
     "read_website": {"label": "Чтение сайтов по ссылке", "description": "Скачивает и читает содержимое страницы по присланной ссылке", "toggleable": True},
     "track_delivery": {"label": "Отслеживание доставки", "description": "Статус посылки по трек-номеру или ссылке (InPost, Poczta, Orlen Paczka, DPD, Allegro Delivery)", "toggleable": True},
@@ -160,6 +161,7 @@ def _build_registry() -> dict[str, tuple[ToolDefinition, ToolHandler]]:
         files_tool.GET_FILE.name: (files_tool.GET_FILE, files_tool.get_file),
         files_tool.UPLOAD_FILE.name: (files_tool.UPLOAD_FILE, files_tool.upload_file),
         reminders.RESOLVE_REMINDER.name: (reminders.RESOLVE_REMINDER, reminders.resolve_reminder),
+        reminders.SNOOZE_REMINDER.name: (reminders.SNOOZE_REMINDER, reminders.snooze_reminder),
         notes.CREATE_NOTE.name: (notes.CREATE_NOTE, notes.create_note),
         notes.CREATE_FOLDER.name: (notes.CREATE_FOLDER, notes.create_folder),
         notes.GET_NOTE.name: (notes.GET_NOTE, notes.get_note),
@@ -228,11 +230,37 @@ async def dispatch(name: str, ctx: ToolContext, args: dict[str, Any], disabled: 
     entry = _build_registry().get(name)
     if entry is None:
         return {"error": f"Неизвестный инструмент: {name}"}
-    _, handler = entry
+    definition, handler = entry
     try:
-        return await handler(ctx, args)
+        result = await handler(ctx, args)
     except ToolError as e:
         return {"error": str(e)}
     except Exception:
         logger.exception("Ошибка выполнения тула %s", name)
         return {"error": "Внутренняя ошибка при выполнении инструмента"}
+    # Аргументы, которых у инструмента нет, — вслух, а не молча. Живой
+    # случай 19.10: update_note(item_id, folder_id) — параметра folder_id
+    # у update_note не было, его проглотили, ответ выглядел успешным, и
+    # ассистент написал «Готово, перенесла», ничего не перенеся. Ошибкой
+    # не делаем: лишний безобидный ключ в поиске не должен ломать ответ.
+    # Но «не применено» модель должна увидеть рядом с результатом.
+    known = set((definition.parameters or {}).get("properties", {})) | _ARG_ALIASES.get(name, set())
+    unknown = sorted(k for k in args if k not in known)
+    if unknown and isinstance(result, dict):
+        result = {
+            **result,
+            "warning": (
+                f"Параметров {', '.join(unknown)} у {name} нет — они НЕ применены. "
+                "Не сообщай пользователю, что это сделано."
+            ),
+        }
+    return result
+
+
+# Синонимы, которые обработчики принимают сверх схемы — сознательно (см.
+# create_folder: модель по аналогии с соседями шлёт title вместо name).
+_ARG_ALIASES: dict[str, set[str]] = {
+    "append_to_note": {"content"},
+    "create_folder": {"title"},
+    "add_table_column": {"title"},
+}

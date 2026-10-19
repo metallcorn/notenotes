@@ -21,6 +21,7 @@ const hooks = vi.hoisted(() => ({
   useMarkNotificationRead: vi.fn(),
   useResolveNotification: vi.fn(),
   useUnresolveNotification: vi.fn(),
+  useSnoozeNotification: vi.fn(),
 }));
 
 vi.mock("../api/hooks", () => hooks);
@@ -37,7 +38,7 @@ beforeEach(() => {
   hooks.useSpaces.mockReturnValue({ data: [] });
   for (const key of [
     "useDeleteNotification", "useDismissDetectedEvent", "useMarkNotificationRead",
-    "useResolveNotification", "useUnresolveNotification",
+    "useResolveNotification", "useUnresolveNotification", "useSnoozeNotification",
   ] as const) {
     hooks[key].mockReturnValue(idle);
   }
@@ -108,5 +109,46 @@ describe("переключение горизонта активности", () 
 
     expect(before).not.toBeNull();
     expect(after).not.toBe(before);
+  });
+});
+
+describe("отложить напоминание", () => {
+  // Жалоба владельца 18.10: напоминание открыли, не закрыли — и оно
+  // месяцами висело, ни разу больше не напомнив. Отложить было нельзя.
+  it("«Завтра утром» уходит на бэкенд пресетом", async () => {
+    const snooze = { mutate: vi.fn(), isPending: false };
+    hooks.useSnoozeNotification.mockReturnValue(snooze);
+    hooks.useAllNotifications.mockReturnValue({
+      data: [
+        {
+          id: "n1", type: "reminder", title: "Купить корм", body: "", payload: {},
+          read_at: "2026-08-21T17:06:00Z", created_at: "2026-08-21T11:00:00Z",
+          trigger_at: "2026-08-21T17:00:00Z", resolved_at: null, repeat_rule: null,
+        },
+      ],
+      isLoading: false,
+    });
+    view();
+
+    await userEvent.click(screen.getByTitle("Отложить"));
+    await userEvent.click(screen.getByRole("button", { name: "Завтра утром" }));
+
+    expect(snooze.mutate).toHaveBeenCalledWith({ id: "n1", preset: "tomorrow" });
+  });
+
+  it("у выполненного кнопки нет", () => {
+    hooks.useAllNotifications.mockReturnValue({
+      data: [
+        {
+          id: "n2", type: "reminder", title: "Сделано давно", body: "", payload: {},
+          read_at: null, created_at: "2026-08-21T11:00:00Z",
+          trigger_at: "2026-08-21T17:00:00Z", resolved_at: "2026-08-22T10:00:00Z", repeat_rule: null,
+        },
+      ],
+      isLoading: false,
+    });
+    view();
+
+    expect(screen.queryByTitle("Отложить")).toBeNull();
   });
 });

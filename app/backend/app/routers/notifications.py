@@ -5,13 +5,13 @@ from fastapi import APIRouter, Depends, Header, HTTPException, WebSocket, WebSoc
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app import realtime
+from app import realtime, reminder_actions
 from app.core.config import get_settings
 from app.db import get_db
 from app.deps import ensure_space_access, get_current_user, space_member_ids
 from app.recurrence import RULES
 from app.models import Item, Notification, User
-from app.schemas.notification import NotificationCreateIn, NotificationOut
+from app.schemas.notification import NotificationCreateIn, NotificationOut, NotificationSnoozeIn
 from app.security import decode_session_token
 from app.user_timezone import assume_default_timezone
 
@@ -139,6 +139,30 @@ async def resolve_notification(
         notification.resolved_at = datetime.now(timezone.utc)
         await db.commit()
         await db.refresh(notification)
+    return notification
+
+
+@router.post("/{notification_id}/snooze", response_model=NotificationOut)
+async def snooze_notification(
+    notification_id: uuid.UUID,
+    body: NotificationSnoozeIn,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> Notification:
+    """«Отложить» — сработать заново позже (reminder_actions.py). Тот же
+    код, что у кнопок в Telegram: «завтра утром» должно значить одно и то
+    же в обоих местах."""
+    notification = await db.get(Notification, notification_id)
+    if notification is None or notification.user_id != user.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Уведомление не найдено")
+    if body.preset not in reminder_actions.PRESETS:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"Неизвестный вариант: {body.preset}. Допустимы: {', '.join(reminder_actions.PRESETS)}",
+        )
+    reminder_actions.snooze(db, notification, reminder_actions.snooze_until(body.preset, user))
+    await db.commit()
+    await db.refresh(notification)
     return notification
 
 

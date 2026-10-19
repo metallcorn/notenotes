@@ -254,3 +254,52 @@ async def resolve_reminder(ctx: ToolContext, args: dict[str, Any]) -> dict[str, 
         notification.resolved_at = datetime.now(timezone.utc)
         await ctx.db.commit()
     return {"id": str(notification.id), "title": notification.title, "resolved": True}
+
+
+SNOOZE_REMINDER = ToolDefinition(
+    name="snooze_reminder",
+    description=(
+        "Отложить напоминание — оно сработает ЗАНОВО в новое время (придёт в Telegram и "
+        "колокольчик ещё раз). Используй на «отложи», «напомни позже», «перенеси на завтра» про "
+        "уже существующее напоминание — НЕ создавай вместо этого новое через create_reminder: "
+        "старое осталось бы висеть рядом с дублем. id — из list_reminders. Подтверждения не "
+        "спрашивай: сама просьба и есть подтверждение."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "notification_id": {"type": "string", "description": "id напоминания, взятый из list_reminders"},
+            "until": {
+                "type": "string",
+                "description": "Когда напомнить снова, ISO 8601 в местном времени пользователя ('2026-08-08T09:00:00')",
+            },
+        },
+        "required": ["notification_id", "until"],
+    },
+)
+
+
+async def snooze_reminder(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
+    from app.reminder_actions import snooze
+
+    try:
+        notification_id = uuid.UUID(str(args.get("notification_id") or ""))
+    except ValueError:
+        raise ToolError("Некорректный notification_id — нужен UUID из результата list_reminders") from None
+    until_raw = args.get("until")
+    try:
+        until = datetime.fromisoformat(str(until_raw))
+    except ValueError:
+        raise ToolError(f"Некорректные дата/время: {until_raw} — нужен формат ISO, например 2026-09-04T14:30") from None
+    # Наивное время — в живом поясе пользователя, как у create_reminder.
+    until = assume_default_timezone(until, ctx.client_timezone)
+    if until <= datetime.now(timezone.utc):
+        raise ToolError("Это время уже прошло — отложить можно только на будущее")
+
+    notification = await ctx.db.get(Notification, notification_id)
+    if notification is None or notification.user_id != ctx.user_id:
+        raise ToolError("Напоминание не найдено — вызови list_reminders, чтобы увидеть реальные напоминания и их id")
+
+    snooze(ctx.db, notification, until)
+    await ctx.db.commit()
+    return {"id": str(notification.id), "title": notification.title, **_echo_times(until, ctx.client_timezone)}

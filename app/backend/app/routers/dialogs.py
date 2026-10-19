@@ -93,7 +93,7 @@ _CORE_TOOL_NAMES = {
     # calendar_reminders целиком (не только list_reminders) теперь core —
     # create_reminder и так требует явного согласия перед созданием
     # (не молчаливое действие), опасности в постоянной доступности нет.
-    "create_calendar_event", "create_reminder", "list_reminders", "resolve_reminder",
+    "create_calendar_event", "create_reminder", "list_reminders", "resolve_reminder", "snooze_reminder",
     # Реальный найденный случай (бенчмарк моделей на реальных вопросах
     # пользователя): "через 48 дней от сегодня какой будет день недели?" —
     # ни одно слово запроса не задело ключевые слова категории "utility"

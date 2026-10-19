@@ -7,7 +7,7 @@ from urllib.parse import quote
 
 from sqlalchemy import delete, select
 
-from app import realtime, telegram_bot
+from app import realtime, reminder_actions, telegram_bot
 from app.core.config import get_settings
 from app.db import async_session
 from app.models import Notification, PushSubscription, TelegramLink
@@ -45,7 +45,7 @@ async def _dispatch_one(notification: Notification, db) -> None:
         # (клик — чисто клиентская навигация, AppShell.tsx::openReminder) —
         # тут ссылка холодная (?item=), без подсветки конкретного пункта
         # списка/якоря в заметке, но открывает нужную заметку/список сразу.
-        reply_markup = None
+        rows: list[list[dict]] = []
         payload = notification.payload or {}
         item_id = payload.get("item_id")
         if item_id:
@@ -57,7 +57,14 @@ async def _dispatch_one(notification: Notification, db) -> None:
             find = payload.get("find")
             if find:
                 url += f"&find={quote(str(find))}"
-            reply_markup = {"inline_keyboard": [[{"text": "Открыть", "url": url}]]}
+            rows.append([{"text": "Открыть", "url": url}])
+        # «Сделано» и «отложить» прямо под сообщением (reminder_actions.py):
+        # без них напоминание, открытое и не закрытое, висело месяцами и
+        # больше ни разу не напоминало о себе.
+        actions = reminder_actions.telegram_buttons(notification)
+        if actions:
+            rows.append(actions)
+        reply_markup = {"inline_keyboard": rows} if rows else None
         await telegram_bot.send_message(link, text, reply_markup=reply_markup)
 
     subscriptions = (
