@@ -71,6 +71,14 @@ async def update_folder(
             parent = await db.get(Folder, new_parent_id)
             if parent is None or parent.space_id != folder.space_id:
                 raise HTTPException(status.HTTP_400_BAD_REQUEST, "Родительская папка вне этого спейса")
+            # Папку в её же подпапку — цикл: ни одна из них больше не
+            # корень, и обе молча исчезают из дерева. С перетаскиванием
+            # мышкой такой бросок — дело одного неточного движения.
+            ancestor = parent
+            while ancestor is not None:
+                if ancestor.id == folder.id:
+                    raise HTTPException(status.HTTP_400_BAD_REQUEST, "Нельзя вложить папку в её же подпапку")
+                ancestor = await db.get(Folder, ancestor.parent_id) if ancestor.parent_id else None
         folder.parent_id = new_parent_id
 
     await db.commit()

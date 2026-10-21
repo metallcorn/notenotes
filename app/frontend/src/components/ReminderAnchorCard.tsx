@@ -2,6 +2,7 @@ import type { NodeViewProps } from "@tiptap/react";
 import { NodeViewWrapper } from "@tiptap/react";
 import { AlarmClock, AlertTriangle, Check } from "lucide-react";
 import { useAllNotifications } from "../api/hooks";
+import { dateLocale } from "../i18n";
 
 // Реальная жалоба: голая иконка ⏰ без подписи ("не понимаю что я там
 // написал") и без реакции на то, что напоминание уже сработало/выполнено
@@ -32,7 +33,7 @@ export default function ReminderAnchorCard({ node }: NodeViewProps) {
     ? resolved
       ? `Выполнено: ${title}`
       : notification.trigger_at
-        ? `${overdue ? "Должно было сработать" : "Сработает"} ${new Date(notification.trigger_at).toLocaleString("ru-RU")}: ${title}`
+        ? `${overdue ? "Должно было сработать" : "Сработает"} ${new Date(notification.trigger_at).toLocaleString(dateLocale)}: ${title}`
         : title
     : title;
 

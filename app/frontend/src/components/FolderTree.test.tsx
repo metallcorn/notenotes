@@ -9,6 +9,8 @@ const hooks = vi.hoisted(() => ({
   useCreateFolder: vi.fn(),
   useUpdateFolder: vi.fn(),
   useDeleteFolder: vi.fn(),
+  useMoveItemSpace: vi.fn(),
+  useMoveFolderSpace: vi.fn(),
 }));
 vi.mock("../api/hooks", () => hooks);
 vi.mock("./FolderMoveModal", () => ({ default: () => null }));
@@ -28,6 +30,8 @@ describe("FolderTree — меню папки не обрезается скро�
       hooks.useFolders.mockReturnValue({ data: [folder()] });
       hooks.useCreateFolder.mockReturnValue(mockMutation());
       hooks.useUpdateFolder.mockReturnValue(mockMutation());
+      hooks.useMoveItemSpace.mockReturnValue(mockMutation());
+      hooks.useMoveFolderSpace.mockReturnValue(mockMutation());
       hooks.useDeleteFolder.mockReturnValue(mockMutation());
 
       // Тот же сценарий, что реальная жалоба: сайдбар — единственный

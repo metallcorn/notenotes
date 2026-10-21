@@ -5,6 +5,7 @@ import type { Item } from "../api/types";
 import ConfirmDialog from "./ConfirmDialog";
 import Spinner from "./Spinner";
 import { ListSkeleton } from "./Skeleton";
+import { dateLocale, t } from "../i18n";
 
 export default function TrashView({ spaceId, onBack }: { spaceId: string | undefined; onBack: () => void }) {
   const { data: items, isLoading } = useTrash(spaceId);
@@ -24,7 +25,7 @@ export default function TrashView({ spaceId, onBack }: { spaceId: string | undef
         >
           <ChevronLeft size={18} />
         </button>
-        <div className="flex-1 text-sm font-medium text-primary">Корзина</div>
+        <div className="flex-1 text-sm font-medium text-primary">{t("nav.trash")}</div>
         {hasItems && (
           <button
             onClick={() => setConfirmingEmpty(true)}
@@ -47,7 +48,7 @@ export default function TrashView({ spaceId, onBack }: { spaceId: string | undef
             <div className="min-w-0">
               <div className="truncate text-sm text-primary">{item.title || "Без названия"}</div>
               <div className="truncate text-xs text-subtle">
-                удалено {item.deleted_at ? new Date(item.deleted_at).toLocaleString("ru-RU") : ""}
+                удалено {item.deleted_at ? new Date(item.deleted_at).toLocaleString(dateLocale) : ""}
               </div>
             </div>
             <div className="flex shrink-0 gap-1">

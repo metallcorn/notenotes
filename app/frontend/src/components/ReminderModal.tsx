@@ -2,6 +2,7 @@ import { useState } from "react";
 import { AlarmClock } from "lucide-react";
 
 import { REPEAT_LABELS, REPEAT_RULES, type RepeatRule } from "../lib/recurrence";
+import { dateLocale } from "../i18n";
 
 // Реальный запрос: "через /notify создавать команду на создание
 // напоминания — открывается форма, выбираешь дату/время, можешь написать
@@ -71,7 +72,7 @@ export default function ReminderModal({
           <span className="mb-1 block text-xs text-subtle">Когда</span>
           <input
             type="datetime-local"
-            lang="ru-RU"
+            lang={dateLocale}
             value={when}
             onChange={(e) => setWhen(e.target.value)}
             className="w-full rounded border px-2 py-1.5 text-sm outline-none focus:border-strong"

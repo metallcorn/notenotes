@@ -31,6 +31,7 @@ import type { SnoozePreset } from "../api/hooks";
 import type { DetectedEvent, Notification } from "../api/types";
 import { repeatLabel } from "../lib/recurrence";
 import { ListSkeleton } from "./Skeleton";
+import { dateLocale, t } from "../i18n";
 
 type Tab = "notifications" | "recent";
 
@@ -66,7 +67,7 @@ function matchesHorizon(horizon: Horizon, triggerAt: string | null): boolean {
 }
 
 function formatWhen(value: string): string {
-  return new Date(value).toLocaleString("ru-RU", {
+  return new Date(value).toLocaleString(dateLocale, {
     day: "2-digit",
     month: "2-digit",
     hour: "2-digit",
@@ -501,7 +502,7 @@ export default function ActivityView({
         >
           <ChevronLeft size={18} />
         </button>
-        <div className="text-sm font-medium text-primary">Активность</div>
+        <div className="text-sm font-medium text-primary">{t("nav.activity")}</div>
       </div>
       <div className="flex border-b">
         <button

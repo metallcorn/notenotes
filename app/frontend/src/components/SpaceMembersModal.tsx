@@ -10,9 +10,10 @@ import {
   useSpaceMembers,
 } from "../api/hooks";
 import Spinner from "./Spinner";
+import { dateLocale } from "../i18n";
 
 function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric" });
+  return new Date(iso).toLocaleDateString(dateLocale, { day: "2-digit", month: "2-digit", year: "numeric" });
 }
 
 // Управление участниками спейса — по нику (прямое добавление, без

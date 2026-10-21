@@ -1,5 +1,6 @@
 import { useItemVersions, useRevertVersion } from "../api/hooks";
 import { ListSkeleton } from "./Skeleton";
+import { dateLocale } from "../i18n";
 
 export default function VersionHistoryPanel({ itemId, onClose }: { itemId: string; onClose: () => void }) {
   const { data: versions, isLoading } = useItemVersions(itemId);
@@ -20,7 +21,7 @@ export default function VersionHistoryPanel({ itemId, onClose }: { itemId: strin
       <ul className="space-y-2">
         {(versions ?? []).map((v) => (
           <li key={v.id} className="rounded border bg-surface p-2">
-            <div className="text-xs text-subtle">{new Date(v.created_at).toLocaleString("ru-RU")}</div>
+            <div className="text-xs text-subtle">{new Date(v.created_at).toLocaleString(dateLocale)}</div>
             <div className="mt-0.5 truncate text-sm font-medium text-primary">{v.title || "Без названия"}</div>
             <div className="mt-0.5 line-clamp-2 text-xs text-subtle">{v.content.slice(0, 140)}</div>
             <button

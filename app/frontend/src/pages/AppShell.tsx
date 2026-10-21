@@ -26,6 +26,7 @@ import ActivityView from "../components/ActivityView";
 import DocumentsView from "../components/DocumentsView";
 import OfflineBanner from "../components/OfflineBanner";
 import OfflineFlushNotice from "../components/OfflineFlushNotice";
+import { t } from "../i18n";
 
 type MobileView = "sidebar" | "list" | "editor";
 
@@ -672,7 +673,7 @@ export default function AppShell() {
                 viewMode === "assistant" ? "bg-muted-active font-medium text-primary" : "text-secondary hover:bg-muted-hover"
               }`}
             >
-              <Sparkles size={15} /> Ассистент
+              <Sparkles size={15} /> {t("nav.assistant")}
             </button>
             <button
               onClick={switchToActivity}
@@ -680,7 +681,7 @@ export default function AppShell() {
                 viewMode === "activity" ? "bg-muted-active font-medium text-primary" : "text-secondary hover:bg-muted-hover"
               }`}
             >
-              <Bell size={15} /> Активность
+              <Bell size={15} /> {t("nav.activity")}
             </button>
             <button
               onClick={switchToDocuments}
@@ -688,7 +689,7 @@ export default function AppShell() {
                 viewMode === "documents" ? "bg-muted-active font-medium text-primary" : "text-secondary hover:bg-muted-hover"
               }`}
             >
-              <FileStack size={15} /> Документы
+              <FileStack size={15} /> {t("nav.documents")}
             </button>
             <button
               onClick={switchToTrash}
@@ -696,7 +697,7 @@ export default function AppShell() {
                 viewMode === "trash" ? "bg-muted-active font-medium text-primary" : "text-secondary hover:bg-muted-hover"
               }`}
             >
-              <Trash2 size={15} /> Корзина
+              <Trash2 size={15} /> {t("nav.trash")}
             </button>
           </div>
           <div className="mb-2 flex items-center justify-between">
@@ -817,7 +818,7 @@ export default function AppShell() {
                     >
                       <ChevronLeft size={18} />
                     </button>
-                    <span className="text-sm font-medium text-primary">Ассистент</span>
+                    <span className="text-sm font-medium text-primary">{t("nav.assistant")}</span>
                   </div>
                   <DialogList selectedId={selectedDialogId} onSelect={selectDialog} />
                 </>

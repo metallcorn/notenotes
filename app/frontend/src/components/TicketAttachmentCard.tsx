@@ -24,6 +24,7 @@ import {
 import type { TicketAttachmentData } from "../extensions/TicketAttachment";
 import { useCreateReminder, useReprocessUpload } from "../api/hooks";
 import { ExpandedTextPanel } from "./RecognizedTextView";
+import { dateLocale } from "../i18n";
 
 const UPLOAD_ID_RE = /\/api\/uploads\/([0-9a-f-]{36})/i;
 
@@ -56,7 +57,7 @@ const TICKET_LABELS: Record<string, string> = {
 function formatDateTime(value: string): string {
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return value;
-  return d.toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
+  return d.toLocaleString(dateLocale, { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
 }
 
 // Оригинал (картинка или PDF) — тот же паттерн полноэкранного оверлея, что

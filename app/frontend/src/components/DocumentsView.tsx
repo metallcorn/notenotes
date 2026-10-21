@@ -4,6 +4,7 @@ import { AlertTriangle, ChevronLeft, Clock, FileText, Folder, Layers, Search } f
 import { useDocuments } from "../api/hooks";
 import type { DocumentEntry, DocumentSeries } from "../api/types";
 import { ListSkeleton } from "./Skeleton";
+import { t } from "../i18n";
 
 // Сквозной вид «Документы». Запрос владельца: «возможно отсортировать или
 // пересобрать отдельно где-то все документы, потому что всё сейчас так
@@ -152,7 +153,7 @@ export default function DocumentsView({
         <button onClick={onBack} className="-ml-1 flex h-8 w-8 shrink-0 items-center justify-center text-subtle lg:hidden">
           <ChevronLeft size={18} />
         </button>
-        <div className="text-sm font-medium text-primary">Документы</div>
+        <div className="text-sm font-medium text-primary">{t("nav.documents")}</div>
         {data && (
           <span className="ml-auto text-xs text-subtle">
             {data.documents.length} файлов, {data.series.length} серий

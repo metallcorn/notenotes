@@ -15,6 +15,8 @@ import type { DialogSummary, Item } from "../api/types";
 import ConfirmDialog from "./ConfirmDialog";
 import Spinner from "./Spinner";
 import { ListSkeleton } from "./Skeleton";
+import { startItemDrag } from "../lib/dragItem";
+import { dateLocale } from "../i18n";
 
 // Тот же портал-в-body паттерн, что только что сделан для FolderMenu в
 // FolderTree.tsx — список заметок тоже живёт внутри overflow-y-auto,
@@ -67,7 +69,7 @@ function FolderDialogPicker({
           <div key={d.id} className="flex items-center gap-1 hover:bg-muted-hover">
             <button onClick={() => onPick(d.id)} className="min-w-0 flex-1 px-3 py-1.5 text-left text-sm text-secondary">
               <div className="truncate">{d.preview || d.title}</div>
-              <div className="text-xs text-subtle">{new Date(d.updated_at).toLocaleString("ru-RU")}</div>
+              <div className="text-xs text-subtle">{new Date(d.updated_at).toLocaleString(dateLocale)}</div>
             </button>
             <button
               onClick={() => setDeletingDialog(d)}
@@ -118,7 +120,7 @@ const NOTE_TEMPLATES: NoteTemplate[] = [
   {
     id: "diary",
     label: "Дневник",
-    title: new Date().toLocaleDateString("ru-RU"),
+    title: new Date().toLocaleDateString(dateLocale),
     content: "",
   },
   {
@@ -221,7 +223,17 @@ export function listProgress(content: string): string {
   return `${done}/${lines.length} выполнено`;
 }
 
-function NoteRow({ item, selected, onSelect }: { item: Item; selected: boolean; onSelect: (id: string) => void }) {
+function NoteRow({
+  item,
+  selected,
+  onSelect,
+  draggable,
+}: {
+  item: Item;
+  selected: boolean;
+  onSelect: (id: string) => void;
+  draggable: boolean;
+}) {
   const isList = item.material_type === "list";
   const isTable = item.material_type === "table";
   const preview = isList ? listProgress(item.content) : previewText(item.content);
@@ -231,8 +243,15 @@ function NoteRow({ item, selected, onSelect }: { item: Item; selected: boolean; 
     // строки, и обновление списка не переигрывает анимацию на всех
     // (см. комментарий к .row-fade-in в index.css).
     <li className="row-fade-in">
+      {/* Тянется мышкой на папку в сайдбаре (lib/dragItem.ts). Из сейфа
+          нельзя: туда и оттуда перенос идёт через шифрование, не через
+          обычный move. */}
       <button
         onClick={() => onSelect(item.id)}
+        draggable={draggable}
+        onDragStart={(e) =>
+          startItemDrag(e, { id: item.id, space_id: item.space_id, folder_id: item.folder_id ?? null })
+        }
         className={`block w-full border-b px-3 py-2 text-left ${selected ? "bg-muted-hover" : "hover:bg-muted-hover"}`}
       >
         <div className="flex items-center gap-1.5 truncate text-sm font-medium">
@@ -249,7 +268,7 @@ function NoteRow({ item, selected, onSelect }: { item: Item; selected: boolean; 
         </div>
         {preview && <div className="mt-0.5 truncate text-xs text-subtle">{preview}</div>}
         <div className="mt-0.5 truncate text-xs text-subtle">
-          {new Date(item.updated_at).toLocaleString("ru-RU")}
+          {new Date(item.updated_at).toLocaleString(dateLocale)}
           {item.tags.length > 0 && " · " + item.tags.map((t) => `#${t.name}`).join(" ")}
         </div>
       </button>
@@ -426,12 +445,12 @@ export default function NoteList({
               Важное
             </li>
             {pinned.map((item) => (
-              <NoteRow key={item.id} item={item} selected={selectedId === item.id} onSelect={onSelect} />
+              <NoteRow key={item.id} item={item} selected={selectedId === item.id} onSelect={onSelect} draggable={!isVault} />
             ))}
           </>
         )}
         {rest.map((item) => (
-          <NoteRow key={item.id} item={item} selected={selectedId === item.id} onSelect={onSelect} />
+          <NoteRow key={item.id} item={item} selected={selectedId === item.id} onSelect={onSelect} draggable={!isVault} />
         ))}
       </ul>
       <div className="fixed bottom-20 right-4 z-40 flex flex-col items-end gap-2 md:hidden">

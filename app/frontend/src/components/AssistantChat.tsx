@@ -58,6 +58,7 @@ import ImageLightbox from "./ImageLightbox";
 import PromptDialog from "./PromptDialog";
 import Spinner from "./Spinner";
 import DeliveryCard, { type DeliveryData } from "./DeliveryCard";
+import { dateLocale } from "../i18n";
 
 // Живой ASR-стрим (Palabra) поверх WebSocket /api/voice/asr-stream: браузер
 // шлёт сырые PCM s16le-фреймы, сервер ретранслирует их в Palabra и гоняет
@@ -756,7 +757,7 @@ const TICKET_LABELS: Record<string, string> = {
 function formatTicketDateTime(value: string): string {
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return value;
-  return d.toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
+  return d.toLocaleString(dateLocale, { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
 }
 
 interface TicketResult {

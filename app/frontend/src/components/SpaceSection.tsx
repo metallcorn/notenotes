@@ -177,6 +177,7 @@ export default function SpaceSection({
               spaceId={space.id}
               selectedFolderId={isActive ? activeFolderId : undefined}
               onSelect={(folderId) => onSelectFolder(space.id, folderId)}
+              isVault={space.is_vault}
             />
           )}
         </div>

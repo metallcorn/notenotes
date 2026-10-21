@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { ExternalLink, Package } from "lucide-react";
+import { dateLocale } from "../i18n";
 
 // Карточка статуса доставки в чате ассистента. Рисуется из результата тула
 // track_delivery (app/backend/app/delivery.py) — данные уже нормализованы,
@@ -25,7 +26,7 @@ function fmtTime(iso?: string): string {
   if (!iso) return "";
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleString("ru-RU", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+  return d.toLocaleString(dateLocale, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 }
 
 export default function DeliveryCard({ data, headerExtra }: { data: DeliveryData; headerExtra?: ReactNode }) {

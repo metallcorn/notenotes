@@ -1,9 +1,24 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
-import type { RefObject } from "react";
+import type { DragEvent, RefObject } from "react";
 import { createPortal } from "react-dom";
 import { FolderInput, MoreVertical, Pencil, Plus, X } from "lucide-react";
 import type { Folder } from "../api/types";
-import { useCreateFolder, useDeleteFolder, useFolders, useUpdateFolder } from "../api/hooks";
+import {
+  useCreateFolder,
+  useDeleteFolder,
+  useFolders,
+  useMoveFolderSpace,
+  useMoveItemSpace,
+  useUpdateFolder,
+} from "../api/hooks";
+import {
+  draggingSomething,
+  readDraggedFolder,
+  readDraggedItem,
+  startFolderDrag,
+  type DraggedFolder,
+  type DraggedItem,
+} from "../lib/dragItem";
 import Spinner from "./Spinner";
 import PromptDialog from "./PromptDialog";
 import ConfirmDialog from "./ConfirmDialog";
@@ -18,6 +33,49 @@ interface NodeProps {
   onRename: (folder: Folder) => void;
   onDelete: (folder: Folder) => void;
   onMove: (folder: Folder) => void;
+  dnd: DropHandlers | null;
+}
+
+// Что делать с брошенным на строку дерева: target — id папки или null
+// («Без папки», то есть корень спейса).
+interface DropHandlers {
+  onDropItem: (item: DraggedItem, target: string | null) => void;
+  onDropFolder: (folder: DraggedFolder, target: string | null) => void;
+}
+
+// Подсветка строки под курсором и приём броска. dragleave приходит и при
+// переходе на дочерний элемент той же строки — его не считаем уходом.
+function useDropTarget(dnd: DropHandlers | null, target: string | null) {
+  const [over, setOver] = useState(false);
+  if (!dnd) return { over: false, props: {} };
+  return {
+    over,
+    props: {
+      onDragOver: (e: DragEvent) => {
+        if (!draggingSomething(e)) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "move";
+        if (!over) setOver(true);
+      },
+      onDragLeave: (e: DragEvent) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setOver(false);
+      },
+      onDrop: (e: DragEvent) => {
+        setOver(false);
+        const item = readDraggedItem(e);
+        if (item) {
+          e.preventDefault();
+          dnd.onDropItem(item, target);
+          return;
+        }
+        const folder = readDraggedFolder(e);
+        if (folder) {
+          e.preventDefault();
+          dnd.onDropFolder(folder, target);
+        }
+      },
+    },
+  };
 }
 
 // Реальная жалоба: список спейсов/папок в сайдбаре — единственный
@@ -101,15 +159,28 @@ function FolderMenu({ folder, triggerRef, onAddChild, onRename, onMove, onDelete
   );
 }
 
-function FolderNode({ folder, all, selectedFolderId, onSelect, onAddChild, onRename, onDelete, onMove }: NodeProps) {
+function FolderNode({ folder, all, selectedFolderId, onSelect, onAddChild, onRename, onDelete, onMove, dnd }: NodeProps) {
   const children = all.filter((f) => f.parent_id === folder.id);
   const [menuOpen, setMenuOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
+  const drop = useDropTarget(dnd, folder.id);
   return (
     <li>
       <div
+        {...drop.props}
+        draggable={!!dnd}
+        onDragStart={(e) => {
+          // Иначе dragstart всплывёт до строки родительской папки, и
+          // тащиться будет она.
+          e.stopPropagation();
+          startFolderDrag(e, { id: folder.id, space_id: folder.space_id });
+        }}
         className={`flex items-center justify-between rounded px-2 py-1 text-sm ${
-          selectedFolderId === folder.id ? "bg-muted-active font-medium" : "hover:bg-muted-hover"
+          drop.over
+            ? "bg-accent/15 ring-1 ring-accent"
+            : selectedFolderId === folder.id
+              ? "bg-muted-active font-medium"
+              : "hover:bg-muted-hover"
         }`}
       >
         <button className="flex-1 truncate text-left" onClick={() => onSelect(folder.id)}>
@@ -155,6 +226,7 @@ function FolderNode({ folder, all, selectedFolderId, onSelect, onAddChild, onRen
               onRename={onRename}
               onDelete={onDelete}
               onMove={onMove}
+              dnd={dnd}
             />
           ))}
         </ul>
@@ -167,15 +239,56 @@ export default function FolderTree({
   spaceId,
   selectedFolderId,
   onSelect,
+  isVault = false,
 }: {
   spaceId: string;
   selectedFolderId: string | null | undefined;
   onSelect: (id: string | null) => void;
+  // Сейф не принимает и не отдаёт перетаскиванием: перенос туда — это
+  // шифрование в браузере (MigrateToVault), не обычный move.
+  isVault?: boolean;
 }) {
   const { data: folders } = useFolders(spaceId);
   const createFolder = useCreateFolder(spaceId);
   const updateFolder = useUpdateFolder(spaceId);
   const deleteFolder = useDeleteFolder(spaceId);
+  const moveItem = useMoveItemSpace();
+  const moveFolderSpace = useMoveFolderSpace();
+  const [dropError, setDropError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!dropError) return;
+    const t = setTimeout(() => setDropError(null), 5000);
+    return () => clearTimeout(t);
+  }, [dropError]);
+
+  const fail = (err: unknown) => setDropError(err instanceof Error ? err.message : "Не удалось перенести");
+
+  const dnd: DropHandlers | null = isVault
+    ? null
+    : {
+        onDropItem: (item, target) => {
+          if (item.space_id === spaceId && item.folder_id === target) return;
+          moveItem.mutate({ id: item.id, space_id: spaceId, folder_id: target }, { onError: fail });
+        },
+        onDropFolder: (dragged, target) => {
+          if (dragged.space_id !== spaceId) {
+            // Между спейсами папка переезжает целиком в корень: так
+            // устроен /folders/{id}/move, вложить сразу не выйдет.
+            moveFolderSpace.mutate({ id: dragged.id, space_id: spaceId }, { onError: fail });
+            return;
+          }
+          if (dragged.id === target) return;
+          // В свою же подпапку — цикл; сервер тоже откажет, но молча
+          // пропустить бросок понятнее, чем показать ошибку.
+          for (let p = all.find((f) => f.id === target); p; p = all.find((f) => f.id === p!.parent_id)) {
+            if (p.id === dragged.id) return;
+          }
+          if (all.find((f) => f.id === dragged.id)?.parent_id === target) return;
+          updateFolder.mutate({ id: dragged.id, parent_id: target }, { onError: fail });
+        },
+      };
+  const rootDrop = useDropTarget(dnd, null);
   const [addingParentId, setAddingParentId] = useState<string | null | undefined>(undefined);
   const [newName, setNewName] = useState("");
   const [renaming, setRenaming] = useState<Folder | null>(null);
@@ -216,11 +329,15 @@ export default function FolderTree({
             Все заметки
           </button>
         </li>
-        <li>
+        <li {...rootDrop.props}>
           <button
             onClick={() => onSelect("root")}
             className={`w-full rounded px-2 py-1 text-left text-sm ${
-              selectedFolderId === "root" ? "bg-muted-active font-medium" : "hover:bg-muted-hover"
+              rootDrop.over
+                ? "bg-accent/15 ring-1 ring-accent"
+                : selectedFolderId === "root"
+                  ? "bg-muted-active font-medium"
+                  : "hover:bg-muted-hover"
             }`}
           >
             Без папки
@@ -237,9 +354,11 @@ export default function FolderTree({
             onRename={setRenaming}
             onDelete={setDeleting}
             onMove={setMoving}
+            dnd={dnd}
           />
         ))}
       </ul>
+      {dropError && <p className="mt-1 px-2 text-xs text-danger">{dropError}</p>}
 
       {addingParentId !== undefined && (
         <form onSubmit={submitNew} className="mt-2 flex gap-1">

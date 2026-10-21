@@ -6,11 +6,12 @@ import { uiStorage } from "../lib/storage";
 import AssistantChat from "./AssistantChat";
 import ConfirmDialog from "./ConfirmDialog";
 import Spinner from "./Spinner";
+import { dateLocale } from "../i18n";
 
 function formatDialogDate(iso: string): string {
   const d = new Date(iso);
-  return d.toLocaleDateString("ru-RU", { day: "numeric", month: "short" }) + ", " +
-    d.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
+  return d.toLocaleDateString(dateLocale, { day: "numeric", month: "short" }) + ", " +
+    d.toLocaleTimeString(dateLocale, { hour: "2-digit", minute: "2-digit" });
 }
 
 const MIN_WIDTH = 320;

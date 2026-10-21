@@ -33,6 +33,21 @@ async def test_folder_cannot_be_its_own_parent(auth_client):
     assert r.status_code == 400
 
 
+async def test_folder_cannot_go_into_its_own_subfolder(auth_client):
+    """Иначе цикл: ни одна из папок больше не корень, обе пропадают из
+    дерева. С перетаскиванием мышкой — одно неточное движение."""
+    space_id = await _make_space(auth_client)
+    top = (await auth_client.post("/api/folders", json={"space_id": space_id, "name": "A"})).json()["id"]
+    mid = (await auth_client.post("/api/folders", json={"space_id": space_id, "name": "B", "parent_id": top})).json()["id"]
+    low = (await auth_client.post("/api/folders", json={"space_id": space_id, "name": "C", "parent_id": mid})).json()["id"]
+
+    r = await auth_client.patch(f"/api/folders/{top}", json={"parent_id": low})
+    assert r.status_code == 400
+
+    r = await auth_client.patch(f"/api/folders/{low}", json={"parent_id": None})
+    assert r.status_code == 200
+
+
 async def test_folder_parent_must_be_in_same_space(auth_client):
     space_a = await _make_space(auth_client)
     space_b = await _make_space(auth_client)

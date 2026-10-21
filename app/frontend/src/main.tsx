@@ -9,6 +9,7 @@ import { diagnosticLog } from "./lib/diagnostics";
 import { installForceRepaintOnVisible } from "./lib/forceRepaint";
 import { applyTheme } from "./lib/theme";
 import { uiStorage } from "./lib/storage";
+import { locale } from "./i18n";
 
 installForceRepaintOnVisible();
 import "./index.css";
@@ -18,6 +19,8 @@ import "./index.css";
 // который тот скрипт не трогает, плюс подстраховка на случай приватного
 // режима/недоступного localStorage там.
 applyTheme(uiStorage.getTheme());
+// index.html — lang="ru" статически; здесь — язык, выбранный в i18n.
+document.documentElement.lang = locale;
 
 // Точечная диагностика бага "белый экран в standalone PWA" (см.
 // diagnostics.ts) — если причина в необработанном исключении где-то в

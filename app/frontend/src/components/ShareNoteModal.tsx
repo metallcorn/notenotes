@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Copy, Globe, X } from "lucide-react";
 import { useItemShareInfo, useShareItem, useUnshareItem } from "../api/hooks";
 import Spinner from "./Spinner";
+import { dateLocale } from "../i18n";
 
 // Управление публикацией заметки (routers/public.py) — доступно только
 // для заметок в спейсе «Публичные страницы» (см. NoteEditor.tsx, кнопка
@@ -64,7 +65,7 @@ export default function ShareNoteModal({ itemId, onClose }: { itemId: string; on
             {copied && <div className="text-xs text-success">Скопировано</div>}
             <div className="space-y-0.5 text-xs text-subtle">
               {info.has_password && <div>Защищена паролем</div>}
-              {info.share_expires_at && <div>Истекает: {new Date(info.share_expires_at).toLocaleDateString("ru-RU")}</div>}
+              {info.share_expires_at && <div>Истекает: {new Date(info.share_expires_at).toLocaleDateString(dateLocale)}</div>}
               {info.share_single_use && <div>{info.share_used_at ? "Уже открывалась (одноразовая)" : "Одноразовая ссылка"}</div>}
               {!info.has_password && !info.share_expires_at && !info.share_single_use && <div>Без пароля, бессрочная</div>}
             </div>

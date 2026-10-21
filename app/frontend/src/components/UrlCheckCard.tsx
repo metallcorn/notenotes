@@ -5,6 +5,7 @@ import { ChevronDown, ChevronUp, KeyRound, Link2, RotateCw } from "lucide-react"
 import { useRefreshUrlCheckWidget, useUrlCheckWidget } from "../api/hooks";
 import { ExpandedTextPanel } from "./RecognizedTextView";
 import Spinner from "./Spinner";
+import { dateLocale } from "../i18n";
 
 // Безопасный резолвер dot-path — "passportStatus.name" по
 // {"passportStatus": {"name": "..."}} — отсутствующий/некорректный путь
@@ -20,7 +21,7 @@ function resolvePath(obj: unknown, path: string): string {
 }
 
 function formatWhen(iso: string): string {
-  return new Date(iso).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+  return new Date(iso).toLocaleString(dateLocale, { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
 }
 
 function parseJsonSafe(text: string | null): unknown {

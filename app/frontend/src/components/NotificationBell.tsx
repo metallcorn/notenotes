@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Bell, RefreshCw } from "lucide-react";
 import { useMarkAllNotificationsRead, useMarkNotificationRead, useNotifications } from "../api/hooks";
+import { dateLocale } from "../i18n";
 
 export default function NotificationBell({
   updateAvailable,
@@ -94,7 +95,7 @@ export default function NotificationBell({
                   <div>{n.title}</div>
                   {n.body && <div className="mt-0.5 text-xs font-normal text-subtle">{n.body}</div>}
                   <div className="mt-0.5 text-xs font-normal text-subtle">
-                    {new Date(n.created_at).toLocaleString("ru-RU")}
+                    {new Date(n.created_at).toLocaleString(dateLocale)}
                   </div>
                 </button>
               );
