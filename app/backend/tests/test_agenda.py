@@ -23,6 +23,21 @@ def _iso(days: float) -> str:
     return (datetime.now(timezone.utc) + timedelta(days=days)).isoformat()
 
 
+# «Сегодня» инструмент считает по поясу пользователя (Europe/Warsaw в
+# фикстуре ниже), а не по UTC. Тесты про «сегодняшнее, но уже прошедшее»
+# раньше брали «сейчас минус несколько часов» по UTC — и после 22:00 UTC
+# (полночь в Варшаве) это оказывалось вчера, а не сегодня: три теста
+# падали ровно ночью. Точка берётся между местной полуночью и «сейчас»,
+# поэтому она всегда и сегодняшняя, и прошедшая.
+def _earlier_today_local(fraction: float = 0.5) -> str:
+    from zoneinfo import ZoneInfo
+
+    tz = ZoneInfo("Europe/Warsaw")
+    now = datetime.now(tz)
+    midnight = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    return (midnight + (now - midnight) * fraction).astimezone(timezone.utc).isoformat()
+
+
 @pytest_asyncio.fixture
 async def base(db_session, test_user):
     space = Space(name="Личное", owner_id=test_user.id)
@@ -109,8 +124,7 @@ class TestЧтоНеПопадает:
         """Событие в 9 утра, о котором спрашивают в 11, из ответа выпадать
         не должно — поэтому нижняя граница это начало дня, а не «сейчас».
         """
-        today_morning = datetime.now(timezone.utc).replace(hour=0, minute=30, second=0, microsecond=0)
-        await base.note_with_events([{"at": today_morning.isoformat(), "title": "Утренний рейс"}])
+        await base.note_with_events([{"at": _earlier_today_local(0.1), "title": "Утренний рейс"}])
 
         titles = [e["title"] for e in (await agenda.handle(base.ctx, {}))["entries"]]
 
@@ -321,7 +335,7 @@ class TestДубли:
         тем же успехом объявить его предстоящим: ровно так и вышло с
         рейсом, о котором предупредили, когда человек уже был в самолёте.
         """
-        await base.note_with_events([{"at": _iso(-0.2), "title": "Marsz Kejterka"}])
+        await base.note_with_events([{"at": _earlier_today_local(), "title": "Marsz Kejterka"}])
         await base.note_with_events([{"at": _iso(1), "title": "Завтрашнее"}], title="Б")
 
         entries = (await agenda.handle(base.ctx, {}))["entries"]
@@ -332,7 +346,7 @@ class TestДубли:
 
     async def test_прошедшее_всё_ещё_в_ответе(self, base):
         """«Что у меня было сегодня» — законный вопрос."""
-        await base.note_with_events([{"at": _iso(-0.3), "title": "Утренний приём"}])
+        await base.note_with_events([{"at": _earlier_today_local(), "title": "Утренний приём"}])
 
         entries = (await agenda.handle(base.ctx, {}))["entries"]
 
