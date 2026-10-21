@@ -1,8 +1,10 @@
 import type { Editor } from "@tiptap/core";
-import type { ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import {
   AlignCenter,
   Bold,
+  ChevronLeft,
+  ChevronRight,
   Code,
   FileUp,
   Heading1,
@@ -96,11 +98,67 @@ export default function EditorToolbar({
   showToc: boolean;
   onToggleToc: () => void;
 }) {
+  // На телефоне панель шире экрана и прокручивается вбок, но полосы
+  // прокрутки на тач-экранах не видно: кнопки просто обрываются у края, и
+  // кажется, что остальных нет. Затухание и стрелка у края показывают, что
+  // дальше есть ещё. На тач-экранах стрелка касаний не ловит: панель там
+  // листают пальцем, и свайп, начатый у края, должен её прокрутить, а не
+  // упереться в стрелку. Хуки — до раннего return ниже.
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [edges, setEdges] = useState({ left: false, right: false });
+  const updateEdges = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const left = el.scrollLeft > 2;
+    const right = el.scrollLeft + el.clientWidth < el.scrollWidth - 2;
+    setEdges((prev) => (prev.left === left && prev.right === right ? prev : { left, right }));
+  }, []);
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    updateEdges();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(updateEdges);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [updateEdges, editor]);
+  const scrollBy = (dir: 1 | -1) => {
+    const el = scrollRef.current;
+    el?.scrollBy({ left: dir * el.clientWidth * 0.7, behavior: "smooth" });
+  };
+
   if (!editor) return null;
   const uploading = uploadProgress !== null;
 
   return (
-    <div className="flex flex-nowrap items-center gap-0.5 overflow-x-auto border-b bg-muted px-2 py-1">
+    <div className="relative border-b bg-muted">
+    {edges.left && (
+      <button
+        type="button"
+        title="Прокрутить панель влево"
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={() => scrollBy(-1)}
+        className="absolute inset-y-0 left-0 z-10 flex w-8 items-center justify-start [@media(pointer:coarse)]:pointer-events-none bg-gradient-to-r from-muted via-muted to-transparent pl-0.5 text-subtle"
+      >
+        <ChevronLeft size={16} />
+      </button>
+    )}
+    {edges.right && (
+      <button
+        type="button"
+        title="Прокрутить панель вправо"
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={() => scrollBy(1)}
+        className="absolute inset-y-0 right-0 z-10 flex w-8 items-center justify-end [@media(pointer:coarse)]:pointer-events-none bg-gradient-to-l from-muted via-muted to-transparent pr-0.5 text-subtle"
+      >
+        <ChevronRight size={16} />
+      </button>
+    )}
+    <div
+      ref={scrollRef}
+      onScroll={updateEdges}
+      className="flex flex-nowrap items-center gap-0.5 overflow-x-auto overscroll-x-contain px-2 py-1"
+    >
       <div className={`flex flex-nowrap items-center gap-0.5 ${readOnly ? "pointer-events-none opacity-40" : ""}`}>
       <AiMenu onAction={onAiAction} onOpenAssistant={onOpenAssistant} loading={aiLoading} />
       <span className="mx-1 h-4 w-px shrink-0 bg-default" />
@@ -262,6 +320,7 @@ export default function EditorToolbar({
       <ToolbarButton title="Содержание заметки" active={showToc} onClick={onToggleToc}>
         <ListTree size={16} />
       </ToolbarButton>
+    </div>
     </div>
   );
 }

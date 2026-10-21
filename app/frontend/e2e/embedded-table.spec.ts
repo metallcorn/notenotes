@@ -11,11 +11,20 @@ test("вставляет новую таблицу через /, добавля�
   await page.getByRole("button", { name: "+ Заметка" }).click();
 
   const editor = page.locator(".ProseMirror");
-  await editor.click();
+  // Редактор может пересоздаться сразу после открытия (подключение
+  // совместной правки) — щелчок по старому узлу фокуса не даёт.
+  await expect(async () => {
+    await editor.click();
+    await expect(editor).toBeFocused({ timeout: 1000 });
+  }).toPass({ timeout: 10_000 });
   // Без фильтра слэш-меню показывает только первые 10 пунктов
   // (SlashCommand.tsx: .slice(0, 10)) — "Таблица" 12-я по счёту, нужен
   // фильтр, чтобы она попала в выдачу.
-  await page.keyboard.type("/табл");
+  // Без ожидания фокуса «/» иногда уходил до того, как редактор готов, и
+  // меню не открывалось — в заметку печатался просто текст «/табл».
+  await page.keyboard.type("/");
+  await expect(page.getByTestId("slash-command-menu")).toBeVisible();
+  await page.keyboard.type("табл");
   await page.getByTestId("slash-command-menu").getByRole("button", { name: "Таблица", exact: true }).click();
 
   // Вставка узла tableEmbed меняет content самой ЗАМЕТКИ — это отдельный

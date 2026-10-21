@@ -22,6 +22,11 @@ HOST_PORT=8811
 SECRETS_ENV="/srv/encrypted/notenotes/secrets/app.env"
 
 cleanup() {
+  # Схему notenotes_test — до нуля, как делает pytest в конце сессии
+  # (conftest: downgrade base). Без этого e2e-пользователь с заметками
+  # оставался в базе, следующий pytest накатывал миграции поверх — и тесты,
+  # перебирающие всех пользователей (сводка, MCP), видели лишнего.
+  sudo docker exec "$CONTAINER_NAME" alembic downgrade base >/dev/null 2>&1 || true
   sudo docker rm -f "$CONTAINER_NAME" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT

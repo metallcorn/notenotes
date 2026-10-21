@@ -28,6 +28,26 @@ export default defineConfig({
       name: "chromium",
       use: { ...devices["Desktop Chrome"], storageState: "e2e/.auth/user.json" },
       dependencies: ["setup"],
+      testIgnore: /mobile\.spec\.ts/,
+    },
+    {
+      // Узкий Android (360px) — самый тесный из реальных экранов семьи;
+      // что влезло сюда, влезет и в iPhone.
+      name: "mobile",
+      testMatch: /mobile\.spec\.ts/,
+      use: {
+        ...devices["Pixel 7"],
+        viewport: { width: 360, height: 780 },
+        storageState: "e2e/.auth/user.json",
+      },
+      dependencies: ["setup"],
+    },
+    {
+      // Safari на iPhone — другой движок со своими правилами прокрутки.
+      name: "mobile-webkit",
+      testMatch: /mobile\.spec\.ts/,
+      use: { ...devices["iPhone 13"], storageState: "e2e/.auth/user.json" },
+      dependencies: ["setup"],
     },
   ],
 });
