@@ -155,7 +155,7 @@ export default function McpSettings() {
         <button
           onClick={handleCreate}
           disabled={createToken.isPending}
-          className="flex shrink-0 items-center justify-center rounded bg-accent px-3 py-1.5 text-sm text-white disabled:opacity-50"
+          className="flex shrink-0 items-center justify-center rounded bg-accent px-3 py-1.5 text-sm text-on-accent disabled:opacity-50"
         >
           {createToken.isPending ? <Spinner size={14} className="text-white" /> : <Plus size={14} />}
         </button>

@@ -118,7 +118,7 @@ export default function CreateSpaceButton({ onCreated }: { onCreated: (spaceId: 
             <button
               type="submit"
               disabled={createSpace.isPending}
-              className="flex items-center gap-1.5 rounded bg-accent px-3 py-1.5 text-sm text-white disabled:opacity-50"
+              className="flex items-center gap-1.5 rounded bg-accent px-3 py-1.5 text-sm text-on-accent disabled:opacity-50"
             >
               {createSpace.isPending && <Spinner size={12} />}
               Создать сейф
@@ -147,7 +147,7 @@ export default function CreateSpaceButton({ onCreated }: { onCreated: (spaceId: 
           setIsPublicPages(false);
         }}
         className={`flex h-5 w-5 shrink-0 items-center justify-center rounded ${
-          isVault ? "bg-accent text-white" : "text-subtle hover:text-secondary"
+          isVault ? "bg-accent text-on-accent" : "text-subtle hover:text-secondary"
         }`}
       >
         <Lock size={12} />
@@ -160,7 +160,7 @@ export default function CreateSpaceButton({ onCreated }: { onCreated: (spaceId: 
           setIsVault(false);
         }}
         className={`flex h-5 w-5 shrink-0 items-center justify-center rounded ${
-          isPublicPages ? "bg-accent text-white" : "text-subtle hover:text-secondary"
+          isPublicPages ? "bg-accent text-on-accent" : "text-subtle hover:text-secondary"
         }`}
       >
         <Globe size={12} />
@@ -168,7 +168,7 @@ export default function CreateSpaceButton({ onCreated }: { onCreated: (spaceId: 
       <button
         type="submit"
         disabled={createSpace.isPending}
-        className="flex shrink-0 items-center justify-center gap-1 rounded bg-accent px-2 py-0.5 text-xs text-white disabled:opacity-50"
+        className="flex shrink-0 items-center justify-center gap-1 rounded bg-accent px-2 py-0.5 text-xs text-on-accent disabled:opacity-50"
       >
         {createSpace.isPending ? <Spinner size={12} /> : "OK"}
       </button>

@@ -178,7 +178,7 @@ export default function NoteAssistantModal({
                 </div>
                 <button
                   onClick={startNewDialog}
-                  className="mt-3 w-full rounded bg-accent px-3 py-1.5 text-sm text-white hover:bg-accent/90"
+                  className="mt-3 w-full rounded bg-accent px-3 py-1.5 text-sm text-on-accent hover:bg-accent/90"
                 >
                   Начать новый разговор
                 </button>

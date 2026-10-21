@@ -91,7 +91,7 @@ export default function FeedbackWidget() {
           <button
             onClick={submit}
             disabled={status === "sending" || !message.trim()}
-            className="rounded bg-accent px-3 py-1 text-xs font-medium text-white disabled:opacity-50"
+            className="rounded bg-accent px-3 py-1 text-xs font-medium text-on-accent disabled:opacity-50"
           >
             {status === "sending" ? "Отправка…" : "Отправить"}
           </button>

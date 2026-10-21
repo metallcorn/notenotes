@@ -12,6 +12,7 @@ import { uiStorage } from "./lib/storage";
 import { locale } from "./i18n";
 
 installForceRepaintOnVisible();
+import "@fontsource-variable/manrope";
 import "./index.css";
 
 // Идемпотентно с инлайн-скриптом в index.html (тот уже поставил .dark до

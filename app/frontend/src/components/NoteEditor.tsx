@@ -175,48 +175,109 @@ function MobileNoteActionsMenu({
   deleteItem: { isPending: boolean };
   onClose: () => void;
 }) {
-  const [pos, setPos] = useState<{ top: number; right: number } | null>(null);
+  // triggerRef больше не нужен для позиционирования: меню — шторка снизу
+  // (макет «Заметка: меню ⋯», 21.10), а не выпадающий список у кнопки.
+  void triggerRef;
 
   useEffect(() => {
-    if (!triggerRef.current) return;
-    const r = triggerRef.current.getBoundingClientRect();
-    setPos({ top: r.bottom + 4, right: window.innerWidth - r.right });
-  }, [triggerRef]);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
 
-  if (!pos) return null;
-
-  const itemClass = "flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-secondary hover:bg-muted-hover";
+  const tile = (label: string, Icon: typeof Pin, onClick: () => void, opts?: { disabled?: boolean; dark?: boolean; active?: boolean }) => (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={opts?.disabled}
+      className={`flex h-[78px] flex-col items-center justify-center gap-1.5 rounded-2xl text-xs font-bold transition-colors disabled:opacity-50 ${
+        opts?.dark
+          ? "bg-nav text-lime"
+          : opts?.active
+            ? "bg-brand-soft text-brand-text"
+            : "bg-muted text-primary hover:bg-muted-hover"
+      }`}
+    >
+      <Icon size={20} strokeWidth={2.2} />
+      {label}
+    </button>
+  );
+  const row = (label: string, Icon: typeof Pin, onClick: () => void, opts?: { disabled?: boolean; danger?: boolean }) => (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={opts?.disabled}
+      className={`flex min-h-12 w-full items-center gap-3 rounded-xl px-3 text-left text-[15px] font-bold hover:bg-muted-hover disabled:opacity-50 ${
+        opts?.danger ? "text-danger" : "text-primary"
+      }`}
+    >
+      <Icon size={20} strokeWidth={2.2} /> {label}
+    </button>
+  );
 
   return createPortal(
-    <>
-      <div className="fixed inset-0 z-40" onClick={onClose} />
-      <div style={{ top: pos.top, right: pos.right }} className="fixed z-50 w-56 rounded border bg-surface py-1 shadow-lg">
-        <div className="px-3 py-1.5 text-xs font-medium text-subtle">Режим</div>
-        {(["view", "wysiwyg", "raw"] as const).map((m) => {
-          const ModeIcon = MODE_ICON[m];
-          return (
+    <div
+      className="modal-in fixed inset-0 z-50 flex items-end justify-center bg-black/45 sm:items-center sm:p-4"
+      onClick={onClose}
+      role="dialog"
+      aria-modal="true"
+      aria-label="Действия с заметкой"
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="sheet-in max-h-[85dvh] w-full max-w-md overflow-y-auto rounded-t-3xl bg-surface px-4 pb-[max(20px,var(--safe-bottom))] pt-2.5 shadow-xl sm:rounded-3xl sm:pb-5"
+      >
+        <div className="mx-auto mb-3 h-[5px] w-10 rounded-full bg-muted-active sm:hidden" aria-hidden="true" />
+        <div role="radiogroup" aria-label="Режим" className="grid grid-cols-3 gap-1 rounded-2xl bg-muted p-1">
+          {(["view", "wysiwyg", "raw"] as const).map((m) => (
             <button
               key={m}
-              onClick={() => switchMode(m)}
-              className={`${itemClass} ${mode === m ? "bg-muted font-medium text-primary" : ""}`}
+              role="radio"
+              aria-checked={mode === m}
+              onClick={() => {
+                switchMode(m);
+                onClose();
+              }}
+              className={`h-10 rounded-xl text-sm font-bold transition-colors ${
+                mode === m ? "bg-surface text-primary shadow-card" : "text-secondary"
+              }`}
             >
-              <ModeIcon size={15} /> {MODE_LABEL[m]}
+              {MODE_LABEL[m]}
             </button>
-          );
-        })}
-        <div className="my-1 border-t" />
-        <button onClick={() => setShowColorPicker((v) => !v)} className={itemClass}>
-          <Palette size={15} /> Цвет заголовка
-        </button>
+          ))}
+        </div>
+
+        <div className="mt-3.5 grid grid-cols-4 gap-2">
+          {tile(item.pinned ? "Открепить" : "Закрепить", item.pinned ? PinOff : Pin, () => {
+            updateItem.mutate({ id: item.id, pinned: !item.pinned });
+            onClose();
+          }, { active: item.pinned })}
+          {tile("Цвет", Palette, () => setShowColorPicker((v) => !v), { active: showColorPicker })}
+          {tile("История", History, () => {
+            setShowHistory((v) => !v);
+            onClose();
+          })}
+          {currentSpaceIsPublicPages
+            ? tile("Ссылка", Globe, () => {
+                setShowShareModal(true);
+                onClose();
+              })
+            : tile("Markdown", FileText, () => {
+                void handleExport("md");
+                onClose();
+              })}
+        </div>
         {showColorPicker && (
-          <div className="flex flex-wrap gap-1 px-3 py-2">
+          <div className="mt-2 flex flex-wrap items-center gap-2 rounded-2xl bg-muted p-3">
             <button
               onClick={() => {
                 updateItem.mutate({ id: item.id, color: null });
                 setShowColorPicker(false);
               }}
               title="Без цвета"
-              className="h-6 w-6 rounded-full border text-xs text-subtle"
+              className="flex h-9 w-9 items-center justify-center rounded-full border-2 border-default bg-surface text-sm font-bold text-subtle"
             >
               ×
             </button>
@@ -228,82 +289,34 @@ function MobileNoteActionsMenu({
                   setShowColorPicker(false);
                 }}
                 style={{ backgroundColor: c }}
-                className="h-6 w-6 rounded-full border"
+                aria-label={`Цвет ${c}`}
+                className={`h-9 w-9 rounded-full ${item.color === c ? "ring-2 ring-primary ring-offset-2 ring-offset-muted" : ""}`}
               />
             ))}
           </div>
         )}
-        <button
-          onClick={() => {
-            updateItem.mutate({ id: item.id, pinned: !item.pinned });
-            onClose();
-          }}
-          className={itemClass}
-        >
-          {item.pinned ? <PinOff size={15} /> : <Pin size={15} />}
-          {item.pinned ? "Открепить" : "Закрепить как важное"}
-        </button>
-        {currentSpaceIsPublicPages && (
-          <button
-            onClick={() => {
-              setShowShareModal(true);
+
+        <div className="mt-3.5 rounded-2xl bg-muted p-1">
+          {currentSpaceIsPublicPages &&
+            row("Экспорт в Markdown", FileText, () => {
+              void handleExport("md");
               onClose();
-            }}
-            className={itemClass}
-          >
-            <Globe size={15} /> Публичная ссылка
-          </button>
-        )}
-        <button
-          onClick={() => {
-            setShowHistory((v) => !v);
-            onClose();
-          }}
-          className={itemClass}
-        >
-          <History size={15} /> История версий
-        </button>
-        <button
-          onClick={() => {
-            void handleExport("md");
-            onClose();
-          }}
-          className={itemClass}
-        >
-          <FileText size={15} /> Экспорт в Markdown
-        </button>
-        <button
-          onClick={() => {
+            })}
+          {row("Экспорт в HTML", FileText, () => {
             void handleExport("html");
             onClose();
-          }}
-          className={itemClass}
-        >
-          <FileText size={15} /> Экспорт в HTML
-        </button>
-        <div className="my-1 border-t" />
-        <button
-          onClick={() => {
+          })}
+          {row("В архив — убрать с глаз", Archive, () => {
             archiveItem.mutate(item.id);
             onClose();
-          }}
-          disabled={archiveItem.isPending}
-          className={`${itemClass} disabled:opacity-50`}
-        >
-          <Archive size={15} /> В архив
-        </button>
-        <button
-          onClick={() => {
+          }, { disabled: archiveItem.isPending })}
+          {row("Удалить в корзину", Trash2, () => {
             setConfirmingDelete(true);
             onClose();
-          }}
-          disabled={deleteItem.isPending}
-          className={`${itemClass} text-danger hover:bg-danger/10 disabled:opacity-50`}
-        >
-          <Trash2 size={15} /> Удалить заметку
-        </button>
+          }, { disabled: deleteItem.isPending, danger: true })}
+        </div>
       </div>
-    </>,
+    </div>,
     document.body,
   );
 }
@@ -1534,15 +1547,16 @@ export default function NoteEditor({
         <div className="flex items-center gap-2 p-3 pb-2">
           <button
             onClick={onBack}
-            className="-ml-1 flex h-8 w-8 shrink-0 items-center justify-center text-subtle lg:hidden"
+            aria-label="Назад"
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-surface text-primary shadow-card lg:hidden"
           >
-            <ChevronLeft size={18} />
+            <ChevronLeft size={20} strokeWidth={2.4} />
           </button>
           <div className="relative shrink-0">
             <button
               onClick={() => setShowEmojiPicker((v) => !v)}
               title="Иконка заметки"
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded border text-lg hover:bg-muted-hover"
+              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-muted text-[22px] leading-none hover:bg-muted-hover"
             >
               {item.icon || "🙂"}
             </button>
@@ -1566,7 +1580,7 @@ export default function NoteEditor({
             onChange={(e) => setTitle(e.target.value)}
             placeholder="Без названия"
             style={item.color ? { color: item.color } : undefined}
-            className="min-w-0 flex-1 text-lg font-semibold outline-none"
+            className="min-w-0 flex-1 bg-transparent text-xl font-extrabold tracking-tight outline-none placeholder:text-subtle"
           />
           <div className="hidden shrink-0 items-center gap-1 md:flex">
             <span className="mr-1 flex items-center gap-1 whitespace-nowrap text-xs text-subtle">
@@ -1604,7 +1618,7 @@ export default function NoteEditor({
                     key={m}
                     onClick={() => switchMode(m)}
                     title={MODE_LABEL[m]}
-                    className={`flex h-8 w-8 items-center justify-center ${mode === m ? "bg-accent text-white" : "text-subtle hover:bg-muted-hover"}`}
+                    className={`flex h-8 w-8 items-center justify-center ${mode === m ? "bg-accent text-on-accent" : "text-subtle hover:bg-muted-hover"}`}
                   >
                     <ModeIcon size={16} />
                   </button>
@@ -1648,7 +1662,7 @@ export default function NoteEditor({
             <button
               onClick={() => updateItem.mutate({ id: item.id, pinned: !item.pinned })}
               title={item.pinned ? "Открепить" : "Закрепить как важное"}
-              className={`flex h-8 w-8 items-center justify-center rounded border ${item.pinned ? "bg-accent text-white" : "text-secondary hover:bg-muted-hover"}`}
+              className={`flex h-8 w-8 items-center justify-center rounded border ${item.pinned ? "bg-accent text-on-accent" : "text-secondary hover:bg-muted-hover"}`}
             >
               {item.pinned ? <PinOff size={16} /> : <Pin size={16} />}
             </button>
@@ -1690,9 +1704,9 @@ export default function NoteEditor({
             ref={mobileActionsButtonRef}
             onClick={() => setShowMobileActions((v) => !v)}
             title="Действия с заметкой"
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded border text-secondary hover:bg-muted-hover md:hidden"
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-surface text-primary shadow-card md:hidden"
           >
-            <MoreVertical size={16} />
+            <MoreVertical size={20} />
           </button>
         </div>
 
@@ -1724,7 +1738,7 @@ export default function NoteEditor({
           <select
             value={item.folder_id ?? ""}
             onChange={(e) => updateItem.mutate({ id: item.id, folder_id: e.target.value || null })}
-            className="rounded border px-1.5 py-1 text-xs text-secondary"
+            className="h-8 rounded-full border-0 bg-muted px-3 text-xs font-bold text-primary"
           >
             <option value="">Без папки</option>
             {(folders ?? []).map((folder) => (
@@ -1745,7 +1759,7 @@ export default function NoteEditor({
             <button
               onClick={() => setShowMoveModal(true)}
               title="Переместить в другой спейс или папку"
-              className="rounded border px-1.5 py-1 text-xs text-secondary hover:bg-muted-hover"
+              className="h-8 rounded-full bg-muted px-3 text-xs font-bold text-primary hover:bg-muted-hover"
             >
               Переместить…
             </button>
@@ -1757,7 +1771,7 @@ export default function NoteEditor({
                 setShowTagPicker((v) => !v);
                 setTagQuery("");
               }}
-              className="flex items-center gap-1 rounded-full border border-dashed px-2 py-0.5 text-xs text-subtle hover:text-secondary"
+              className="flex h-8 items-center gap-1 rounded-full border border-dashed border-strong px-3 text-xs font-bold text-subtle hover:text-secondary"
             >
               <TagIcon size={12} />
               {item.tags.length > 0 ? `Теги (${item.tags.length})` : "+ тег"}

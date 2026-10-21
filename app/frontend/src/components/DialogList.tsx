@@ -27,17 +27,17 @@ export default function DialogList({
 
   return (
     <div className="flex h-full flex-col">
-      <div className="border-b p-3">
+      <div className="p-3">
         <button
           onClick={handleCreate}
           disabled={createDialog.isPending}
-          className="flex w-full items-center justify-center gap-1.5 rounded bg-accent px-3 py-2 text-sm text-white hover:bg-accent/90 disabled:opacity-50"
+          className="flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-accent px-3 text-[15px] font-extrabold text-on-accent hover:bg-accent/90 disabled:opacity-50"
         >
-          {createDialog.isPending ? <Spinner size={14} className="text-white" /> : <Plus size={14} />}
+          {createDialog.isPending ? <Spinner size={14} /> : <Plus size={18} strokeWidth={2.6} />}
           Новый диалог
         </button>
       </div>
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 overflow-y-auto px-3">
         {isLoading && <ListSkeleton rows={5} />}
         {/* isError отдельно от "диалогов правда нет" — раньше сбой сети
             (например, на телефоне при слабом сигнале) выглядел неотличимо
@@ -59,22 +59,21 @@ export default function DialogList({
         {(dialogs ?? []).map((d) => (
           <div
             key={d.id}
-            className={`row-fade-in flex items-center border-b ${
-              selectedId === d.id ? "bg-muted-hover" : "hover:bg-muted-hover"
+            className={`row-fade-in mb-2 flex items-center rounded-2xl bg-surface shadow-card ${
+              selectedId === d.id ? "ring-2 ring-brand" : "hover:shadow-float"
             }`}
           >
             <button
               onClick={() => onSelect(d.id)}
-              className={`min-w-0 flex-1 truncate px-3 py-2.5 text-left text-sm ${
-                selectedId === d.id ? "font-medium text-primary" : "text-secondary"
-              }`}
+              className="min-w-0 flex-1 px-4 py-3 text-left"
             >
-              {d.title || "Новый диалог"}
+              <div className="truncate text-[15px] font-extrabold text-primary">{d.title || "Новый диалог"}</div>
+              {d.preview && <div className="mt-0.5 truncate text-[13px] text-subtle">{d.preview}</div>}
             </button>
             <button
               onClick={() => setDeleting(d)}
               title="Удалить диалог"
-              className="mr-2 flex h-7 w-7 shrink-0 items-center justify-center text-subtle hover:text-danger"
+              className="mr-2 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-subtle hover:bg-muted hover:text-danger"
             >
               <Trash2 size={14} />
             </button>

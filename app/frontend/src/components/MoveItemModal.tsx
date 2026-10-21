@@ -90,7 +90,7 @@ export default function MoveItemModal({
     <div className="modal-in fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
       <div
         onClick={(e) => e.stopPropagation()}
-        className="flex max-h-[80vh] w-full max-w-sm flex-col overflow-hidden rounded-lg bg-surface shadow-xl"
+        className="flex max-h-[80vh] w-full max-w-sm flex-col overflow-hidden rounded-3xl bg-surface shadow-xl"
       >
         <div className="flex items-center justify-between border-b px-4 py-3">
           <div className="text-sm font-medium text-primary">Переместить в…</div>

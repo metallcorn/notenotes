@@ -46,19 +46,19 @@ export default function TableEditor({
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex items-center gap-1 border-b p-3">
+      <div className="flex items-center gap-2 border-b p-3">
         <button
           onClick={onBack}
-          className="-ml-1 flex h-8 w-8 shrink-0 items-center justify-center text-subtle lg:hidden"
+          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-surface text-primary shadow-card lg:hidden"
         >
-          <ChevronLeft size={18} />
+          <ChevronLeft size={20} strokeWidth={2.4} />
         </button>
         <input
           value={title}
           onChange={(e) => setTitle(e.target.value)}
           onBlur={saveTitle}
           placeholder="Название таблицы"
-          className="min-w-0 flex-1 truncate border-none bg-transparent text-sm font-medium text-primary outline-none"
+          className="min-w-0 flex-1 truncate border-none bg-transparent text-xl font-extrabold tracking-tight text-primary outline-none placeholder:text-subtle"
         />
         <a
           href={`/api/tables/${table.id}/export.csv`}

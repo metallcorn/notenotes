@@ -388,7 +388,7 @@ export default function TicketAttachmentCard({ node, editor, getPos }: NodeViewP
                   <button
                     onClick={confirmReminder}
                     disabled={createReminder.isPending}
-                    className="rounded bg-accent px-2 py-0.5 text-white hover:bg-accent/90 disabled:opacity-50"
+                    className="rounded bg-accent px-2 py-0.5 text-on-accent hover:bg-accent/90 disabled:opacity-50"
                   >
                     Да
                   </button>

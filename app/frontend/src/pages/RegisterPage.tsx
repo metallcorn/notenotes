@@ -38,22 +38,29 @@ export default function RegisterPage() {
   }
 
   return (
-    <div className="flex min-h-dvh items-center justify-center bg-muted p-4">
-      <form onSubmit={onSubmit} className="w-full max-w-sm space-y-4 rounded-lg border bg-surface p-6 shadow-sm">
-        <h1 className="text-xl font-semibold text-primary">Регистрация</h1>
-        {error && <p className="rounded bg-danger/10 px-3 py-2 text-sm text-danger">{error}</p>}
+    <div className="flex min-h-dvh flex-col bg-nav sm:items-center sm:justify-center sm:p-4">
+      <div className="flex flex-1 flex-col justify-end px-6 pb-8 pt-16 text-nav-text sm:flex-none sm:px-2 sm:pb-6 sm:pt-0">
+        <span className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-lime text-2xl font-extrabold text-on-lime">N</span>
+        <h1 className="text-4xl font-extrabold tracking-tight">Регистрация</h1>
+        <p className="mt-1 text-[15px] font-semibold text-nav-muted">По коду приглашения от владельца</p>
+      </div>
+      <form
+        onSubmit={onSubmit}
+        className="w-full space-y-4 rounded-t-3xl bg-surface p-6 pb-[max(24px,var(--safe-bottom))] sm:max-w-sm sm:rounded-3xl sm:pb-6"
+      >
+        {error && <p className="rounded-2xl bg-danger-soft px-4 py-3 text-sm font-semibold text-danger">{error}</p>}
         <div className="space-y-1">
-          <label className="text-sm text-secondary">Имя</label>
+          <label className="text-xs font-extrabold uppercase tracking-wider text-subtle">Имя</label>
           <input
             name="name"
             required
             value={name}
             onChange={(e) => setName(e.target.value)}
-            className="w-full rounded border px-3 py-2 text-sm"
+            className="h-12 w-full rounded-2xl border-0 bg-muted px-4 text-[15px] outline-none focus:ring-2 focus:ring-brand/40"
           />
         </div>
         <div className="space-y-1">
-          <label className="text-sm text-secondary">Логин</label>
+          <label className="text-xs font-extrabold uppercase tracking-wider text-subtle">Логин</label>
           <input
             type="text"
             name="username"
@@ -67,11 +74,11 @@ export default function RegisterPage() {
             spellCheck={false}
             value={username}
             onChange={(e) => setUsername(e.target.value)}
-            className="w-full rounded border px-3 py-2 text-sm"
+            className="h-12 w-full rounded-2xl border-0 bg-muted px-4 text-[15px] outline-none focus:ring-2 focus:ring-brand/40"
           />
         </div>
         <div className="space-y-1">
-          <label className="text-sm text-secondary">Пароль</label>
+          <label className="text-xs font-extrabold uppercase tracking-wider text-subtle">Пароль</label>
           <div className="relative">
             <input
               type={showPassword ? "text" : "password"}
@@ -81,7 +88,7 @@ export default function RegisterPage() {
               autoComplete="new-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="w-full rounded border px-3 py-2 pr-10 text-sm"
+              className="h-12 w-full rounded-2xl border-0 bg-muted px-4 pr-12 text-[15px] outline-none focus:ring-2 focus:ring-brand/40"
             />
             <button
               type="button"
@@ -94,7 +101,7 @@ export default function RegisterPage() {
           </div>
         </div>
         <div className="space-y-1">
-          <label className="text-sm text-secondary">Инвайт-код</label>
+          <label className="text-xs font-extrabold uppercase tracking-wider text-subtle">Инвайт-код</label>
           <input
             type="text"
             name="invite_code"
@@ -111,7 +118,7 @@ export default function RegisterPage() {
         <button
           type="submit"
           disabled={register.isPending}
-          className="flex w-full items-center justify-center gap-2 rounded bg-accent px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
+          className="flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-accent px-3 text-[15px] font-extrabold text-on-accent disabled:opacity-50"
         >
           {register.isPending && <Spinner />}
           {register.isPending ? "Создаём…" : "Создать аккаунт"}

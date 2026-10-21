@@ -24,7 +24,7 @@ export default function VideoToolbar({ editor }: { editor: Editor }) {
             key={w.value}
             onClick={() => setWidth(attrs.width === w.value ? null : w.value)}
             className={`rounded px-1.5 py-0.5 ${
-              attrs.width === w.value ? "bg-accent text-white" : "bg-surface text-secondary hover:bg-muted-hover"
+              attrs.width === w.value ? "bg-accent text-on-accent" : "bg-surface text-secondary hover:bg-muted-hover"
             }`}
           >
             {w.label}
@@ -33,7 +33,7 @@ export default function VideoToolbar({ editor }: { editor: Editor }) {
         <button
           onClick={() => setWidth(null)}
           className={`rounded px-1.5 py-0.5 ${
-            !attrs.width ? "bg-accent text-white" : "bg-surface text-secondary hover:bg-muted-hover"
+            !attrs.width ? "bg-accent text-on-accent" : "bg-surface text-secondary hover:bg-muted-hover"
           }`}
         >
           Оригинал

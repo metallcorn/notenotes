@@ -43,7 +43,7 @@ export default function ShareNoteModal({ itemId, onClose }: { itemId: string; on
     <div className="modal-in fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
       <div
         onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-sm rounded-lg bg-surface p-4 shadow-xl"
+        className="w-full max-w-sm rounded-3xl bg-surface p-4 shadow-xl"
       >
         <div className="mb-3 flex items-center justify-between">
           <div className="flex items-center gap-1.5 text-sm font-medium text-primary">
@@ -107,7 +107,7 @@ export default function ShareNoteModal({ itemId, onClose }: { itemId: string; on
             <button
               onClick={onPublish}
               disabled={shareItem.isPending}
-              className="flex w-full items-center justify-center gap-1.5 rounded bg-accent px-3 py-2 text-sm text-white disabled:opacity-50"
+              className="flex w-full items-center justify-center gap-1.5 rounded bg-accent px-3 py-2 text-sm text-on-accent disabled:opacity-50"
             >
               {shareItem.isPending && <Spinner size={12} />}
               Опубликовать

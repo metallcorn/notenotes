@@ -96,7 +96,7 @@ export default function ImageToolbar({ editor }: { editor: Editor }) {
               key={w.value}
               onClick={() => setAttrs({ width: attrs.width === w.value ? null : w.value })}
               className={`rounded px-1.5 py-0.5 ${
-                attrs.width === w.value ? "bg-accent text-white" : "bg-surface text-secondary hover:bg-muted-hover"
+                attrs.width === w.value ? "bg-accent text-on-accent" : "bg-surface text-secondary hover:bg-muted-hover"
               }`}
             >
               {w.label}
@@ -105,7 +105,7 @@ export default function ImageToolbar({ editor }: { editor: Editor }) {
           <button
             onClick={() => setAttrs({ width: null })}
             className={`rounded px-1.5 py-0.5 ${
-              !attrs.width ? "bg-accent text-white" : "bg-surface text-secondary hover:bg-muted-hover"
+              !attrs.width ? "bg-accent text-on-accent" : "bg-surface text-secondary hover:bg-muted-hover"
             }`}
           >
             Оригинал
@@ -117,7 +117,7 @@ export default function ImageToolbar({ editor }: { editor: Editor }) {
               key={a.value}
               onClick={() => setAttrs({ align: attrs.align === a.value ? null : a.value })}
               className={`rounded px-1.5 py-0.5 ${
-                attrs.align === a.value ? "bg-accent text-white" : "bg-surface text-secondary hover:bg-muted-hover"
+                attrs.align === a.value ? "bg-accent text-on-accent" : "bg-surface text-secondary hover:bg-muted-hover"
               }`}
             >
               {a.label}

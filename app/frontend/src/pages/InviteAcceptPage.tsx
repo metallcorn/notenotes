@@ -42,7 +42,7 @@ export default function InviteAcceptPage() {
             </div>
             <button
               onClick={() => navigate("/")}
-              className="rounded bg-accent px-4 py-2 text-sm text-white hover:bg-accent/90"
+              className="rounded bg-accent px-4 py-2 text-sm text-on-accent hover:bg-accent/90"
             >
               Перейти в Notenotes
             </button>

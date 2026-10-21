@@ -3,8 +3,8 @@ import { uiStorage, type Theme } from "./storage";
 // Держим синхронно с --color-bg-app в index.css — CSS сам себя не может
 // вписать в <meta name="theme-color"> (адресная строка браузера/PWA-шапка).
 const THEME_COLOR_META: Record<"light" | "dark", string> = {
-  light: "#ffffff",
-  dark: "#202326",
+  light: "#f5f4ef",
+  dark: "#0e0e12",
 };
 
 export function resolveTheme(theme: Theme): "light" | "dark" {

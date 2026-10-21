@@ -53,8 +53,8 @@ function ToolbarButton({
       onMouseDown={(e) => e.preventDefault()}
       onClick={onClick}
       disabled={disabled}
-      className={`flex h-8 w-8 shrink-0 items-center justify-center rounded disabled:opacity-30 ${
-        active ? "bg-accent text-white" : "text-secondary hover:bg-muted-hover"
+      className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl disabled:opacity-30 ${
+        active ? "bg-accent text-on-accent" : "text-secondary hover:bg-muted-hover"
       }`}
     >
       {children}

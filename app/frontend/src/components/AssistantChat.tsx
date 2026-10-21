@@ -1679,16 +1679,16 @@ export default function AssistantChat({
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex items-center gap-1 border-b p-3">
+      <div className="flex items-center gap-2 border-b p-3">
         <button
           onClick={onBack}
           title="Закрыть"
-          className={`-ml-1 flex h-8 w-8 shrink-0 items-center justify-center text-subtle ${alwaysShowBack ? "" : "lg:hidden"}`}
+          className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-surface text-primary shadow-card ${alwaysShowBack ? "" : "lg:hidden"}`}
         >
-          <ChevronLeft size={18} />
+          <ChevronLeft size={20} strokeWidth={2.4} />
         </button>
         <div className="flex min-w-0 flex-1 items-center gap-1">
-          <span className="truncate text-sm font-medium text-primary">{dialog?.title || "Диалог"}</span>
+          <span className="truncate text-[15px] font-extrabold tracking-tight text-primary">{dialog?.title || "Диалог"}</span>
           <button
             onClick={() => setRenamingTitle(true)}
             title="Переименовать диалог"
@@ -1798,8 +1798,10 @@ export default function AssistantChat({
                 </button>
               )}
               <div
-                className={`max-w-[85%] rounded-lg px-3 py-2 text-sm ${
-                  message.role === "user" ? "bg-accent text-white" : "bg-muted-hover text-primary"
+                className={`max-w-[85%] px-3.5 py-2.5 text-[15px] leading-relaxed ${
+                  message.role === "user"
+                    ? "rounded-3xl rounded-br-lg bg-brand text-white"
+                    : "rounded-3xl rounded-bl-lg bg-surface text-primary shadow-card"
                 }`}
               >
                 {message.content &&
@@ -1890,7 +1892,7 @@ export default function AssistantChat({
           })}
           {pendingUserText && (
             <div className="message-fade-in flex justify-end">
-              <div className="max-w-[85%] rounded-lg bg-accent px-3 py-2 text-sm text-white opacity-60">
+              <div className="max-w-[85%] rounded-3xl rounded-br-lg bg-brand px-3.5 py-2.5 text-[15px] text-white opacity-60">
                 <div className="whitespace-pre-wrap">{pendingUserText}</div>
               </div>
             </div>
@@ -1953,8 +1955,8 @@ export default function AssistantChat({
         </div>
       )}
 
-      <div className="border-t p-3">
-        <form onSubmit={handleSubmit} className={`flex gap-2 ${widthClass}`}>
+      <div className="p-3">
+        <form onSubmit={handleSubmit} className={`flex items-end gap-2 ${widthClass}`}>
           <input
             ref={attachInputRef}
             type="file"
@@ -1970,26 +1972,26 @@ export default function AssistantChat({
             onClick={() => attachInputRef.current?.click()}
             title="Прикрепить файл"
             disabled={sendMessage.isPending}
-            className="flex shrink-0 items-center justify-center rounded border px-3 py-2 text-sm text-subtle hover:bg-muted-hover disabled:opacity-50"
+            className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-surface text-primary shadow-card hover:bg-muted disabled:opacity-50"
           >
-            <Paperclip size={14} />
+            <Paperclip size={18} />
           </button>
           <button
             type="button"
             onClick={toggleRecording}
             title={isRecording ? "Остановить запись" : "Голосовой ввод"}
-            className={`relative flex shrink-0 items-center justify-center overflow-hidden rounded border px-3 py-2 text-sm ${
-              isRecording ? "border-danger/40 bg-danger/10 text-danger" : "text-subtle hover:bg-muted-hover"
+            className={`relative flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-2xl ${
+              isRecording ? "bg-danger-soft text-danger" : "bg-brand-soft text-brand-text hover:bg-brand/20"
             }`}
           >
             {isRecording && (
               <span
                 ref={micPulseRef}
-                className="pointer-events-none absolute inset-0 rounded bg-danger/40"
+                className="pointer-events-none absolute inset-0 rounded-2xl bg-danger/40"
                 style={{ opacity: 0.25 }}
               />
             )}
-            <span className="relative">{isRecording ? <Square size={14} /> : <Mic size={14} />}</span>
+            <span className="relative">{isRecording ? <Square size={18} /> : <Mic size={18} />}</span>
           </button>
           <div className="relative flex-1">
             {isRecording && silenceProgress > 0 && (
@@ -2011,14 +2013,14 @@ export default function AssistantChat({
               }}
               placeholder={sendMessage.isPending ? "Уйдёт следующим сообщением…" : "Написать ассистенту…"}
               rows={1}
-              className="relative w-full resize-none overflow-y-auto rounded border bg-transparent px-3 py-2 text-sm"
+              className="relative block min-h-12 w-full resize-none overflow-y-auto rounded-2xl bg-surface px-4 py-3 text-[15px] shadow-float outline-none focus:ring-2 focus:ring-brand/40"
             />
           </div>
           <button
             type="submit"
             disabled={pendingAttachment?.status === "processing" || (!input.trim() && !pendingAttachment)}
             title={sendMessage.isPending ? "Ассистент ещё отвечает — сообщение уйдёт следующим ходом" : undefined}
-            className="flex shrink-0 items-center justify-center rounded bg-accent px-4 py-2 text-sm text-white disabled:opacity-50"
+            className="flex h-12 shrink-0 items-center justify-center rounded-2xl bg-accent px-4 text-sm font-extrabold text-on-accent disabled:opacity-50"
           >
             {sendMessage.isPending ? "В очередь" : "Отправить"}
           </button>

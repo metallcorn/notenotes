@@ -12,7 +12,16 @@ const THEME_OPTIONS: { value: Theme; label: string; Icon: typeof Sun }[] = [
   { value: "system", label: "Системная", Icon: Monitor },
 ];
 
-export default function UserMenu() {
+// compact — только аватар (шапка «Главной» на телефоне, макет 21.10),
+// placement — куда раскрывать меню: вверх из футера сайдбара, вниз из
+// шапки. Одно меню на оба места, чтобы пункты не разъехались.
+export default function UserMenu({
+  compact = false,
+  placement = "up",
+}: {
+  compact?: boolean;
+  placement?: "up" | "down";
+} = {}) {
   const [open, setOpen] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [theme, setThemeState] = useState<Theme>(() => uiStorage.getTheme());
@@ -34,20 +43,35 @@ export default function UserMenu() {
   }
 
   return (
-    <div className="relative flex-1">
-      <button
-        onClick={() => setOpen((v) => !v)}
-        className="flex w-full items-center gap-2 rounded px-1 py-1 text-left hover:bg-muted-hover"
-      >
-        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-accent text-xs font-medium text-on-accent">
+    <div className={compact ? "relative" : "relative flex-1"}>
+      {compact ? (
+        <button
+          onClick={() => setOpen((v) => !v)}
+          aria-label="Профиль и настройки"
+          title="Профиль и настройки"
+          className="flex h-11 w-11 items-center justify-center rounded-full bg-nav text-base font-extrabold text-lime"
+        >
           {(me?.name || "?").slice(0, 1).toUpperCase()}
-        </span>
-        <span className="truncate text-xs text-secondary">{me?.name}</span>
-      </button>
+        </button>
+      ) : (
+        <button
+          onClick={() => setOpen((v) => !v)}
+          className="flex w-full items-center gap-2 rounded-xl px-2 py-1.5 text-left hover:bg-muted-hover"
+        >
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-nav text-xs font-extrabold text-lime">
+            {(me?.name || "?").slice(0, 1).toUpperCase()}
+          </span>
+          <span className="truncate text-sm font-semibold text-primary">{me?.name}</span>
+        </button>
+      )}
       {open && (
         <>
           <div className="fixed inset-0 z-20" onClick={() => setOpen(false)} />
-          <div className="absolute bottom-full left-0 z-30 mb-1 w-64 max-w-[calc(100vw-1.5rem)] rounded border border-default bg-surface shadow-lg">
+          <div
+            className={`absolute z-30 w-64 max-w-[calc(100vw-1.5rem)] overflow-hidden rounded-2xl border border-default bg-surface shadow-lg ${
+              placement === "up" ? "bottom-full left-0 mb-1" : "right-0 top-full mt-1"
+            }`}
+          >
             <div className="border-b border-default px-3 py-2">
               <div className="flex items-center gap-2">
                 <UserIcon size={14} className="text-subtle" />

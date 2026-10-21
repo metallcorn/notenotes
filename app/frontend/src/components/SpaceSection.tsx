@@ -60,11 +60,20 @@ export default function SpaceSection({
   }
 
   return (
-    <div className="mb-3">
+    // Карточка спейса (макет «Папки спейса», 21.10): белая плашка на тёплом
+    // фоне, сейф — тёмная с замком. isActive подчёркивает, в каком спейсе
+    // сейчас список заметок.
+    <div
+      className={`mb-2 rounded-2xl p-1.5 shadow-card transition-shadow ${
+        space.is_vault ? "bg-nav text-nav-text" : "bg-surface"
+      } ${isActive ? "ring-1 ring-brand/40" : ""}`}
+    >
       <div className="flex items-center gap-0.5">
         <button
           onClick={onToggleCollapse}
-          className="flex min-w-0 flex-1 items-center gap-1 rounded px-1 py-1 text-left text-sm font-semibold text-primary hover:bg-muted-hover"
+          className={`flex min-h-10 min-w-0 flex-1 items-center gap-1.5 rounded-xl px-2 text-left text-[15px] font-extrabold tracking-tight ${
+            space.is_vault ? "text-nav-text hover:bg-white/10" : "text-primary hover:bg-muted"
+          }`}
         >
           <span
             className={`inline-block w-3 shrink-0 text-subtle transition-transform ${collapsed ? "" : "rotate-90"}`}
@@ -72,7 +81,7 @@ export default function SpaceSection({
             &#9656;
           </span>
           {space.is_vault && (
-            <Lock size={12} className={`shrink-0 ${unlocked ? "text-warning" : "text-subtle"}`} />
+            <Lock size={14} className={`shrink-0 ${unlocked ? "text-lime" : "text-nav-muted"}`} />
           )}
           {isShared && (
             <span title="Общий спейс — несколько участников" className="flex shrink-0 items-center text-subtle">
@@ -94,14 +103,16 @@ export default function SpaceSection({
           <button
             title="Действия со спейсом"
             onClick={() => setMenuOpen((v) => !v)}
-            className="flex h-6 w-6 items-center justify-center text-subtle hover:text-secondary"
+            className={`flex h-10 w-10 items-center justify-center rounded-xl ${
+              space.is_vault ? "text-nav-muted hover:text-nav-text" : "text-subtle hover:bg-muted hover:text-secondary"
+            }`}
           >
-            <MoreVertical size={13} />
+            <MoreVertical size={16} />
           </button>
           {menuOpen && (
             <>
               <div className="fixed inset-0 z-20" onClick={() => setMenuOpen(false)} />
-              <div className="absolute right-0 top-full z-30 w-52 rounded border bg-surface py-1 shadow-lg">
+              <div className="absolute right-0 top-full z-30 w-56 overflow-hidden rounded-2xl border bg-surface py-1 text-primary shadow-lg">
                 {space.is_vault && unlocked && (
                   <button
                     onClick={() => {
@@ -167,7 +178,7 @@ export default function SpaceSection({
           auto" средствами CSS, а не JS-измерением, и не размонтирует
           содержимое — оно просто визуально скрыто, пока свёрнуто. */}
       <div
-        className="ml-3 grid"
+        className="grid"
         style={{ gridTemplateRows: collapsed ? "0fr" : "1fr", transition: "grid-template-rows 200ms ease-out" }}
       >
         <div className="overflow-hidden">

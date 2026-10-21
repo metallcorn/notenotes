@@ -149,25 +149,31 @@ export default function DocumentsView({
 
   return (
     <div className="flex h-full w-full flex-col">
-      <div className="flex items-center gap-1 border-b p-3">
-        <button onClick={onBack} className="-ml-1 flex h-8 w-8 shrink-0 items-center justify-center text-subtle lg:hidden">
-          <ChevronLeft size={18} />
+      <div className="flex items-center gap-3 p-3 pb-1">
+        <button
+          onClick={onBack}
+          aria-label="Назад"
+          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-surface text-primary shadow-card lg:hidden"
+        >
+          <ChevronLeft size={20} strokeWidth={2.4} />
         </button>
-        <div className="text-sm font-medium text-primary">{t("nav.documents")}</div>
-        {data && (
-          <span className="ml-auto text-xs text-subtle">
-            {data.documents.length} файлов, {data.series.length} серий
-          </span>
-        )}
+        <div className="min-w-0">
+          <h1 className="truncate text-2xl font-extrabold tracking-tight text-primary lg:text-lg">{t("nav.documents")}</h1>
+          {data && (
+            <div className="text-xs font-semibold text-subtle">
+              {data.documents.length} файлов, {data.series.length} серий
+            </div>
+          )}
+        </div>
       </div>
 
-      <label className="flex items-center gap-2 border-b px-4 py-2">
-        <Search size={14} className="shrink-0 text-subtle" />
+      <label className="mx-3 mb-2 mt-2 flex h-12 items-center gap-2.5 rounded-2xl bg-surface pl-4 pr-3 shadow-float focus-within:ring-2 focus-within:ring-brand/40">
+        <Search size={18} className="shrink-0 text-subtle" />
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Название, спейс или заметка"
-          className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-subtle"
+          className="min-w-0 flex-1 bg-transparent text-[15px] outline-none placeholder:text-subtle"
         />
       </label>
 
@@ -176,7 +182,7 @@ export default function DocumentsView({
 
         {!isLoading && series.length > 0 && (
           <>
-            <div className="bg-muted px-4 py-1.5 text-xs font-medium uppercase tracking-wide text-subtle">
+            <div className="px-4 pb-1 pt-2 text-[11px] font-extrabold uppercase tracking-wider text-subtle">
               Серии
             </div>
             {series.map((s) => (
@@ -187,7 +193,7 @@ export default function DocumentsView({
 
         {!isLoading && (
           <>
-            <div className="bg-muted px-4 py-1.5 text-xs font-medium uppercase tracking-wide text-subtle">
+            <div className="px-4 pb-1 pt-2 text-[11px] font-extrabold uppercase tracking-wider text-subtle">
               Все документы
             </div>
             {filtered.length === 0 ? (

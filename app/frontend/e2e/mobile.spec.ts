@@ -50,6 +50,33 @@ async function check(page: Page, screen: string) {
   expect.soft(await unreachableControls(page), `экран «${screen}»`).toEqual([]);
 }
 
+// Создание на телефоне — через «+» нижней панели (шторка «Создать»), на
+// десктопе — кнопки в шапке списка. Один помощник на оба случая.
+async function create(page: Page, title: "Новая заметка" | "Новый список" | "Новая таблица") {
+  // После goto приложение может открыться сразу в редакторе последней
+  // заметки — там нижней панели нет; возвращаемся к списку и пробуем снова.
+  await expect(async () => {
+    const plus = page.locator('[title="Создать"]:visible');
+    if (await plus.count()) {
+      await plus.first().click();
+      // На планшетной ширине за шторкой видны и кнопки шапки списка с теми
+      // же title — ищем только внутри шторки.
+      await page.getByRole("dialog", { name: "Создать" }).locator(`[title="${title}"]`).click({ timeout: 3000 });
+      return;
+    }
+    const header =
+      title === "Новая заметка"
+        ? page.getByRole("button", { name: "+ Заметка" })
+        : page.locator(`[title="${title}"]:visible`).first();
+    if (await header.isVisible()) {
+      await header.click({ timeout: 3000 });
+      return;
+    }
+    await page.locator("button:visible:has(svg.lucide-chevron-left)").first().click({ timeout: 1500 });
+    throw new Error("ещё не на списке");
+  }).toPass({ timeout: 20_000 });
+}
+
 async function openSidebar(page: Page) {
   if (await page.getByText("Все заметки").isVisible()) return;
   await page.locator("button:visible:has(svg.lucide-chevron-left)").first().click();
@@ -71,8 +98,10 @@ test("все кнопки достижимы", async ({ page }) => {
   test.setTimeout(90_000);
   const shot = (screen: string) => check(page, `${vp.name}-${screen}`);
   await page.goto("/");
-  const fab = page.locator('[title="Новая заметка"]:visible, button:visible:has-text("+ Заметка")').first();
-  await expect(fab).toBeVisible();
+  const createBtn = page
+    .locator('[title="Создать"]:visible, [title="Новая заметка"]:visible, button:visible:has-text("+ Заметка")')
+    .first();
+  await expect(createBtn).toBeVisible();
   await shot("list");
 
   await openSidebar(page);
@@ -90,8 +119,8 @@ test("все кнопки достижимы", async ({ page }) => {
   }
 
   await page.getByText("Все заметки").click();
-  await expect(fab).toBeVisible();
-  await fab.click();
+  await expect(createBtn).toBeVisible();
+  await create(page, "Новая заметка");
   const editor = page.locator(".ProseMirror");
   await expect(editor).toBeVisible();
   await editor.click();
@@ -112,13 +141,12 @@ test("все кнопки достижимы", async ({ page }) => {
     ["Новая таблица", "table-item"],
   ] as const) {
     await page.goto("/");
-    const btn = page.locator(`[title="${title}"]:visible`).first();
     // После goto приложение может открыться на панели спейсов (помнит
     // последний экран), а переход между панелями анимирован.
     await expect(async () => {
       const all = page.getByText("Все заметки");
       if (await all.isVisible()) await all.click();
-      await btn.click({ timeout: 1500 });
+      await create(page, title);
     }).toPass({ timeout: 15_000 });
     await page.waitForTimeout(1200);
     await shot(screen);
@@ -131,7 +159,7 @@ test("панель форматирования прокручивается п�
   test.skip(browserName !== "chromium", "касания через CDP есть только в Chromium");
   await page.setViewportSize({ width: 360, height: 780 });
   await page.goto("/");
-  await page.getByTitle("Новая заметка").click();
+  await create(page, "Новая заметка");
   await expect(page.locator(".ProseMirror")).toBeVisible();
   const h1 = page.getByTitle("Заголовок 1");
   const y = (await h1.boundingBox())!.y + 10;
@@ -151,7 +179,7 @@ test("панель форматирования прокручивается п�
 test("у края панели форматирования видно, что дальше есть ещё", async ({ page }) => {
   await page.setViewportSize({ width: 360, height: 780 });
   await page.goto("/");
-  await page.getByTitle("Новая заметка").click();
+  await create(page, "Новая заметка");
   await expect(page.locator(".ProseMirror")).toBeVisible();
   const right = page.getByTitle("Прокрутить панель вправо");
   await expect(right).toBeVisible();

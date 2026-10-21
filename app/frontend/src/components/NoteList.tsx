@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { RefObject } from "react";
 import { createPortal } from "react-dom";
-import { ChevronDown, ListChecks, MessageSquareText, Plus, Table as TableIcon, Trash2 } from "lucide-react";
+import { ChevronDown, FileText, ListChecks, MessageSquareText, Pin, Plus, Table as TableIcon, Trash2 } from "lucide-react";
 import {
   useCreateDialog,
   useCreateItem,
@@ -16,6 +16,8 @@ import ConfirmDialog from "./ConfirmDialog";
 import Spinner from "./Spinner";
 import { ListSkeleton } from "./Skeleton";
 import { startItemDrag } from "../lib/dragItem";
+import { NOTE_TEMPLATES, type NoteTemplate } from "../lib/noteTemplates";
+import { formatRelativeDay } from "../lib/format";
 import { dateLocale } from "../i18n";
 
 // Тот же портал-в-body паттерн, что только что сделан для FolderMenu в
@@ -99,38 +101,6 @@ function FolderDialogPicker({
   );
 }
 
-interface NoteTemplate {
-  id: string;
-  label: string;
-  title: string;
-  content: string;
-}
-
-// Шаблоны — просто стартовая Markdown-структура, ничего не навязывают:
-// пользователь может стереть и переписать как угодно (ТЗ — формат всегда
-// Markdown вне зависимости от режима редактирования).
-const NOTE_TEMPLATES: NoteTemplate[] = [
-  { id: "blank", label: "Пустая заметка", title: "", content: "" },
-  {
-    id: "meeting",
-    label: "Встреча",
-    title: "Встреча",
-    content: "**Дата:** \n**Участники:** \n\n## Повестка\n\n\n## Итоги и задачи\n\n",
-  },
-  {
-    id: "diary",
-    label: "Дневник",
-    title: new Date().toLocaleDateString(dateLocale),
-    content: "",
-  },
-  {
-    id: "idea",
-    label: "Идея",
-    title: "",
-    content: "## Проблема\n\n\n## Решение\n\n\n## Следующие шаги\n\n",
-  },
-];
-
 // Портал-в-body — та же причина, что у FolderDialogPicker выше и у
 // FolderMenu в FolderTree.tsx: список заметок сам живёт внутри
 // overflow-y-auto, а abs-позиционированное меню внутри него частично
@@ -173,7 +143,7 @@ function NoteTemplateMenu({
         title="Шаблон заметки"
         className={
           align === "top"
-            ? "flex h-full items-center justify-center rounded-r border-l border-strong bg-accent px-2 text-on-accent disabled:opacity-50"
+            ? "flex h-full items-center justify-center border-l border-on-accent/20 bg-accent px-2.5 text-on-accent disabled:opacity-50"
             : "flex h-6 w-6 items-center justify-center rounded-full bg-surface text-secondary shadow ring-1 ring-default disabled:opacity-50"
         }
       >
@@ -223,6 +193,11 @@ export function listProgress(content: string): string {
   return `${done}/${lines.length} выполнено`;
 }
 
+export function listCounts(content: string): { done: number; total: number } {
+  const lines = content.split("\n").filter(Boolean);
+  return { done: lines.filter((l) => l.startsWith("[x]")).length, total: lines.length };
+}
+
 function NoteRow({
   item,
   selected,
@@ -236,40 +211,66 @@ function NoteRow({
 }) {
   const isList = item.material_type === "list";
   const isTable = item.material_type === "table";
-  const preview = isList ? listProgress(item.content) : previewText(item.content);
+  const preview = isList ? "" : previewText(item.content);
+  const counts = isList ? listCounts(item.content) : null;
+  const when = formatRelativeDay(item.updated_at, dateLocale);
   return (
     // row-fade-in — на корне строки. Срабатывает только на новых узлах:
     // при стабильном key={item.id} React переиспользует уже отрисованные
     // строки, и обновление списка не переигрывает анимацию на всех
     // (см. комментарий к .row-fade-in в index.css).
-    <li className="row-fade-in">
-      {/* Тянется мышкой на папку в сайдбаре (lib/dragItem.ts). Из сейфа
-          нельзя: туда и оттуда перенос идёт через шифрование, не через
-          обычный move. */}
+    <li className="row-fade-in px-3 pb-2">
+      {/* Карточка (макет «Заметки в папке», 21.10). Тянется мышкой на
+          папку в сайдбаре (lib/dragItem.ts). Из сейфа нельзя: туда и
+          оттуда перенос идёт через шифрование, не через обычный move. */}
       <button
         onClick={() => onSelect(item.id)}
         draggable={draggable}
         onDragStart={(e) =>
           startItemDrag(e, { id: item.id, space_id: item.space_id, folder_id: item.folder_id ?? null })
         }
-        className={`block w-full border-b px-3 py-2 text-left ${selected ? "bg-muted-hover" : "hover:bg-muted-hover"}`}
+        title={new Date(item.updated_at).toLocaleString(dateLocale)}
+        className={`flex w-full gap-3 rounded-2xl bg-surface p-3.5 text-left shadow-card transition-[box-shadow,transform] active:scale-[0.99] ${
+          selected ? "ring-2 ring-brand" : item.pinned ? "ring-2 ring-lime" : "hover:shadow-float"
+        }`}
       >
-        <div className="flex items-center gap-1.5 truncate text-sm font-medium">
+        <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-muted text-[22px] leading-none">
           {isList ? (
-            <ListChecks size={13} className="shrink-0 text-subtle" />
+            <ListChecks size={20} className="text-primary" />
           ) : isTable ? (
-            <TableIcon size={13} className="shrink-0 text-subtle" />
+            <TableIcon size={20} className="text-primary" />
           ) : (
-            item.icon && <span>{item.icon}</span>
+            item.icon || <FileText size={20} className="text-subtle" />
           )}
-          <span className="truncate" style={item.color ? { color: item.color } : undefined}>
-            {item.title || "Без названия"}
-          </span>
-        </div>
-        {preview && <div className="mt-0.5 truncate text-xs text-subtle">{preview}</div>}
-        <div className="mt-0.5 truncate text-xs text-subtle">
-          {new Date(item.updated_at).toLocaleString(dateLocale)}
-          {item.tags.length > 0 && " · " + item.tags.map((t) => `#${t.name}`).join(" ")}
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-1.5">
+            <span
+              className="truncate text-[15px] font-extrabold leading-tight text-primary"
+              style={item.color ? { color: item.color } : undefined}
+            >
+              {item.title || "Без названия"}
+            </span>
+            {item.pinned && <Pin size={13} className="shrink-0 text-primary" aria-label="Закреплено" />}
+          </div>
+          {preview && <div className="mt-0.5 truncate text-[13px] leading-snug text-subtle">{preview}</div>}
+          {counts && counts.total > 0 && (
+            <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-muted">
+              <div
+                className="h-full rounded-full bg-brand transition-[width]"
+                style={{ width: `${Math.round((counts.done / counts.total) * 100)}%` }}
+              />
+            </div>
+          )}
+          <div className="mt-1.5 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs font-bold text-nav-muted">
+            {counts && <span>{counts.total === 0 ? "Пусто" : `${counts.done} из ${counts.total}`} · </span>}
+            <span>{when}</span>
+            {item.tags.slice(0, 3).map((t) => (
+              <span key={t.id} className="rounded-full bg-brand-soft px-2 py-0.5 text-[11px] font-bold text-brand-text">
+                #{t.name}
+              </span>
+            ))}
+          </div>
         </div>
       </button>
     </li>
@@ -368,22 +369,21 @@ export default function NoteList({
 
   return (
     <div className="flex h-full flex-col">
-      {/* На десктопе — обычные кнопки сверху. На телефоне верх экрана до
-          них тянуться неудобно (жалоба с телефона), поэтому там вместо
-          них плавающие кнопки снизу-справа — чуть выше кнопки «Отзыв»,
-          чтобы не перекрывались.
+      {/* На десктопе — обычные кнопки сверху. На телефоне создание идёт
+          через «+» нижней панели (BottomNav → CreateSheet): раньше тут были
+          плавающие кнопки снизу-справа, они перекрывали бы панель.
           Реальная жалоба: три текстовые кнопки "+ Заметка/Список/Таблица"
           подряд ломали вёрстку в узкой (особенно после ресайза) панели
           списка. Заметка остаётся основной, текстовой (самое частое
           действие) — Список и Таблица теперь компактные квадратные иконки
           рядом, не растягиваются на всю ширину и не зависят от длины
           перевода слова "Таблица". */}
-      <div className="hidden gap-2 border-b p-3 md:flex">
-        <div className="flex min-w-0 flex-1">
+      <div className="hidden gap-2 p-3 md:flex">
+        <div className="flex min-w-0 flex-1 overflow-hidden rounded-xl">
           <button
             onClick={() => createNote()}
             disabled={createItem.isPending}
-            className="flex min-w-0 flex-1 items-center justify-center gap-2 rounded-l bg-accent px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
+            className="flex h-10 min-w-0 flex-1 items-center justify-center gap-2 bg-accent px-3 text-sm font-bold text-on-accent disabled:opacity-50"
           >
             {createItem.isPending && <Spinner />}
             <span className="truncate">{createItem.isPending ? "Создаём…" : "+ Заметка"}</span>
@@ -395,7 +395,7 @@ export default function NoteList({
             onClick={createNewList}
             disabled={createList.isPending}
             title="Новый список"
-            className="flex h-9 w-9 shrink-0 items-center justify-center rounded border border-strong text-primary disabled:opacity-50"
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-surface text-primary shadow-card hover:bg-muted disabled:opacity-50"
           >
             {createList.isPending ? <Spinner size={16} /> : <ListChecks size={16} />}
           </button>
@@ -405,20 +405,20 @@ export default function NoteList({
             onClick={createNewTable}
             disabled={createTable.isPending}
             title="Новая таблица"
-            className="flex h-9 w-9 shrink-0 items-center justify-center rounded border border-strong text-primary disabled:opacity-50"
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-surface text-primary shadow-card hover:bg-muted disabled:opacity-50"
           >
             {createTable.isPending ? <Spinner size={16} /> : <TableIcon size={16} />}
           </button>
         )}
       </div>
-      <ul className="min-h-0 flex-1 overflow-y-auto pb-20 md:pb-0">
+      <ul className="min-h-0 flex-1 overflow-y-auto pt-1">
         {isRealFolder && (
-          <li className="border-b bg-brand/10">
+          <li className="px-3 pb-2">
             <button
               ref={assistantRowRef}
               onClick={openFolderAssistant}
               disabled={scopedFolderDialogs.isPending || createDialog.isPending}
-              className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm font-medium text-brand hover:bg-brand/15 disabled:opacity-50"
+              className="flex min-h-11 w-full items-center gap-2.5 rounded-2xl bg-brand-soft px-4 text-left text-sm font-bold text-brand-text hover:bg-brand/20 disabled:opacity-50"
             >
               {scopedFolderDialogs.isPending || createDialog.isPending ? (
                 <Spinner size={14} />
@@ -437,57 +437,25 @@ export default function NoteList({
           </li>
         )}
         {!isLoading && (items ?? []).length === 0 && (
-          <li className="p-3 text-sm text-subtle">Здесь пока пусто</li>
+          <li className="px-4 py-6 text-center text-sm font-semibold text-subtle">Здесь пока пусто</li>
         )}
         {pinned.length > 0 && (
           <>
-            <li className="bg-muted px-3 py-1 text-xs font-medium uppercase tracking-wide text-subtle">
-              Важное
+            <li className="px-4 pb-1.5 pt-1 text-[11px] font-extrabold uppercase tracking-wider text-subtle">
+              Закреплено
             </li>
             {pinned.map((item) => (
               <NoteRow key={item.id} item={item} selected={selectedId === item.id} onSelect={onSelect} draggable={!isVault} />
             ))}
           </>
         )}
+        {pinned.length > 0 && rest.length > 0 && (
+          <li className="px-4 pb-1.5 pt-2 text-[11px] font-extrabold uppercase tracking-wider text-subtle">Остальное</li>
+        )}
         {rest.map((item) => (
           <NoteRow key={item.id} item={item} selected={selectedId === item.id} onSelect={onSelect} draggable={!isVault} />
         ))}
       </ul>
-      <div className="fixed bottom-20 right-4 z-40 flex flex-col items-end gap-2 md:hidden">
-        {!isVault && (
-          <button
-            onClick={createNewTable}
-            disabled={createTable.isPending}
-            title="Новая таблица"
-            className="flex h-11 w-11 items-center justify-center rounded-full bg-surface text-primary shadow-lg ring-1 ring-default disabled:opacity-50"
-          >
-            {createTable.isPending ? <Spinner size={18} /> : <TableIcon size={18} />}
-          </button>
-        )}
-        {!isVault && (
-          <button
-            onClick={createNewList}
-            disabled={createList.isPending}
-            title="Новый список"
-            className="flex h-11 w-11 items-center justify-center rounded-full bg-surface text-primary shadow-lg ring-1 ring-default disabled:opacity-50"
-          >
-            {createList.isPending ? <Spinner size={18} /> : <ListChecks size={18} />}
-          </button>
-        )}
-        <div className="relative">
-          <button
-            onClick={() => createNote()}
-            disabled={createItem.isPending}
-            title="Новая заметка"
-            className="flex h-14 w-14 items-center justify-center rounded-full bg-accent text-white shadow-lg disabled:opacity-50"
-          >
-            {createItem.isPending ? <Spinner size={20} /> : <Plus size={24} />}
-          </button>
-          <div className="absolute -left-1 -top-1">
-            <NoteTemplateMenu onSelect={createNote} disabled={createItem.isPending} align="bottom" />
-          </div>
-        </div>
-      </div>
       {folderDialogPicker && (
         <FolderDialogPicker
           anchorRef={assistantRowRef}

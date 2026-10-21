@@ -355,7 +355,7 @@ function NotificationsTab({
                 key={h}
                 onClick={() => setHorizon(h)}
                 className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${
-                  horizon === h ? "bg-accent text-white" : "bg-muted-active text-secondary hover:bg-muted-active"
+                  horizon === h ? "bg-accent text-on-accent" : "bg-muted-active text-secondary hover:bg-muted-active"
                 }`}
               >
                 {HORIZON_LABELS[h]}
@@ -495,28 +495,31 @@ export default function ActivityView({
 
   return (
     <div className="flex h-full w-full flex-col">
-      <div className="flex items-center gap-1 border-b p-3">
+      <div className="flex items-center gap-3 p-3 pb-1">
         <button
           onClick={onBack}
-          className="-ml-1 flex h-8 w-8 shrink-0 items-center justify-center text-subtle lg:hidden"
+          aria-label="Назад"
+          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-surface text-primary shadow-card lg:hidden"
         >
-          <ChevronLeft size={18} />
+          <ChevronLeft size={20} strokeWidth={2.4} />
         </button>
-        <div className="text-sm font-medium text-primary">{t("nav.activity")}</div>
+        <h1 className="text-2xl font-extrabold tracking-tight text-primary lg:text-lg">{t("nav.activity")}</h1>
       </div>
-      <div className="flex border-b">
+      <div className="mx-3 mb-2 mt-2 grid grid-cols-2 gap-1 rounded-2xl bg-muted p-1">
         <button
+          aria-pressed={tab === "notifications"}
           onClick={() => setTab("notifications")}
-          className={`flex flex-1 items-center justify-center gap-1.5 py-2 text-sm ${
-            tab === "notifications" ? "border-b-2 border-strong font-medium text-primary" : "text-subtle"
+          className={`flex h-10 items-center justify-center gap-1.5 rounded-xl text-sm font-bold transition-colors ${
+            tab === "notifications" ? "bg-surface text-primary shadow-card" : "text-secondary"
           }`}
         >
           <Bell size={14} /> Уведомления
         </button>
         <button
+          aria-pressed={tab === "recent"}
           onClick={() => setTab("recent")}
-          className={`flex flex-1 items-center justify-center gap-1.5 py-2 text-sm ${
-            tab === "recent" ? "border-b-2 border-strong font-medium text-primary" : "text-subtle"
+          className={`flex h-10 items-center justify-center gap-1.5 rounded-xl text-sm font-bold transition-colors ${
+            tab === "recent" ? "bg-surface text-primary shadow-card" : "text-secondary"
           }`}
         >
           <CalendarClock size={14} /> Недавнее

@@ -107,14 +107,27 @@ function ListEntryRow({
   return (
     <li
       id={`list-entry-${entry.id}`}
-      className="group flex items-center gap-2 rounded px-1 py-1.5 transition-colors duration-500 hover:bg-muted-hover"
+      className="group flex min-h-12 items-center gap-3 rounded-2xl bg-surface px-3 py-1.5 shadow-card transition-colors duration-500"
     >
-      <input
-        type="checkbox"
-        checked={entry.checked}
-        onChange={(e) => onToggle(e.target.checked)}
-        className="h-4 w-4 shrink-0 accent-accent"
-      />
+      {/* Крупный круглый чекбокс (макет «Список-чеклист», 21.10): на
+          телефоне в 16px попасть пальцем трудно. Настоящий <input> остаётся
+          ради клавиатуры и читалок, рисуется поверх него кружок. */}
+      <label className="relative flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center">
+        <input
+          type="checkbox"
+          checked={entry.checked}
+          onChange={(e) => onToggle(e.target.checked)}
+          className="peer absolute inset-0 h-full w-full cursor-pointer opacity-0"
+        />
+        <span
+          aria-hidden="true"
+          className="flex h-6 w-6 items-center justify-center rounded-full border-2 border-strong bg-surface text-on-accent transition-colors peer-checked:border-brand peer-checked:bg-brand peer-focus-visible:ring-2 peer-focus-visible:ring-brand/40"
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3" className={entry.checked ? "" : "opacity-0"}>
+            <path d="M5 12l5 5L20 7" />
+          </svg>
+        </span>
+      </label>
       {editing || !hasLink ? (
         <input
           ref={inputRef}
@@ -124,14 +137,14 @@ function ListEntryRow({
           onKeyDown={(e) => {
             if (e.key === "Enter") (e.target as HTMLInputElement).blur();
           }}
-          className={`min-w-0 flex-1 border-none bg-transparent text-sm outline-none ${
+          className={`min-w-0 flex-1 border-none bg-transparent text-[15px] font-semibold outline-none ${
             entry.checked ? "text-subtle line-through" : "text-primary"
           }`}
         />
       ) : (
         <div
           onClick={() => setEditing(true)}
-          className={`min-w-0 flex-1 cursor-text truncate text-sm ${
+          className={`min-w-0 flex-1 cursor-text truncate text-[15px] font-semibold ${
             entry.checked ? "text-subtle line-through" : "text-primary"
           }`}
         >
@@ -141,7 +154,7 @@ function ListEntryRow({
       <button
         onClick={onDelete}
         title="Удалить пункт"
-        className="flex h-6 w-6 shrink-0 items-center justify-center text-subtle hover:text-danger"
+        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-subtle hover:bg-muted hover:text-danger"
       >
         <X size={14} />
       </button>
@@ -227,22 +240,22 @@ export default function ListEditor({
   return (
     <div className="flex h-full">
     <div className="flex min-w-0 flex-1 flex-col">
-      <div className="flex items-center gap-1 border-b p-3">
+      <div className="flex items-center gap-2 border-b p-3">
         <button
           onClick={onBack}
-          className="-ml-1 flex h-8 w-8 shrink-0 items-center justify-center text-subtle lg:hidden"
+          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-surface text-primary shadow-card lg:hidden"
         >
-          <ChevronLeft size={18} />
+          <ChevronLeft size={20} strokeWidth={2.4} />
         </button>
         <input
           value={title}
           onChange={(e) => setTitle(e.target.value)}
           onBlur={saveTitle}
           placeholder="Название списка"
-          className="min-w-0 flex-1 truncate border-none bg-transparent text-sm font-medium text-primary outline-none"
+          className="min-w-0 flex-1 truncate border-none bg-transparent text-xl font-extrabold tracking-tight text-primary outline-none placeholder:text-subtle"
         />
         {list.entries.length > 0 && (
-          <span className="shrink-0 text-xs text-subtle">
+          <span className="shrink-0 rounded-full bg-brand-soft px-2.5 py-1 text-xs font-extrabold text-brand-text">
             {doneCount}/{list.entries.length}
           </span>
         )}
@@ -262,6 +275,16 @@ export default function ListEditor({
         </button>
       </div>
 
+      {list.entries.length > 0 && (
+        <div className="px-4 pb-1 pt-2">
+          <div className="h-1.5 overflow-hidden rounded-full bg-muted">
+            <div
+              className="h-full rounded-full bg-brand transition-[width] duration-300"
+              style={{ width: `${Math.round((doneCount / list.entries.length) * 100)}%` }}
+            />
+          </div>
+        </div>
+      )}
       <div className="flex-1 overflow-y-auto p-3">
         {list.entries.length === 0 ? (
           // Реальная жалоба: пустой список выглядел как "тут ничего не
@@ -278,7 +301,7 @@ export default function ListEditor({
             </div>
           </button>
         ) : (
-          <ul className="space-y-0.5">
+          <ul className="space-y-2">
             {list.entries.map((entry) => (
               <ListEntryRow
                 key={entry.id}
@@ -292,18 +315,19 @@ export default function ListEditor({
         )}
       </div>
 
-      <form onSubmit={handleAddEntry} className="flex gap-2 border-t p-3">
+      <form onSubmit={handleAddEntry} className="flex gap-2 p-3">
         <input
           ref={newEntryInputRef}
           value={newEntryText}
           onChange={(e) => setNewEntryText(e.target.value)}
           placeholder="Новый пункт…"
-          className="flex-1 rounded border px-3 py-2 text-sm"
+          className="h-12 min-w-0 flex-1 rounded-2xl bg-surface px-4 text-[15px] shadow-float outline-none focus:ring-2 focus:ring-brand/40"
         />
         <button
           type="submit"
+          aria-label="Добавить пункт"
           disabled={addEntry.isPending || !newEntryText.trim()}
-          className="flex shrink-0 items-center justify-center rounded bg-accent px-4 py-2 text-sm text-white disabled:opacity-50"
+          className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-accent text-on-accent disabled:opacity-50"
         >
           {addEntry.isPending ? <Spinner size={14} className="text-white" /> : <Plus size={14} />}
         </button>

@@ -99,7 +99,7 @@ export default function PublicNotePage() {
             <button
               type="submit"
               disabled={unlocking || !password}
-              className="flex w-full items-center justify-center gap-1.5 rounded bg-accent px-3 py-2 text-sm text-white disabled:opacity-50"
+              className="flex w-full items-center justify-center gap-1.5 rounded bg-accent px-3 py-2 text-sm text-on-accent disabled:opacity-50"
             >
               {unlocking && <Spinner size={12} />}
               Открыть

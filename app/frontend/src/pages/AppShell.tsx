@@ -26,6 +26,12 @@ import ActivityView from "../components/ActivityView";
 import DocumentsView from "../components/DocumentsView";
 import OfflineBanner from "../components/OfflineBanner";
 import OfflineFlushNotice from "../components/OfflineFlushNotice";
+import BottomNav, { type BottomNavTab } from "../components/BottomNav";
+import CreateSheet from "../components/CreateSheet";
+import DueReminderCard from "../components/DueReminderCard";
+import { ListSkeleton } from "../components/Skeleton";
+import { useNotifications } from "../api/hooks";
+import { dateLocale } from "../i18n";
 import { t } from "../i18n";
 
 type MobileView = "sidebar" | "list" | "editor";
@@ -88,6 +94,10 @@ export default function AppShell() {
   // экране, где все три рядом физически не помещаются (см. отзыв с
   // телефона — редактор просто уезжал за край экрана).
   const [mobileView, setMobileView] = useState<MobileView>("list");
+  // Шторка «Создать» с «+» нижней панели (BottomNav/CreateSheet).
+  const [createOpen, setCreateOpen] = useState(false);
+  const { data: notifications } = useNotifications();
+  const unreadCount = (notifications ?? []).filter((n) => !n.read_at).length;
 
   const [collapsedSpaces, setCollapsedSpaces] = useState<Set<string>>(() => new Set(uiStorage.getCollapsedSpaces()));
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => uiStorage.getSidebarCollapsed());
@@ -587,11 +597,37 @@ export default function AppShell() {
     },
   });
 
+  // Какой пункт нижней панели подсвечен: корень стека — «Главная», список
+  // заметок — «Заметки», разделы — по viewMode. Документы и корзина своей
+  // кнопки в панели не имеют — там ничего не подсвечено.
+  const bottomTab: BottomNavTab =
+    mobileView === "sidebar"
+      ? "home"
+      : viewMode === "assistant"
+        ? "assistant"
+        : viewMode === "activity"
+          ? "activity"
+          : viewMode === "notes"
+            ? "notes"
+            : null;
+
+  // Приветствие по часу и строка даты — «Главная» на телефоне.
+  const now = new Date();
+  const hour = now.getHours();
+  const greeting = t(hour < 5 ? "home.night" : hour < 12 ? "home.morning" : hour < 18 ? "home.day" : "home.evening");
+  const dateLine = now.toLocaleDateString(dateLocale, { weekday: "long", day: "numeric", month: "long" });
+
+  function openNotesTab() {
+    setViewMode("notes");
+    openListView();
+  }
+
   return (
     <div
       ref={rootRef}
       // Колонка, а не только ряд: сверху узкая полоска «нет сети», под
-      // ней — прежняя горизонтальная раскладка.
+      // ней — прежняя горизонтальная раскладка, снизу на телефоне —
+      // панель разделов.
       className="flex h-dvh flex-col bg-app text-primary"
       style={{
         boxSizing: "border-box",
@@ -637,71 +673,94 @@ export default function AppShell() {
           fixed-бэкдропом. Косметика ширины не стоила этой цены — убрано. */}
       <div className="flex min-h-0 flex-1">
       <aside
-        className={`${mobileView === "sidebar" ? "flex" : "hidden"} w-full shrink-0 flex-col border-r bg-muted lg:flex`}
+        className={`${mobileView === "sidebar" ? "flex" : "hidden"} w-full shrink-0 flex-col bg-app lg:flex lg:border-r lg:bg-muted`}
         style={
           isDesktop
             ? { width: sidebarCollapsed ? 0 : sidebarWidth, transition: "width 180ms ease-out" }
             : undefined
         }
       >
-        {/* На десктопе строка поиска уже есть в панели списка заметок,
-            видна одновременно с сайдбаром. На мобиле экраны сменяют друг
-            друга по одному — без этого поиск был доступен только после
-            захода в конкретную папку, не с главного экрана (жалоба). */}
-        <div className="border-b p-3 lg:hidden">
-          <SearchBar
-            value={query}
-            onChange={(v) => {
-              setQuery(v);
-              if (v.trim()) {
-                setViewMode("notes");
-                openListView();
-              }
-            }}
-          />
+        {/* «Главная» на телефоне (макет 21.10): приветствие, дата, аватар
+            с меню профиля, колокольчик и поиск. На десктопе строка поиска
+            уже есть в панели списка заметок, а профиль и колокольчик — в
+            футере колонки; здесь всё это скрыто. */}
+        <div className="px-5 pb-2 pt-4 lg:hidden">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="truncate text-[13px] font-semibold uppercase tracking-wide text-subtle">{dateLine}</div>
+              <h1 className="mt-1 text-[28px] font-extrabold leading-none tracking-tight text-primary">{greeting}</h1>
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              <NotificationBell updateAvailable={updateAvailable} onOpenReminder={openReminder} placement="down" />
+              <UserMenu compact placement="down" />
+            </div>
+          </div>
+          <div className="mt-4">
+            <SearchBar
+              value={query}
+              onChange={(v) => {
+                setQuery(v);
+                if (v.trim()) {
+                  setViewMode("notes");
+                  openListView();
+                }
+              }}
+            />
+          </div>
         </div>
         {/* Скроллится только список спейсов/папок/тегов — футер профиля
             нарочно СНАРУЖИ этого div: иначе overflow-y-auto родителя
             обрезает всплывающие окна UserMenu/NotificationBell, у которых
             containing block лежит внутри скролл-контейнера (классический
             CSS-баг с overflow, который "перекрывает интерфейсом" попапы). */}
-        <div className="min-h-0 flex-1 overflow-y-auto p-3">
-          <div className="mb-3 space-y-0.5">
-            <button
-              onClick={switchToAssistant}
-              className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-sm ${
-                viewMode === "assistant" ? "bg-muted-active font-medium text-primary" : "text-secondary hover:bg-muted-hover"
-              }`}
-            >
-              <Sparkles size={15} /> {t("nav.assistant")}
-            </button>
-            <button
-              onClick={switchToActivity}
-              className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-sm ${
-                viewMode === "activity" ? "bg-muted-active font-medium text-primary" : "text-secondary hover:bg-muted-hover"
-              }`}
-            >
-              <Bell size={15} /> {t("nav.activity")}
-            </button>
-            <button
-              onClick={switchToDocuments}
-              className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-sm ${
-                viewMode === "documents" ? "bg-muted-active font-medium text-primary" : "text-secondary hover:bg-muted-hover"
-              }`}
-            >
-              <FileStack size={15} /> {t("nav.documents")}
-            </button>
-            <button
-              onClick={switchToTrash}
-              className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-sm ${
-                viewMode === "trash" ? "bg-muted-active font-medium text-primary" : "text-secondary hover:bg-muted-hover"
-              }`}
-            >
-              <Trash2 size={15} /> {t("nav.trash")}
-            </button>
+        <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4 pt-2 lg:p-3">
+          <DueReminderCard onOpen={openReminder} onMore={switchToActivity} />
+          {/* Разделы. На телефоне Ассистент и Активность — в нижней панели,
+              здесь остаются только Документы и Корзина; на десктопе — все
+              четыре списком. */}
+          <div className="mb-3 flex gap-2 lg:hidden">
+            {(
+              [
+                [switchToDocuments, "documents", t("nav.documents"), FileStack],
+                [switchToTrash, "trash", t("nav.trash"), Trash2],
+              ] as const
+            ).map(([onClick, mode, label, Icon]) => (
+              <button
+                key={mode}
+                onClick={onClick}
+                className={`flex h-10 flex-1 items-center justify-center gap-2 rounded-full text-sm font-semibold transition-colors ${
+                  viewMode === mode ? "bg-accent text-on-accent" : "border border-default bg-surface text-primary hover:bg-muted"
+                }`}
+              >
+                <Icon size={16} /> {label}
+              </button>
+            ))}
           </div>
-          <div className="mb-2 flex items-center justify-between">
-            <span className="text-xs font-medium uppercase tracking-wide text-subtle">Спейсы</span>
+          <div className="mb-3 hidden space-y-0.5 lg:block">
+            {(
+              [
+                [switchToAssistant, "assistant", t("nav.assistant"), Sparkles],
+                [switchToActivity, "activity", t("nav.activity"), Bell],
+                [switchToDocuments, "documents", t("nav.documents"), FileStack],
+                [switchToTrash, "trash", t("nav.trash"), Trash2],
+              ] as const
+            ).map(([onClick, mode, label, Icon]) => (
+              <button
+                key={mode}
+                onClick={onClick}
+                className={`flex min-h-9 w-full items-center gap-2 rounded-xl px-2.5 text-sm font-semibold transition-colors ${
+                  viewMode === mode ? "bg-surface text-primary shadow-card" : "text-secondary hover:bg-muted-hover"
+                }`}
+              >
+                <Icon size={16} /> {label}
+                {mode === "activity" && unreadCount > 0 && (
+                  <span className="ml-auto rounded-full bg-lime px-1.5 text-[11px] font-extrabold text-on-lime">{unreadCount}</span>
+                )}
+              </button>
+            ))}
+          </div>
+          <div className="mb-2 flex items-center justify-between px-1">
+            <span className="text-[11px] font-extrabold uppercase tracking-wider text-subtle">{t("home.spaces")}</span>
             <CreateSpaceButton onCreated={(id) => selectFolder(id, null)} />
           </div>
           {(spaces ?? []).map((space) => (
@@ -717,7 +776,7 @@ export default function AppShell() {
           ))}
           <TagList selectedTagId={tagId} onSelect={selectTag} />
         </div>
-        <div className="flex shrink-0 items-center gap-1 border-t p-3">
+        <div className="hidden shrink-0 items-center gap-1 border-t p-3 lg:flex">
           <UserMenu />
           <NotificationBell updateAvailable={updateAvailable} onOpenReminder={openReminder} />
         </div>
@@ -780,14 +839,17 @@ export default function AppShell() {
             >
               {viewMode === "notes" ? (
                 <>
-                  <div className="flex items-center gap-1 border-b p-3">
+                  <div className="flex items-center gap-2 p-3 lg:border-b">
                     <button
                       onClick={closeListView}
-                      className="-ml-1 flex h-8 w-8 shrink-0 items-center justify-center text-subtle lg:hidden"
+                      aria-label={t("nav.home")}
+                      className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-surface text-primary shadow-card lg:hidden"
                     >
-                      <ChevronLeft size={18} />
+                      <ChevronLeft size={20} strokeWidth={2.4} />
                     </button>
-                    <SearchBar value={query} onChange={setQuery} />
+                    <div className="min-w-0 flex-1">
+                      <SearchBar value={query} onChange={setQuery} />
+                    </div>
                   </div>
                   <div className="min-h-0 flex-1 overflow-y-auto">
                     {query.trim() ? (
@@ -804,6 +866,8 @@ export default function AppShell() {
                         onSelectDialog={(id) => selectDialog(id, { forcePush: true, keepViewMode: true })}
                         isVault={!!activeSpace?.is_vault}
                       />
+                    ) : spaces === undefined ? (
+                      <ListSkeleton rows={6} withIcon={false} />
                     ) : (
                       <div className="p-3 text-sm text-subtle">Нет доступных спейсов</div>
                     )}
@@ -811,14 +875,15 @@ export default function AppShell() {
                 </>
               ) : (
                 <>
-                  <div className="flex items-center gap-1 border-b p-3 lg:hidden">
+                  <div className="flex items-center gap-3 p-3 lg:hidden">
                     <button
                       onClick={closeListView}
-                      className="-ml-1 flex h-8 w-8 shrink-0 items-center justify-center text-subtle"
+                      aria-label={t("nav.home")}
+                      className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-surface text-primary shadow-card"
                     >
-                      <ChevronLeft size={18} />
+                      <ChevronLeft size={20} strokeWidth={2.4} />
                     </button>
-                    <span className="text-sm font-medium text-primary">{t("nav.assistant")}</span>
+                    <span className="text-2xl font-extrabold tracking-tight text-primary">{t("nav.assistant")}</span>
                   </div>
                   <DialogList selectedId={selectedDialogId} onSelect={selectDialog} />
                 </>
@@ -890,6 +955,35 @@ export default function AppShell() {
         )}
       </main>
       </div>
+      {/* В редакторе панели нет: там снизу панель форматирования над
+          клавиатурой, а «назад» — в шапке. */}
+      {mobileView !== "editor" && (
+        <BottomNav
+          active={bottomTab}
+          activityBadge={unreadCount}
+          onHome={closeListView}
+          onNotes={openNotesTab}
+          onCreate={() => setCreateOpen(true)}
+          onAssistant={switchToAssistant}
+          onActivity={switchToActivity}
+        />
+      )}
+      {createOpen && (
+        <CreateSheet
+          space={activeSpace}
+          folderId={tagId ? null : activeFolderId}
+          onClose={() => setCreateOpen(false)}
+          onCreated={(id) => {
+            setViewMode("notes");
+            setTagId(null);
+            setSelectedItemId(id, { forcePush: true });
+          }}
+          onDialog={(id) => {
+            setViewMode("assistant");
+            selectDialog(id, { forcePush: true });
+          }}
+        />
+      )}
     </div>
   );
 }

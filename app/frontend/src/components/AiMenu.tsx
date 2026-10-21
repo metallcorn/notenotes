@@ -66,7 +66,7 @@ export default function AiMenu({
         onClick={() => setOpen((v) => !v)}
         disabled={disabled || loading}
         className={`flex h-8 w-8 shrink-0 items-center justify-center rounded disabled:opacity-30 ${
-          open ? "bg-accent text-white" : "text-secondary hover:bg-muted-hover"
+          open ? "bg-accent text-on-accent" : "text-secondary hover:bg-muted-hover"
         }`}
       >
         {loading ? <Spinner size={16} /> : <Sparkles size={16} />}
@@ -130,7 +130,7 @@ export default function AiMenu({
                   <button
                     onClick={() => customInstruction.trim() && run("rewrite", customInstruction.trim())}
                     disabled={!customInstruction.trim()}
-                    className="shrink-0 rounded bg-accent px-2 py-1 text-xs text-white disabled:opacity-30"
+                    className="shrink-0 rounded bg-accent px-2 py-1 text-xs text-on-accent disabled:opacity-30"
                   >
                     ОК
                   </button>

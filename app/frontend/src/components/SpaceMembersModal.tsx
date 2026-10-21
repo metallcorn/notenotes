@@ -73,7 +73,7 @@ export default function SpaceMembersModal({
     <div className="modal-in fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
       <div
         onClick={(e) => e.stopPropagation()}
-        className="flex max-h-[80vh] w-full max-w-sm flex-col rounded-lg bg-surface p-4 shadow-xl"
+        className="flex max-h-[80vh] w-full max-w-sm flex-col rounded-3xl bg-surface p-4 shadow-xl"
       >
         <div className="mb-3 flex items-center justify-between">
           <div className="flex items-center gap-1.5 text-sm font-medium text-primary">
@@ -115,7 +115,7 @@ export default function SpaceMembersModal({
               <button
                 type="submit"
                 disabled={addMember.isPending || !username.trim()}
-                className="flex shrink-0 items-center gap-1 rounded bg-accent px-2.5 py-1.5 text-sm text-white disabled:opacity-50"
+                className="flex shrink-0 items-center gap-1 rounded bg-accent px-2.5 py-1.5 text-sm text-on-accent disabled:opacity-50"
               >
                 {addMember.isPending && <Spinner size={12} />}
                 Добавить

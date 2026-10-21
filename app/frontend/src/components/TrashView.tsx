@@ -18,59 +18,67 @@ export default function TrashView({ spaceId, onBack }: { spaceId: string | undef
 
   return (
     <div className="flex h-full w-full flex-col">
-      <div className="flex items-center gap-1 border-b p-3">
+      <div className="flex items-center gap-3 p-3 pb-1">
         <button
           onClick={onBack}
-          className="-ml-1 flex h-8 w-8 shrink-0 items-center justify-center text-subtle lg:hidden"
+          aria-label="Назад"
+          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-surface text-primary shadow-card lg:hidden"
         >
-          <ChevronLeft size={18} />
+          <ChevronLeft size={20} strokeWidth={2.4} />
         </button>
-        <div className="flex-1 text-sm font-medium text-primary">{t("nav.trash")}</div>
-        {hasItems && (
-          <button
-            onClick={() => setConfirmingEmpty(true)}
-            className="rounded px-2 py-1 text-xs text-danger hover:bg-danger/10"
-          >
-            Очистить корзину
-          </button>
-        )}
-      </div>
-      {hasItems && (
-        <div className="border-b bg-muted px-4 py-1.5 text-xs text-subtle">
-          Удаляется навсегда через 30 дней
+        <div className="min-w-0 flex-1">
+          <h1 className="truncate text-2xl font-extrabold tracking-tight text-primary lg:text-lg">{t("nav.trash")}</h1>
+          {hasItems && <div className="text-xs font-semibold text-subtle">Удаляется навсегда через 30 дней</div>}
         </div>
-      )}
-      <div className="flex-1 overflow-y-auto">
+      </div>
+      <div className="flex-1 overflow-y-auto px-3 pt-2">
         {isLoading && <ListSkeleton rows={5} withIcon={false} />}
-        {!isLoading && (items ?? []).length === 0 && <div className="p-4 text-sm text-subtle">Корзина пуста</div>}
-        {(items ?? []).map((item) => (
-          <div key={item.id} className="row-fade-in flex items-center justify-between gap-2 border-b px-4 py-3">
-            <div className="min-w-0">
-              <div className="truncate text-sm text-primary">{item.title || "Без названия"}</div>
-              <div className="truncate text-xs text-subtle">
-                удалено {item.deleted_at ? new Date(item.deleted_at).toLocaleString(dateLocale) : ""}
+        {!isLoading && (items ?? []).length === 0 && (
+          <div className="px-4 py-6 text-center text-sm font-semibold text-subtle">Корзина пуста</div>
+        )}
+        {(items ?? []).map((item) => {
+          const daysLeft = item.deleted_at
+            ? Math.max(0, 30 - Math.floor((Date.now() - new Date(item.deleted_at).getTime()) / 86_400_000))
+            : null;
+          return (
+            <div key={item.id} className="row-fade-in mb-2 flex items-center gap-3 rounded-2xl bg-surface p-3 shadow-card">
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-[15px] font-extrabold text-secondary">{item.title || "Без названия"}</div>
+                <div className={`truncate text-xs font-bold ${daysLeft !== null && daysLeft <= 3 ? "text-danger" : "text-subtle"}`}>
+                  {daysLeft !== null ? `осталось ${daysLeft} дн.` : ""}
+                  {item.deleted_at ? ` · удалено ${new Date(item.deleted_at).toLocaleDateString(dateLocale)}` : ""}
+                </div>
               </div>
-            </div>
-            <div className="flex shrink-0 gap-1">
               <button
                 title="Восстановить"
                 onClick={() => restore.mutate(item.id)}
                 disabled={restore.isPending}
-                className="flex h-8 w-8 items-center justify-center rounded text-subtle hover:bg-muted-hover disabled:opacity-50"
+                className="flex h-10 shrink-0 items-center gap-1.5 rounded-full bg-accent px-3.5 text-[13px] font-extrabold text-on-accent disabled:opacity-50"
               >
-                {restore.isPending ? <Spinner size={14} /> : <RotateCcw size={16} />}
+                {restore.isPending ? <Spinner size={14} /> : <RotateCcw size={14} />}
+                Вернуть
               </button>
               <button
                 title="Удалить навсегда"
                 onClick={() => setDeleting(item)}
-                className="flex h-8 w-8 items-center justify-center rounded text-subtle hover:bg-danger/10 hover:text-danger"
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-subtle hover:bg-danger-soft hover:text-danger"
               >
                 <Trash2 size={16} />
               </button>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
+      {hasItems && (
+        <div className="p-3">
+          <button
+            onClick={() => setConfirmingEmpty(true)}
+            className="h-12 w-full rounded-2xl bg-danger-soft text-[15px] font-extrabold text-danger"
+          >
+            Очистить корзину
+          </button>
+        </div>
+      )}
 
       {deleting && (
         <ConfirmDialog

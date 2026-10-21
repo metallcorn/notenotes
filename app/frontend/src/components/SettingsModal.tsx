@@ -160,30 +160,31 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
     <div className="modal-in fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
       <div
         onClick={(e) => e.stopPropagation()}
-        className="flex max-h-[88vh] w-full max-w-3xl flex-col overflow-hidden rounded-lg bg-surface shadow-xl"
+        className="flex max-h-[88vh] w-full max-w-3xl flex-col overflow-hidden rounded-3xl bg-surface shadow-xl"
       >
-        <div className="flex items-center justify-between border-b px-4 py-3">
-          <div className="text-sm font-medium text-primary">Настройки ассистента</div>
+        <div className="flex items-center justify-between px-5 py-4">
+          <div className="text-xl font-extrabold tracking-tight text-primary">Настройки</div>
           <button
             onClick={onClose}
-            className="flex h-7 w-7 items-center justify-center text-subtle hover:text-secondary"
+            aria-label="Закрыть"
+            className="flex h-10 w-10 items-center justify-center rounded-xl bg-muted text-primary hover:bg-muted-hover"
           >
-            <X size={16} />
+            <X size={18} />
           </button>
         </div>
 
         <div className="flex min-h-0 flex-1 flex-col sm:flex-row">
           {/* Слева — переход по разделам. На узком экране превращается в
               горизонтальную полосу: колонка там съела бы половину ширины. */}
-          <nav className="flex shrink-0 gap-1 overflow-x-auto border-b p-2 sm:w-48 sm:flex-col sm:overflow-x-visible sm:border-b-0 sm:border-r sm:p-3">
+          <nav className="flex shrink-0 gap-1.5 overflow-x-auto px-3 pb-2 sm:w-52 sm:flex-col sm:overflow-x-visible sm:px-3 sm:pb-3">
             {SECTIONS.map((s) => (
               <button
                 key={s.key}
                 onClick={() => setActive(s.key)}
-                className={`flex shrink-0 items-center gap-2 rounded px-2.5 py-1.5 text-left text-sm transition-colors ${
+                className={`flex h-10 shrink-0 items-center gap-2 whitespace-nowrap rounded-full px-3.5 text-left text-sm font-bold transition-colors sm:h-auto sm:rounded-xl sm:py-2 ${
                   active === s.key
-                    ? "bg-accent/10 font-medium text-accent"
-                    : "text-secondary hover:bg-muted-hover"
+                    ? "bg-accent text-on-accent sm:bg-brand-soft sm:text-brand-text"
+                    : "bg-muted text-secondary hover:bg-muted-hover sm:bg-transparent"
                 }`}
               >
                 <s.icon size={15} className="shrink-0" aria-hidden />
@@ -216,7 +217,7 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
             <button
               onClick={handleSave}
               disabled={updateInstructions.isPending}
-              className="mt-2 flex items-center gap-2 rounded bg-accent px-3 py-1.5 text-sm text-white disabled:opacity-50"
+              className="mt-2 flex items-center gap-2 rounded bg-accent px-3 py-1.5 text-sm text-on-accent disabled:opacity-50"
             >
               {updateInstructions.isPending ? (
                 <Spinner size={14} className="text-white" />
@@ -274,7 +275,7 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
                   disabled={updateLlmProvider.isPending}
                   className={`rounded border px-3 py-1.5 text-sm disabled:opacity-50 ${
                     (me?.llm_provider || "") === p.value
-                      ? "border-strong bg-accent text-white"
+                      ? "border-strong bg-accent text-on-accent"
                       : "border-default text-secondary hover:bg-muted-hover"
                   }`}
                 >
@@ -324,7 +325,7 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
               <button
                 onClick={handleAddMemory}
                 disabled={addMemory.isPending || !newMemoryText.trim()}
-                className="flex shrink-0 items-center justify-center rounded bg-accent px-3 py-1.5 text-sm text-white disabled:opacity-50"
+                className="flex shrink-0 items-center justify-center rounded bg-accent px-3 py-1.5 text-sm text-on-accent disabled:opacity-50"
               >
                 {addMemory.isPending ? <Spinner size={14} className="text-white" /> : <Plus size={14} />}
               </button>
@@ -373,7 +374,7 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
                     .catch(() => {})
                 }
                 disabled={telegramLinkCode.isPending}
-                className="flex items-center gap-2 rounded bg-accent px-3 py-1.5 text-sm text-white disabled:opacity-50"
+                className="flex items-center gap-2 rounded bg-accent px-3 py-1.5 text-sm text-on-accent disabled:opacity-50"
               >
                 {telegramLinkCode.isPending && <Spinner size={14} className="text-white" />}
                 Подключить
@@ -489,7 +490,7 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
               <button
                 onClick={() => generateMailAddress.mutate()}
                 disabled={generateMailAddress.isPending}
-                className="flex items-center gap-2 rounded bg-accent px-3 py-1.5 text-sm text-white disabled:opacity-50"
+                className="flex items-center gap-2 rounded bg-accent px-3 py-1.5 text-sm text-on-accent disabled:opacity-50"
               >
                 {generateMailAddress.isPending && <Spinner size={14} className="text-white" />}
                 Создать адрес
@@ -554,7 +555,7 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
                   disabled={updateTtsVoice.isPending}
                   className={`rounded border px-3 py-1.5 text-sm disabled:opacity-50 ${
                     currentVoice === preset.value
-                      ? "border-strong bg-accent text-white"
+                      ? "border-strong bg-accent text-on-accent"
                       : "border-default text-secondary hover:bg-muted-hover"
                   }`}
                 >
@@ -664,7 +665,7 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
             <button
               onClick={() => createInviteCode.mutate()}
               disabled={createInviteCode.isPending}
-              className="flex items-center gap-2 rounded bg-accent px-3 py-1.5 text-sm text-white disabled:opacity-50"
+              className="flex items-center gap-2 rounded bg-accent px-3 py-1.5 text-sm text-on-accent disabled:opacity-50"
             >
               {createInviteCode.isPending && <Spinner size={14} className="text-white" />}
               Создать код

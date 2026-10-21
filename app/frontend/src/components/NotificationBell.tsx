@@ -6,9 +6,12 @@ import { dateLocale } from "../i18n";
 export default function NotificationBell({
   updateAvailable,
   onOpenReminder,
+  placement = "up",
 }: {
   updateAvailable: boolean;
   onOpenReminder: (spaceId: string, itemId: string, entryId?: string, notificationId?: string, findText?: string) => void;
+  // Вверх — из футера сайдбара на десктопе, вниз — из шапки «Главной».
+  placement?: "up" | "down";
 }) {
   const [open, setOpen] = useState(false);
   const { data: notifications } = useNotifications();
@@ -22,9 +25,11 @@ export default function NotificationBell({
       <button
         onClick={() => setOpen((v) => !v)}
         title="Уведомления"
-        className="relative flex h-8 w-8 items-center justify-center rounded text-subtle hover:bg-muted-hover"
+        className={`relative flex items-center justify-center rounded-full text-primary hover:bg-muted-hover ${
+          placement === "down" ? "h-11 w-11 bg-surface shadow-card" : "h-8 w-8"
+        }`}
       >
-        <Bell size={16} />
+        <Bell size={placement === "down" ? 20 : 16} />
         {unreadCount > 0 && (
           <span className="absolute right-0.5 top-0.5 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-danger text-[9px] font-medium text-white">
             {unreadCount > 9 ? "9+" : unreadCount}
@@ -40,7 +45,11 @@ export default function NotificationBell({
               приклеен к левому краю окна — та же кнопка оказывается у
               левого края ЭКРАНА, и right-0 там уводит панель за левый край.
               Нужен разный якорь на разных брейкпоинтах, не один и тот же. */}
-          <div className="absolute bottom-full right-0 z-30 mb-1 max-h-96 w-72 max-w-[calc(100vw-1.5rem)] overflow-y-auto rounded border bg-surface shadow-lg lg:right-auto lg:left-0">
+          <div
+            className={`absolute z-30 max-h-96 w-72 max-w-[calc(100vw-1.5rem)] overflow-y-auto rounded-2xl border bg-surface shadow-lg ${
+              placement === "down" ? "right-0 top-full mt-1" : "bottom-full right-0 mb-1 lg:left-0 lg:right-auto"
+            }`}
+          >
             <div className="flex items-center justify-between border-b px-3 py-2">
               <span className="text-xs font-medium uppercase tracking-wide text-subtle">Уведомления</span>
               {(notifications ?? []).some((n) => !n.read_at) && (
@@ -60,7 +69,7 @@ export default function NotificationBell({
                   <div className="text-sm text-primary">Доступна новая версия приложения</div>
                   <button
                     onClick={() => window.location.reload()}
-                    className="mt-1 rounded bg-accent px-2 py-0.5 text-xs text-white"
+                    className="mt-1 rounded bg-accent px-2 py-0.5 text-xs text-on-accent"
                   >
                     Обновить страницу
                   </button>

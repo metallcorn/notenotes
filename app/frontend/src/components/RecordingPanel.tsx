@@ -309,7 +309,7 @@ export default function RecordingPanel({
                 </p>
                 <button
                   onClick={handleStart}
-                  className="flex items-center gap-2 rounded-full bg-accent px-5 py-2.5 text-sm text-white hover:bg-accent/90"
+                  className="flex items-center gap-2 rounded-full bg-accent px-5 py-2.5 text-sm text-on-accent hover:bg-accent/90"
                 >
                   <Mic size={16} />
                   Начать запись
@@ -343,7 +343,7 @@ export default function RecordingPanel({
                 <p className="text-center text-sm text-secondary">
                   Запись отправлена на распознавание — результат появится в заметке через какое-то время.
                 </p>
-                <button onClick={onClose} className="rounded bg-accent px-4 py-2 text-sm text-white hover:bg-accent/90">
+                <button onClick={onClose} className="rounded bg-accent px-4 py-2 text-sm text-on-accent hover:bg-accent/90">
                   Готово
                 </button>
               </>

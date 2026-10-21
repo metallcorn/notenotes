@@ -115,7 +115,7 @@ function FolderMenu({ folder, triggerRef, onAddChild, onRename, onMove, onDelete
       <div className="fixed inset-0 z-40" onClick={onClose} />
       <div
         style={{ top: pos.top, left: pos.left }}
-        className="fixed z-50 w-44 rounded border bg-surface py-1 shadow-lg"
+        className="fixed z-50 w-52 overflow-hidden rounded-2xl border bg-surface py-1 shadow-lg"
       >
         <button
           onClick={() => {
@@ -175,15 +175,15 @@ function FolderNode({ folder, all, selectedFolderId, onSelect, onAddChild, onRen
           e.stopPropagation();
           startFolderDrag(e, { id: folder.id, space_id: folder.space_id });
         }}
-        className={`flex items-center justify-between rounded px-2 py-1 text-sm ${
+        className={`flex min-h-10 items-center justify-between rounded-xl pl-3 pr-0.5 text-sm font-semibold transition-colors ${
           drop.over
-            ? "bg-accent/15 ring-1 ring-accent"
+            ? "bg-brand/15 ring-1 ring-brand"
             : selectedFolderId === folder.id
-              ? "bg-muted-active font-medium"
-              : "hover:bg-muted-hover"
+              ? "bg-brand-soft text-brand-text"
+              : "text-secondary hover:bg-muted"
         }`}
       >
-        <button className="flex-1 truncate text-left" onClick={() => onSelect(folder.id)}>
+        <button className="min-h-10 flex-1 truncate text-left" onClick={() => onSelect(folder.id)}>
           {folder.name}
         </button>
         {/* Раньше тут было три отдельные кнопки подряд — реальная жалоба:
@@ -196,7 +196,7 @@ function FolderNode({ folder, all, selectedFolderId, onSelect, onAddChild, onRen
             ref={triggerRef}
             title="Действия с папкой"
             onClick={() => setMenuOpen((v) => !v)}
-            className="flex h-8 w-8 items-center justify-center text-subtle hover:text-secondary"
+            className="flex h-9 w-9 items-center justify-center rounded-lg text-subtle hover:bg-muted-hover hover:text-secondary"
           >
             <MoreVertical size={15} />
           </button>
@@ -214,7 +214,7 @@ function FolderNode({ folder, all, selectedFolderId, onSelect, onAddChild, onRen
         </div>
       </div>
       {children.length > 0 && (
-        <ul className="ml-3 border-l pl-2">
+        <ul className="ml-4 border-l pl-1.5">
           {children.map((child) => (
             <FolderNode
               key={child.id}
@@ -307,23 +307,13 @@ export default function FolderTree({
   }
 
   return (
-    <div className="mb-4">
-      <div className="mb-1 flex items-center justify-between">
-        <span className="text-xs font-medium uppercase tracking-wide text-subtle">Папки</span>
-        <button
-          onClick={() => setAddingParentId(addingParentId === null ? undefined : null)}
-          className="text-xs text-subtle hover:text-secondary"
-        >
-          + новая
-        </button>
-      </div>
-
+    <div className="pb-1 text-primary">
       <ul className="space-y-0.5">
         <li>
           <button
             onClick={() => onSelect(null)}
-            className={`w-full rounded px-2 py-1 text-left text-sm ${
-              selectedFolderId === null ? "bg-muted-active font-medium" : "hover:bg-muted-hover"
+            className={`min-h-10 w-full rounded-xl px-3 text-left text-sm font-semibold transition-colors ${
+              selectedFolderId === null ? "bg-brand-soft text-brand-text" : "text-secondary hover:bg-muted"
             }`}
           >
             Все заметки
@@ -332,12 +322,12 @@ export default function FolderTree({
         <li {...rootDrop.props}>
           <button
             onClick={() => onSelect("root")}
-            className={`w-full rounded px-2 py-1 text-left text-sm ${
+            className={`min-h-10 w-full rounded-xl px-3 text-left text-sm font-semibold transition-colors ${
               rootDrop.over
-                ? "bg-accent/15 ring-1 ring-accent"
+                ? "bg-brand/15 ring-1 ring-brand"
                 : selectedFolderId === "root"
-                  ? "bg-muted-active font-medium"
-                  : "hover:bg-muted-hover"
+                  ? "bg-brand-soft text-brand-text"
+                  : "text-secondary hover:bg-muted"
             }`}
           >
             Без папки
@@ -358,21 +348,27 @@ export default function FolderTree({
           />
         ))}
       </ul>
+      <button
+        onClick={() => setAddingParentId(addingParentId === null ? undefined : null)}
+        className="mt-0.5 flex min-h-9 items-center gap-1.5 rounded-xl px-3 text-sm font-semibold text-subtle hover:bg-muted hover:text-secondary"
+      >
+        <Plus size={14} /> Новая папка
+      </button>
       {dropError && <p className="mt-1 px-2 text-xs text-danger">{dropError}</p>}
 
       {addingParentId !== undefined && (
-        <form onSubmit={submitNew} className="mt-2 flex gap-1">
+        <form onSubmit={submitNew} className="mt-1 flex gap-1.5 px-1">
           <input
             autoFocus
             value={newName}
             onChange={(e) => setNewName(e.target.value)}
             placeholder="Название папки"
-            className="w-full rounded border px-2 py-1 text-sm"
+            className="h-10 w-full min-w-0 rounded-xl border bg-surface px-3 text-sm"
           />
           <button
             type="submit"
             disabled={createFolder.isPending}
-            className="flex shrink-0 items-center justify-center gap-1 rounded bg-accent px-2 py-1 text-xs text-white disabled:opacity-50"
+            className="flex h-10 shrink-0 items-center justify-center gap-1 rounded-xl bg-accent px-3 text-xs font-bold text-on-accent disabled:opacity-50"
           >
             {createFolder.isPending ? <Spinner size={12} /> : "OK"}
           </button>
@@ -383,7 +379,7 @@ export default function FolderTree({
               setAddingParentId(undefined);
             }}
             title="Отменить"
-            className="flex shrink-0 items-center justify-center rounded border px-2 py-1 text-xs text-subtle hover:bg-muted-hover"
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border text-subtle hover:bg-muted-hover"
           >
             <X size={14} />
           </button>

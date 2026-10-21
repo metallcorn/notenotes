@@ -13,3 +13,17 @@ export function formatBytes(bytes: number): string {
   const formatted = value.toFixed(digits).replace(/\.0$/, "");
   return `${formatted} ${units[i]}`;
 }
+
+// Человеческое время для карточек списка (макет «Заметки в папке», 21.10):
+// «сегодня, 09:12», «вчера, 18:40», «19 окт», для прошлых лет — «19 окт
+// 2025». Полная дата со временем остаётся в title у карточки.
+export function formatRelativeDay(value: string, locale: string, now: Date = new Date()): string {
+  const d = new Date(value);
+  const time = d.toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit" });
+  const startOfDay = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const days = Math.round((startOfDay(now) - startOfDay(d)) / 86_400_000);
+  if (days === 0) return `${locale.startsWith("ru") ? "сегодня" : "today"}, ${time}`;
+  if (days === 1) return `${locale.startsWith("ru") ? "вчера" : "yesterday"}, ${time}`;
+  if (d.getFullYear() === now.getFullYear()) return d.toLocaleDateString(locale, { day: "numeric", month: "short" });
+  return d.toLocaleDateString(locale, { day: "numeric", month: "short", year: "numeric" });
+}

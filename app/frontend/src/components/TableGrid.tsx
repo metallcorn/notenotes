@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useState } from "react";
-import { Plus, X } from "lucide-react";
+import { LayoutGrid, Plus, Table2, X } from "lucide-react";
 import {
   useAddTableColumn,
   useAddTableRow,
@@ -42,7 +42,7 @@ function ColumnHeaderCell({
   }
 
   return (
-    <th className="whitespace-nowrap border-b bg-muted px-2 py-1.5 text-left text-xs font-medium text-secondary">
+    <th className="whitespace-nowrap border-b bg-muted px-3 py-2 text-left text-xs font-extrabold uppercase tracking-wide text-subtle">
       <div className="flex items-center gap-1">
         {editing ? (
           <input
@@ -91,18 +91,18 @@ function RowCell({
 
   if (column.type === "checkbox") {
     return (
-      <td className="border-b px-2 py-1">
+      <td className="border-b px-3 py-1.5">
         <input
           type="checkbox"
           checked={value === "true"}
           onChange={(e) => onChange(e.target.checked ? "true" : "false")}
-          className="h-4 w-4 accent-accent"
+          className="h-5 w-5 accent-brand"
         />
       </td>
     );
   }
   return (
-    <td className="border-b px-2 py-1">
+    <td className="border-b px-3 py-1.5">
       <input
         type={column.type === "number" ? "number" : "text"}
         value={text}
@@ -115,6 +115,44 @@ function RowCell({
   );
 }
 
+// Та же ячейка, но внутри карточки строки (вид «карточки» на телефоне,
+// макет «Таблица», 21.10): подпись столбца сверху, значение под ней.
+function CardCell({
+  column,
+  value,
+  onChange,
+}: {
+  column: TableColumn;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  const [text, setText] = useState(value);
+  useEffect(() => setText(value), [value]);
+  return (
+    <label className="flex min-w-0 flex-col gap-0.5">
+      <span className="truncate text-[11px] font-extrabold uppercase tracking-wide text-subtle">{column.name}</span>
+      {column.type === "checkbox" ? (
+        <input
+          type="checkbox"
+          checked={value === "true"}
+          onChange={(e) => onChange(e.target.checked ? "true" : "false")}
+          className="h-5 w-5 accent-brand"
+        />
+      ) : (
+        <input
+          type={column.type === "number" ? "number" : "text"}
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          onBlur={() => text !== value && onChange(text)}
+          onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
+          placeholder="—"
+          className="w-full border-none bg-transparent text-[15px] font-semibold text-primary outline-none"
+        />
+      )}
+    </label>
+  );
+}
+
 // Самодостаточный грид — принимает только tableId и сам тянет данные/шлёт
 // мутации. Общий и для standalone-страницы (TableEditor.tsx), и для
 // embed-карточки в заметке (TableEmbedCard.tsx) — обе точки входа рисуют
@@ -122,6 +160,15 @@ function RowCell({
 export default function TableGrid({ tableId }: { tableId: string }) {
   const { data: table } = useTable(tableId);
   useTableSync(tableId);
+  // На узком экране таблица с несколькими столбцами не влезает — строки
+  // показываются карточками, обычный грид включается кнопкой. Стартовое
+  // значение — по ширине экрана при монтировании; переключение не
+  // запоминается нарочно: это способ посмотреть, а не настройка.
+  const [view, setView] = useState<"cards" | "grid">(() =>
+    typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia("(max-width: 639px)").matches
+      ? "cards"
+      : "grid",
+  );
 
   const addColumn = useAddTableColumn(tableId);
   const updateColumn = useUpdateTableColumn(tableId);
@@ -162,10 +209,47 @@ export default function TableGrid({ tableId }: { tableId: string }) {
 
   return (
     <div>
+      {table.columns.length > 0 && (
+        <div className="mb-2 flex justify-end">
+          <button
+            type="button"
+            onClick={() => setView((v) => (v === "cards" ? "grid" : "cards"))}
+            className="flex h-9 items-center gap-1.5 rounded-full bg-muted px-3 text-xs font-bold text-secondary hover:bg-muted-hover"
+          >
+            {view === "cards" ? <Table2 size={14} /> : <LayoutGrid size={14} />}
+            {view === "cards" ? "Таблицей" : "Карточками"}
+          </button>
+        </div>
+      )}
       {table.columns.length === 0 ? (
         <div className="p-3 text-sm text-subtle">Пока нет ни одного столбца — добавьте первый ниже</div>
+      ) : view === "cards" ? (
+        <div className="space-y-2">
+          {table.rows.length === 0 && <div className="p-3 text-sm text-subtle">Пока нет строк — добавьте первую ниже</div>}
+          {table.rows.map((row) => (
+            <div key={row.id} className="relative rounded-2xl bg-surface p-3.5 pr-10 shadow-card">
+              <div className="grid grid-cols-2 gap-x-3 gap-y-2">
+                {table.columns.map((col) => (
+                  <CardCell
+                    key={col.id}
+                    column={col}
+                    value={row.cells[col.id] ?? ""}
+                    onChange={(value) => updateRow.mutate({ rowId: row.id, cells: { [col.id]: value } })}
+                  />
+                ))}
+              </div>
+              <button
+                onClick={() => deleteRow.mutate(row.id)}
+                title="Удалить строку"
+                className="absolute right-2 top-2 flex h-8 w-8 items-center justify-center rounded-lg text-subtle hover:bg-muted hover:text-danger"
+              >
+                <X size={14} />
+              </button>
+            </div>
+          ))}
+        </div>
       ) : (
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto rounded-2xl bg-surface shadow-card">
           <table className="w-full border-collapse text-sm">
             <thead>
               <tr>
@@ -220,7 +304,7 @@ export default function TableGrid({ tableId }: { tableId: string }) {
           <button
             type="submit"
             disabled={addColumn.isPending}
-            className="flex shrink-0 items-center justify-center gap-1 rounded bg-accent px-2 py-1 text-xs text-white disabled:opacity-50"
+            className="flex shrink-0 items-center justify-center gap-1 rounded bg-accent px-2 py-1 text-xs text-on-accent disabled:opacity-50"
           >
             {addColumn.isPending ? <Spinner size={12} /> : "OK"}
           </button>
@@ -239,27 +323,28 @@ export default function TableGrid({ tableId }: { tableId: string }) {
       ) : (
         <button
           onClick={() => setAddingColumn(true)}
-          className="mt-2 flex items-center gap-1 text-xs text-subtle hover:text-secondary"
+          className="mt-2 flex h-9 items-center gap-1.5 rounded-full px-3 text-xs font-bold text-subtle hover:bg-muted hover:text-secondary"
         >
-          <Plus size={12} /> Столбец
+          <Plus size={14} /> Столбец
         </button>
       )}
 
       {table.columns.length > 0 && (
-        <form onSubmit={submitNewRow} className="mt-2 flex flex-wrap gap-2 border-t pt-2">
+        <form onSubmit={submitNewRow} className="mt-3 flex flex-wrap gap-2 rounded-2xl bg-muted p-2">
           {table.columns.map((col) => (
             <input
               key={col.id}
               value={newRow[col.id] ?? ""}
               onChange={(e) => setNewRow((prev) => ({ ...prev, [col.id]: e.target.value }))}
               placeholder={col.name}
-              className="min-w-[7rem] flex-1 rounded border px-3 py-2 text-sm"
+              className="h-11 min-w-[7rem] flex-1 rounded-xl border-0 bg-surface px-3 text-sm outline-none focus:ring-2 focus:ring-brand/40"
             />
           ))}
           <button
             type="submit"
+            aria-label="Добавить строку"
             disabled={addRow.isPending}
-            className="flex shrink-0 items-center justify-center rounded bg-accent px-4 py-2 text-sm text-white disabled:opacity-50"
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-accent text-on-accent disabled:opacity-50"
           >
             {addRow.isPending ? <Spinner size={14} className="text-white" /> : <Plus size={14} />}
           </button>

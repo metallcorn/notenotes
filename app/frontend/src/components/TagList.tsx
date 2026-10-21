@@ -33,21 +33,24 @@ export default function TagList({
   }
 
   return (
-    <div className="mb-4">
-      <div className="mb-1 flex items-center justify-between">
-        <span className="text-xs font-medium uppercase tracking-wide text-subtle">Теги</span>
-        <button onClick={() => setAdding((v) => !v)} className="text-xs text-subtle hover:text-secondary">
+    <div className="mb-2 rounded-2xl bg-surface p-1.5 shadow-card">
+      <div className="mb-0.5 flex min-h-10 items-center justify-between px-2">
+        <span className="text-[11px] font-extrabold uppercase tracking-wider text-subtle">Теги</span>
+        <button onClick={() => setAdding((v) => !v)} className="text-xs font-semibold text-subtle hover:text-secondary">
           + новый
         </button>
       </div>
       <ul className="space-y-0.5">
         {(tags ?? []).map((tag) => (
-          <li key={tag.id} className="flex items-center justify-between rounded px-2 py-1 text-sm">
+          <li
+            key={tag.id}
+            className={`flex min-h-9 items-center justify-between rounded-xl pl-3 pr-1 text-sm font-semibold ${
+              selectedTagId === tag.id ? "bg-brand-soft text-brand-text" : "text-secondary"
+            }`}
+          >
             <button
               onClick={() => onSelect(selectedTagId === tag.id ? null : tag.id)}
-              className={`flex-1 truncate text-left ${
-                selectedTagId === tag.id ? "font-medium text-primary" : "text-secondary hover:text-primary"
-              }`}
+              className="min-h-9 flex-1 truncate text-left hover:text-primary"
             >
               #{tag.name}
             </button>
@@ -89,7 +92,7 @@ export default function TagList({
           <button
             type="submit"
             disabled={createTag.isPending}
-            className="flex shrink-0 items-center justify-center gap-1 rounded bg-accent px-2 py-1 text-xs text-white disabled:opacity-50"
+            className="flex shrink-0 items-center justify-center gap-1 rounded bg-accent px-2 py-1 text-xs text-on-accent disabled:opacity-50"
           >
             {createTag.isPending ? <Spinner size={12} /> : "OK"}
           </button>

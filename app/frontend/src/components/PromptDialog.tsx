@@ -25,24 +25,24 @@ export default function PromptDialog({
           e.preventDefault();
           if (value.trim()) onConfirm(value.trim());
         }}
-        className="w-full max-w-sm rounded-lg bg-surface p-4 shadow-xl"
+        className="w-full max-w-sm rounded-3xl bg-surface p-5 shadow-xl"
       >
-        <div className="mb-2 text-sm font-medium text-primary">{title}</div>
+        <div className="mb-3 text-[15px] font-bold leading-snug text-primary">{title}</div>
         <input
           autoFocus
           value={value}
           onChange={(e) => setValue(e.target.value)}
-          className="w-full rounded border px-3 py-2 text-sm"
+          className="h-12 w-full rounded-2xl border bg-surface px-4 text-[15px] outline-none focus:ring-2 focus:ring-brand/40"
         />
         <div className="mt-3 flex justify-end gap-2">
           <button
             type="button"
             onClick={onCancel}
-            className="rounded px-3 py-1.5 text-sm text-subtle hover:bg-muted-hover"
+            className="h-11 rounded-2xl px-4 text-sm font-bold text-secondary hover:bg-muted"
           >
             Отмена
           </button>
-          <button type="submit" className="rounded bg-accent px-3 py-1.5 text-sm text-white">
+          <button type="submit" className="h-11 rounded-2xl bg-accent px-4 text-sm font-extrabold text-on-accent">
             {confirmLabel}
           </button>
         </div>
