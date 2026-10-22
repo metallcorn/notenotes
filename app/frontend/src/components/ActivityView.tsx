@@ -150,16 +150,16 @@ function NotificationRow({
 
   return (
     <div
-      className={`row-fade-in flex items-start gap-2 border-b px-4 py-3 ${
-        !resolved && !notification.read_at ? "bg-muted" : ""
+      className={`row-fade-in mx-3 mb-2 flex items-start gap-2 rounded-2xl bg-surface px-3.5 py-3 shadow-card ${
+        !resolved && !notification.read_at ? "ring-1 ring-brand/40" : ""
       }`}
     >
       <button
         title={resolved ? "Вернуть в активные" : "Отметить выполненным"}
         onClick={() => (resolved ? unresolve.mutate(notification.id) : resolve.mutate(notification.id))}
         disabled={resolve.isPending || unresolve.isPending}
-        className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border disabled:opacity-50 ${
-          resolved ? "border-success bg-success text-white" : "border-default text-transparent hover:border-strong"
+        className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full border-2 disabled:opacity-50 ${
+          resolved ? "border-brand bg-brand text-white" : "border-strong text-transparent hover:border-brand"
         }`}
       >
         <Check size={12} />
@@ -177,8 +177,8 @@ function NotificationRow({
         className={`min-w-0 flex-1 text-left ${clickable ? "cursor-pointer hover:opacity-80" : "cursor-default"}`}
       >
         <div
-          className={`truncate text-sm ${
-            resolved ? "text-subtle line-through" : !notification.read_at ? "font-medium text-primary" : "text-secondary"
+          className={`truncate text-[15px] font-bold ${
+            resolved ? "text-subtle line-through" : !notification.read_at ? "text-primary" : "text-secondary"
           }`}
         >
           {notification.title}
@@ -232,7 +232,7 @@ function DetectedEventRow({
   const dismiss = useDismissDetectedEvent();
 
   return (
-    <div className="row-fade-in flex items-start gap-2 border-b bg-brand/10 px-4 py-3">
+    <div className="row-fade-in mx-3 mb-2 flex items-start gap-2 rounded-2xl bg-brand-soft/60 px-3.5 py-3">
       <Calendar size={14} className="mt-0.5 shrink-0 text-brand" />
       <button
         onClick={() => onOpen(event.space_id, event.item_id)}
@@ -338,7 +338,7 @@ function NotificationsTab({
     <div>
       {today.length > 0 && (
         <>
-          <div className="bg-muted px-4 py-1.5 text-xs font-medium uppercase tracking-wide text-subtle">
+          <div className="px-4 pb-1.5 pt-2 text-[11px] font-extrabold uppercase tracking-wider text-subtle">
             Сегодня
           </div>
           {today.map((e) => (
@@ -348,14 +348,14 @@ function NotificationsTab({
       )}
       {active.length > 0 && (
         <>
-          <div className="flex items-center gap-1.5 bg-muted px-4 py-1.5">
-            <span className="mr-0.5 text-xs font-medium uppercase tracking-wide text-subtle">Активные</span>
+          <div className="flex items-center gap-1.5 px-4 pb-1.5 pt-2">
+            <span className="mr-0.5 text-[11px] font-extrabold uppercase tracking-wider text-subtle">Активные</span>
             {(Object.keys(HORIZON_LABELS) as Horizon[]).map((h) => (
               <button
                 key={h}
                 onClick={() => setHorizon(h)}
-                className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${
-                  horizon === h ? "bg-accent text-on-accent" : "bg-muted-active text-secondary hover:bg-muted-active"
+                className={`h-7 rounded-full px-2.5 text-[11px] font-bold ${
+                  horizon === h ? "bg-accent text-on-accent" : "bg-surface text-secondary shadow-card hover:bg-muted"
                 }`}
               >
                 {HORIZON_LABELS[h]}
@@ -381,7 +381,7 @@ function NotificationsTab({
       )}
       {resolved.length > 0 && (
         <>
-          <div className="bg-muted px-4 py-1.5 text-xs font-medium uppercase tracking-wide text-subtle">
+          <div className="px-4 pb-1.5 pt-2 text-[11px] font-extrabold uppercase tracking-wider text-subtle">
             Выполненные
           </div>
           {resolved.map((n) => (
@@ -447,7 +447,7 @@ function RecentTab({
   }
 
   if (entries.length === 0) {
-    return <div className="p-4 text-sm text-subtle">Пока пусто</div>;
+    return <div className="px-4 py-6 text-center text-sm font-semibold text-subtle">Пока пусто</div>;
   }
 
   return (
@@ -458,12 +458,14 @@ function RecentTab({
           <button
             key={`${e.kind}-${e.id}`}
             onClick={() => (e.kind === "dialog" ? onOpenDialog(e.id) : onOpenItem(e.spaceId, e.id))}
-            className="row-fade-in flex w-full items-center gap-2.5 border-b px-4 py-2.5 text-left hover:bg-muted-hover"
+            className="row-fade-in mx-3 mb-2 flex w-[calc(100%-1.5rem)] items-center gap-3 rounded-2xl bg-surface p-3 text-left shadow-card hover:shadow-float"
           >
-            <Icon size={15} className="shrink-0 text-subtle" />
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-muted text-primary">
+              <Icon size={18} />
+            </span>
             <div className="min-w-0 flex-1">
-              <div className="truncate text-sm text-primary">{e.title}</div>
-              <div className="truncate text-xs text-subtle">
+              <div className="truncate text-[15px] font-extrabold text-primary">{e.title}</div>
+              <div className="truncate text-xs font-semibold text-subtle">
                 {e.spaceName} · {formatWhen(e.updatedAt)}
               </div>
             </div>

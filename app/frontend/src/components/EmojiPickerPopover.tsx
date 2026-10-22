@@ -1,4 +1,4 @@
-import EmojiPicker, { type EmojiClickData } from "emoji-picker-react";
+import EmojiPicker, { Theme, type EmojiClickData } from "emoji-picker-react";
 
 export default function EmojiPickerPopover({
   onSelect,
@@ -18,6 +18,9 @@ export default function EmojiPickerPopover({
           }}
           width={320}
           height={400}
+          // Тема пикера — по классу .dark на <html> (lib/theme.ts): иначе в
+          // тёмной теме всплывает белая панель.
+          theme={document.documentElement.classList.contains("dark") ? Theme.DARK : Theme.LIGHT}
           searchPlaceHolder="Поиск эмодзи"
         />
       </div>

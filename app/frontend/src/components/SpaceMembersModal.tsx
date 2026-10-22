@@ -76,20 +76,20 @@ export default function SpaceMembersModal({
         className="flex max-h-[80vh] w-full max-w-sm flex-col rounded-3xl bg-surface p-4 shadow-xl"
       >
         <div className="mb-3 flex items-center justify-between">
-          <div className="flex items-center gap-1.5 text-sm font-medium text-primary">
-            <Users size={14} /> Участники «{spaceName}»
+          <div className="flex min-w-0 items-center gap-2 text-xl font-extrabold tracking-tight text-primary">
+            <Users size={20} className="shrink-0" /> <span className="truncate">Участники «{spaceName}»</span>
           </div>
-          <button onClick={onClose} className="text-subtle hover:text-secondary">
-            <X size={16} />
+          <button onClick={onClose} aria-label="Закрыть" className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-muted text-primary hover:bg-muted-hover">
+            <X size={18} />
           </button>
         </div>
 
         <div className="min-h-0 flex-1 space-y-4 overflow-y-auto">
           <div>
-            <div className="mb-1.5 text-xs font-medium uppercase tracking-wide text-subtle">Участники</div>
+            <div className="mb-1.5 text-[11px] font-extrabold uppercase tracking-wider text-subtle">Участники</div>
             <div className="space-y-1">
               {(members ?? []).map((m) => (
-                <div key={m.user_id} className="flex items-center justify-between gap-2 rounded px-1.5 py-1 text-sm">
+                <div key={m.user_id} className="flex min-h-11 items-center justify-between gap-2 rounded-xl bg-muted px-3 py-1.5 text-sm">
                   <div className="min-w-0">
                     <div className="truncate text-primary">{m.name}</div>
                     <div className="truncate text-xs text-subtle">@{m.username}</div>
@@ -110,12 +110,12 @@ export default function SpaceMembersModal({
                 onChange={(e) => setUsername(e.target.value)}
                 placeholder="Ник пользователя"
                 disabled={addMember.isPending}
-                className="min-w-0 flex-1 rounded border px-2.5 py-1.5 text-sm disabled:opacity-50"
+                className="min-w-0 flex-1 h-10 rounded-xl border bg-surface px-3 text-sm outline-none focus:ring-2 focus:ring-brand/40 disabled:opacity-50"
               />
               <button
                 type="submit"
                 disabled={addMember.isPending || !username.trim()}
-                className="flex shrink-0 items-center gap-1 rounded bg-accent px-2.5 py-1.5 text-sm text-on-accent disabled:opacity-50"
+                className="flex shrink-0 items-center gap-1 h-10 rounded-xl bg-accent px-4 text-sm font-bold text-on-accent disabled:opacity-50"
               >
                 {addMember.isPending && <Spinner size={12} />}
                 Добавить
@@ -126,7 +126,7 @@ export default function SpaceMembersModal({
 
           <div>
             <div className="mb-1.5 flex items-center justify-between">
-              <span className="text-xs font-medium uppercase tracking-wide text-subtle">Ссылки-приглашения</span>
+              <span className="text-[11px] font-extrabold uppercase tracking-wider text-subtle">Ссылки-приглашения</span>
               <button
                 onClick={() => createInvite.mutate()}
                 disabled={createInvite.isPending}

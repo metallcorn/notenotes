@@ -43,8 +43,8 @@ function FolderOption({
         onClick={() => onMove(spaceId, folder.id)}
         disabled={isCurrent}
         style={{ paddingLeft: `${24 + depth * 16}px` }}
-        className={`flex w-full items-center gap-2 py-2 pr-4 text-left text-sm hover:bg-muted-hover disabled:cursor-default disabled:hover:bg-transparent ${
-          isCurrent ? "font-medium text-subtle" : "text-secondary"
+        className={`flex min-h-11 w-full items-center gap-2 pr-4 text-left text-sm font-semibold hover:bg-muted disabled:cursor-default disabled:hover:bg-transparent ${
+          isCurrent ? "text-subtle" : "text-secondary"
         }`}
       >
         <FolderIcon size={13} className="shrink-0 text-subtle" />
@@ -92,18 +92,18 @@ export default function MoveItemModal({
         onClick={(e) => e.stopPropagation()}
         className="flex max-h-[80vh] w-full max-w-sm flex-col overflow-hidden rounded-3xl bg-surface shadow-xl"
       >
-        <div className="flex items-center justify-between border-b px-4 py-3">
-          <div className="text-sm font-medium text-primary">Переместить в…</div>
-          <button onClick={onClose} className="text-subtle hover:text-secondary">
-            <X size={16} />
+        <div className="flex items-center justify-between px-5 py-4">
+          <div className="text-2xl font-extrabold tracking-tight text-primary">Куда положить</div>
+          <button onClick={onClose} aria-label="Закрыть" className="flex h-10 w-10 items-center justify-center rounded-xl bg-muted text-primary hover:bg-muted-hover">
+            <X size={18} />
           </button>
         </div>
-        <div className="overflow-y-auto">
+        <div className="overflow-y-auto px-3 pb-3">
           {spaces.map((space) => {
             const expanded = expandedSpaceId === space.id;
             const isCurrentSpace = space.id === currentSpaceId;
             return (
-              <div key={space.id} className="border-b last:border-b-0">
+              <div key={space.id} className="mb-1.5 overflow-hidden rounded-2xl bg-muted">
                 <button
                   onClick={() => {
                     if (space.is_vault) {
@@ -112,7 +112,7 @@ export default function MoveItemModal({
                     }
                     setExpandedSpaceId(expanded ? null : space.id);
                   }}
-                  className="flex w-full items-center justify-between gap-2 px-4 py-2.5 text-left text-sm text-primary hover:bg-muted-hover"
+                  className="flex min-h-12 w-full items-center justify-between gap-2 px-4 text-left text-[15px] font-extrabold text-primary hover:bg-muted-hover"
                 >
                   <span className="truncate">
                     {space.name}
@@ -124,12 +124,12 @@ export default function MoveItemModal({
                   )}
                 </button>
                 {expanded && (
-                  <div className="bg-muted pb-1">
+                  <div className="bg-surface pb-1 pt-1">
                     <button
                       onClick={() => onMove(space.id, null)}
                       disabled={isCurrentSpace && currentFolderId === null}
-                      className={`flex w-full items-center gap-2 px-6 py-2 text-left text-sm hover:bg-muted-hover disabled:cursor-default disabled:hover:bg-transparent ${
-                        isCurrentSpace && currentFolderId === null ? "font-medium text-subtle" : "text-secondary"
+                      className={`flex min-h-11 w-full items-center gap-2 px-6 text-left text-sm font-semibold hover:bg-muted disabled:cursor-default disabled:hover:bg-transparent ${
+                        isCurrentSpace && currentFolderId === null ? "text-subtle" : "text-secondary"
                       }`}
                     >
                       Без папки {isCurrentSpace && currentFolderId === null && <span className="text-xs">(здесь)</span>}

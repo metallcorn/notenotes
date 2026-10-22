@@ -74,17 +74,17 @@ export default function InsertTableModal({
                 onChange={(e) => setNewTitle(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && createNew()}
                 placeholder="Название таблицы"
-                className="w-full rounded border px-2 py-1.5 text-sm outline-none focus:border-strong"
+                className="w-full h-10 rounded-xl border bg-surface px-3 text-sm outline-none focus:ring-2 focus:ring-brand/40"
               />
             </label>
             <div className="flex justify-end gap-2">
-              <button onClick={onCancel} className="rounded px-3 py-1.5 text-sm text-subtle hover:bg-muted-hover">
+              <button onClick={onCancel} className="h-10 rounded-xl px-4 text-sm font-bold text-secondary hover:bg-muted">
                 Отмена
               </button>
               <button
                 onClick={createNew}
                 disabled={createTable.isPending}
-                className="flex items-center gap-1.5 rounded bg-accent px-3 py-1.5 text-sm text-on-accent disabled:opacity-40"
+                className="flex items-center gap-1.5 h-10 rounded-xl bg-accent px-4 text-sm font-bold text-on-accent disabled:opacity-40"
               >
                 {createTable.isPending && <Spinner size={14} className="text-white" />}
                 Создать
@@ -100,7 +100,7 @@ export default function InsertTableModal({
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="Поиск по названию…"
-                className="w-full rounded border py-1.5 pl-7 pr-2 text-sm outline-none focus:border-strong"
+                className="w-full h-10 rounded-xl border bg-surface pl-8 pr-3 text-sm outline-none focus:ring-2 focus:ring-brand/40"
               />
             </label>
             <div className="mb-3 max-h-56 overflow-y-auto rounded border">
@@ -131,7 +131,7 @@ export default function InsertTableModal({
               )}
             </div>
             <div className="flex justify-end">
-              <button onClick={onCancel} className="rounded px-3 py-1.5 text-sm text-subtle hover:bg-muted-hover">
+              <button onClick={onCancel} className="h-10 rounded-xl px-4 text-sm font-bold text-secondary hover:bg-muted">
                 Отмена
               </button>
             </div>

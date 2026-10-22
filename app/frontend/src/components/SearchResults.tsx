@@ -17,9 +17,9 @@ export default function SearchResults({
 
   return (
     <>
-    <ul>
+    <ul className="px-3 pt-2">
       {isLoading && (
-        <li className="flex items-center gap-2 p-3 text-sm text-subtle">
+        <li className="flex items-center gap-2 p-3 text-sm font-semibold text-subtle">
           <Spinner /> Ищем…
         </li>
       )}
@@ -27,18 +27,18 @@ export default function SearchResults({
         // Показываем, только когда быстрый поиск отработал. Смысловой блок
         // ниже может ещё догружаться и что-то найти — «Ничего не найдено»
         // над ним выглядело бы прямым враньём.
-        <li className="p-3 text-sm text-subtle">Точных совпадений нет</li>
+        <li className="p-3 text-sm font-semibold text-subtle">Точных совпадений нет</li>
       )}
       {fast.map((item) => (
-        <li key={item.id}>
+        <li key={item.id} className="pb-2">
           <button
             onClick={() => onSelect(item.id)}
-            className={`block w-full border-b px-3 py-2 text-left ${
-              selectedId === item.id ? "bg-muted-hover" : "hover:bg-muted-hover"
+            className={`block w-full rounded-2xl bg-surface p-3.5 text-left shadow-card ${
+              selectedId === item.id ? "ring-2 ring-brand" : "hover:shadow-float"
             }`}
           >
-            <div className="truncate text-sm font-medium text-primary">{item.title || "Без названия"}</div>
-            <div className="mt-0.5 truncate text-xs text-subtle">
+            <div className="truncate text-[15px] font-extrabold text-primary">{item.title || "Без названия"}</div>
+            <div className="mt-0.5 truncate text-[13px] text-subtle">
               {item.content.slice(0, 120).replace(/\n/g, " ")}
             </div>
           </button>

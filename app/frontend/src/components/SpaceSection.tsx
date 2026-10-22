@@ -237,7 +237,7 @@ export default function SpaceSection({
             <div className="flex justify-end gap-2">
               <button
                 onClick={() => setConfirmingDelete(false)}
-                className="rounded px-3 py-1.5 text-sm text-subtle hover:bg-muted-hover"
+                className="h-10 rounded-xl px-4 text-sm font-bold text-secondary hover:bg-muted"
               >
                 Отмена
               </button>

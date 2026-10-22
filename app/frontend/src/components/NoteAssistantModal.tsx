@@ -123,7 +123,7 @@ export default function NoteAssistantModal({
       <div className="pointer-events-none fixed inset-0 z-50 flex items-center justify-center p-4 lg:items-stretch lg:justify-end lg:p-0">
         <div
           style={isDesktop ? { width } : undefined}
-          className="panel-slide-in pointer-events-auto relative flex h-[85vh] w-full max-w-xl flex-col overflow-hidden rounded-lg bg-surface shadow-xl lg:h-full lg:max-w-none lg:rounded-none lg:border-l lg:shadow-2xl"
+          className="panel-slide-in pointer-events-auto relative flex h-[85vh] w-full max-w-xl flex-col overflow-hidden rounded-3xl bg-surface shadow-xl lg:h-full lg:max-w-none lg:rounded-none lg:border-l lg:shadow-2xl"
         >
           {/* Ручка изменения ширины — только на десктопе, на телефоне
               панель на всю ширину, тянуть нечего. */}
@@ -178,7 +178,7 @@ export default function NoteAssistantModal({
                 </div>
                 <button
                   onClick={startNewDialog}
-                  className="mt-3 w-full rounded bg-accent px-3 py-1.5 text-sm text-on-accent hover:bg-accent/90"
+                  className="mt-3 w-full h-10 rounded-xl bg-accent px-4 text-sm font-bold text-on-accent hover:bg-accent/90"
                 >
                   Начать новый разговор
                 </button>

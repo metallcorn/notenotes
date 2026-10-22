@@ -56,12 +56,17 @@ async function create(page: Page, title: "Новая заметка" | "Новы
   // После goto приложение может открыться сразу в редакторе последней
   // заметки — там нижней панели нет; возвращаемся к списку и пробуем снова.
   await expect(async () => {
+    const sheet = page.getByRole("dialog", { name: "Создать" });
     const plus = page.locator('[title="Создать"]:visible');
-    if (await plus.count()) {
-      await plus.first().click();
+    if ((await sheet.count()) || (await plus.count())) {
+      if (!(await sheet.count())) await plus.first().click();
+      await expect(sheet).toBeVisible();
+      // Шторка выезжает снизу 0.26 с — WebKit считает кнопку нестабильной,
+      // пока идёт анимация, и клик не проходит.
+      await page.waitForTimeout(400);
       // На планшетной ширине за шторкой видны и кнопки шапки списка с теми
       // же title — ищем только внутри шторки.
-      await page.getByRole("dialog", { name: "Создать" }).locator(`[title="${title}"]`).click({ timeout: 3000 });
+      await sheet.locator(`[title="${title}"]`).click({ timeout: 5000 });
       return;
     }
     const header =

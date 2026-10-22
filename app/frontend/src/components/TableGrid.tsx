@@ -299,12 +299,12 @@ export default function TableGrid({ tableId }: { tableId: string }) {
             value={newColumnName}
             onChange={(e) => setNewColumnName(e.target.value)}
             placeholder="Название столбца"
-            className="w-full max-w-xs rounded border px-2 py-1 text-sm"
+            className="w-full max-w-xs h-10 rounded-xl border bg-surface px-3 text-sm outline-none focus:ring-2 focus:ring-brand/40"
           />
           <button
             type="submit"
             disabled={addColumn.isPending}
-            className="flex shrink-0 items-center justify-center gap-1 rounded bg-accent px-2 py-1 text-xs text-on-accent disabled:opacity-50"
+            className="flex shrink-0 items-center justify-center gap-1 h-8 rounded-lg bg-accent px-3 text-xs font-bold text-on-accent disabled:opacity-50"
           >
             {addColumn.isPending ? <Spinner size={12} /> : "OK"}
           </button>

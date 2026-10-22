@@ -8,9 +8,9 @@ export default function VersionHistoryPanel({ itemId, onClose }: { itemId: strin
 
   return (
     <aside className="w-72 shrink-0 overflow-y-auto border-l bg-muted p-3">
-      <div className="mb-2 flex items-center justify-between">
-        <span className="text-xs font-medium uppercase tracking-wide text-subtle">История версий</span>
-        <button onClick={onClose} className="text-subtle hover:text-secondary">
+      <div className="mb-3 flex items-center justify-between">
+        <span className="text-[15px] font-extrabold tracking-tight text-primary">История версий</span>
+        <button onClick={onClose} aria-label="Закрыть" className="flex h-9 w-9 items-center justify-center rounded-xl bg-surface text-primary shadow-card">
           ×
         </button>
       </div>
@@ -20,9 +20,9 @@ export default function VersionHistoryPanel({ itemId, onClose }: { itemId: strin
       )}
       <ul className="space-y-2">
         {(versions ?? []).map((v) => (
-          <li key={v.id} className="rounded border bg-surface p-2">
-            <div className="text-xs text-subtle">{new Date(v.created_at).toLocaleString(dateLocale)}</div>
-            <div className="mt-0.5 truncate text-sm font-medium text-primary">{v.title || "Без названия"}</div>
+          <li key={v.id} className="rounded-2xl bg-surface p-3 shadow-card">
+            <div className="text-[11px] font-bold uppercase tracking-wide text-subtle">{new Date(v.created_at).toLocaleString(dateLocale)}</div>
+            <div className="mt-1 truncate text-sm font-extrabold text-primary">{v.title || "Без названия"}</div>
             <div className="mt-0.5 line-clamp-2 text-xs text-subtle">{v.content.slice(0, 140)}</div>
             <button
               onClick={() => {
@@ -30,9 +30,9 @@ export default function VersionHistoryPanel({ itemId, onClose }: { itemId: strin
                   revert.mutate(v.id);
                 }
               }}
-              className="mt-1 text-xs text-subtle underline hover:text-primary"
+              className="mt-2 h-8 rounded-full bg-muted px-3 text-xs font-bold text-primary hover:bg-muted-hover"
             >
-              Восстановить
+              Вернуть эту версию
             </button>
           </li>
         ))}

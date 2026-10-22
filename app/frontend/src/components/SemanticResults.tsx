@@ -40,8 +40,8 @@ export default function SemanticResults({
   if (!isLoading && (isError || hits.length === 0)) return null;
 
   return (
-    <div className="border-t">
-      <div className="flex items-center gap-1.5 px-3 pb-1 pt-2 text-xs font-medium text-subtle">
+    <div className="px-3">
+      <div className="flex items-center gap-1.5 px-1 pb-1.5 pt-2 text-[11px] font-extrabold uppercase tracking-wider text-subtle">
         <Sparkles size={13} aria-hidden />
         Похожие по смыслу
         {/* Индикатор рядом с заголовком, а не вместо содержимого: блок
@@ -51,14 +51,14 @@ export default function SemanticResults({
       </div>
       <ul>
         {hits.map((hit) => (
-          <li key={hit.item.id}>
+          <li key={hit.item.id} className="pb-2">
             <button
               onClick={() => onSelect(hit.item.id)}
-              className={`block w-full border-b px-3 py-2 text-left ${
-                selectedId === hit.item.id ? "bg-muted-hover" : "hover:bg-muted-hover"
+              className={`block w-full rounded-2xl bg-brand-soft/60 p-3.5 text-left ${
+                selectedId === hit.item.id ? "ring-2 ring-brand" : "hover:bg-brand-soft"
               }`}
             >
-              <div className="truncate text-sm font-medium text-primary">
+              <div className="truncate text-[15px] font-extrabold text-primary">
                 {hit.item.title || "Без названия"}
               </div>
               {/* Совпавший КУСОК, а не начало заметки: без него результат по

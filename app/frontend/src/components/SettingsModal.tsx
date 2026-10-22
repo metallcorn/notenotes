@@ -212,12 +212,12 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
               onChange={(e) => setInstructions(e.target.value)}
               rows={4}
               placeholder="Например: обращайся на «ты», предпочитаю короткие ответы…"
-              className="w-full rounded border px-3 py-2 text-sm"
+              className="h-11 w-full rounded-xl border bg-surface px-3.5 text-sm outline-none focus:ring-2 focus:ring-brand/40"
             />
             <button
               onClick={handleSave}
               disabled={updateInstructions.isPending}
-              className="mt-2 flex items-center gap-2 rounded bg-accent px-3 py-1.5 text-sm text-on-accent disabled:opacity-50"
+              className="mt-2 flex items-center gap-2 h-10 rounded-xl bg-accent px-4 text-sm font-bold text-on-accent disabled:opacity-50"
             >
               {updateInstructions.isPending ? (
                 <Spinner size={14} className="text-white" />
@@ -235,7 +235,7 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
             {skillsLoading && <div className="text-sm text-subtle">Загрузка…</div>}
             <ul className="space-y-1">
               {toggleableSkills.map((skill) => (
-                <li key={skill.name} className="flex items-center justify-between gap-2 rounded border px-2 py-1.5">
+                <li key={skill.name} className="flex items-center justify-between gap-2 rounded-xl border px-3 py-2">
                   <div className="min-w-0">
                     <div className="text-sm text-primary">{skill.label}</div>
                     <div className="truncate text-xs text-subtle">{skill.description}</div>
@@ -300,7 +300,7 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
             )}
             <ul className="space-y-1">
               {(memories ?? []).map((m) => (
-                <li key={m.id} className="flex items-start justify-between gap-2 rounded border px-2 py-1.5 text-sm">
+                <li key={m.id} className="flex items-start justify-between gap-2 rounded-xl border px-3 py-2 text-sm">
                   <span className="flex-1">{m.content}</span>
                   <button
                     onClick={() => deleteMemory.mutate(m.id)}
@@ -320,12 +320,12 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
                   if (e.key === "Enter") handleAddMemory();
                 }}
                 placeholder="Например: живу в Познани"
-                className="min-w-0 flex-1 rounded border px-3 py-1.5 text-sm"
+                className="min-w-0 flex-1 h-10 rounded-xl border bg-surface px-3 text-sm outline-none focus:ring-2 focus:ring-brand/40"
               />
               <button
                 onClick={handleAddMemory}
                 disabled={addMemory.isPending || !newMemoryText.trim()}
-                className="flex shrink-0 items-center justify-center rounded bg-accent px-3 py-1.5 text-sm text-on-accent disabled:opacity-50"
+                className="flex shrink-0 items-center justify-center h-10 rounded-xl bg-accent px-4 text-sm font-bold text-on-accent disabled:opacity-50"
               >
                 {addMemory.isPending ? <Spinner size={14} className="text-white" /> : <Plus size={14} />}
               </button>
@@ -345,12 +345,12 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
               в отдельном личном спейсе «Telegram» (с авто-тегами и OCR, как и везде).
             </div>
             {telegramStatus?.linked ? (
-              <div className="flex items-center justify-between gap-2 rounded border px-3 py-2 text-sm">
+              <div className="flex items-center justify-between gap-2 rounded-xl border px-3.5 py-2.5 text-sm">
                 <span className="text-secondary">Подключено ✅</span>
                 <button
                   onClick={() => telegramUnlink.mutate()}
                   disabled={telegramUnlink.isPending}
-                  className="rounded border border-default px-3 py-1.5 text-xs text-secondary hover:bg-muted-hover disabled:opacity-50"
+                  className="h-9 rounded-xl border border-default px-3 text-xs font-bold text-secondary hover:bg-muted-hover disabled:opacity-50"
                 >
                   {telegramUnlink.isPending ? <Spinner size={12} /> : "Отключить"}
                 </button>
@@ -374,7 +374,7 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
                     .catch(() => {})
                 }
                 disabled={telegramLinkCode.isPending}
-                className="flex items-center gap-2 rounded bg-accent px-3 py-1.5 text-sm text-on-accent disabled:opacity-50"
+                className="flex items-center gap-2 h-10 rounded-xl bg-accent px-4 text-sm font-bold text-on-accent disabled:opacity-50"
               >
                 {telegramLinkCode.isPending && <Spinner size={14} className="text-white" />}
                 Подключить
@@ -392,7 +392,7 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
             </div>
             {mailStatus?.address ? (
               <div className="space-y-2">
-                <div className="flex items-center justify-between gap-2 rounded border px-3 py-1.5 text-sm">
+                <div className="flex items-center justify-between gap-2 h-10 rounded-xl border bg-surface px-3 text-sm outline-none focus:ring-2 focus:ring-brand/40">
                   <span className="truncate font-mono text-primary">{mailStatus.address}</span>
                   <button
                     onClick={() => {
@@ -423,14 +423,14 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
                       }
                     }}
                     disabled={regenerateMailAddress.isPending}
-                    className="rounded border border-default px-3 py-1.5 text-xs text-secondary hover:bg-muted-hover disabled:opacity-50"
+                    className="h-9 rounded-xl border border-default px-3 text-xs font-bold text-secondary hover:bg-muted-hover disabled:opacity-50"
                   >
                     {regenerateMailAddress.isPending ? <Spinner size={12} /> : "Пересоздать"}
                   </button>
                   <button
                     onClick={() => disableMailInbox.mutate()}
                     disabled={disableMailInbox.isPending}
-                    className="rounded border border-default px-3 py-1.5 text-xs text-secondary hover:bg-muted-hover disabled:opacity-50"
+                    className="h-9 rounded-xl border border-default px-3 text-xs font-bold text-secondary hover:bg-muted-hover disabled:opacity-50"
                   >
                     {disableMailInbox.isPending ? <Spinner size={12} /> : "Отключить"}
                   </button>
@@ -445,7 +445,7 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
                   {mailStatus.own_addresses.length > 0 && (
                     <div className="mb-2 space-y-1">
                       {mailStatus.own_addresses.map((addr) => (
-                        <div key={addr} className="flex items-center justify-between gap-2 rounded border px-2 py-1 text-xs">
+                        <div key={addr} className="flex items-center justify-between gap-2 h-8 rounded-lg border bg-surface px-2.5 text-xs outline-none">
                           <span className="truncate font-mono text-secondary">{addr}</span>
                           <button
                             onClick={() => removeOwnMailAddress.mutate(addr)}
@@ -468,7 +468,7 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
                         addOwnMailAddress.mutate(newOwnAddress.trim(), { onSuccess: () => setNewOwnAddress("") });
                       }}
                       placeholder="your@email.com"
-                      className="min-w-0 flex-1 rounded border px-2 py-1 text-xs"
+                      className="min-w-0 flex-1 h-8 rounded-lg border bg-surface px-2.5 text-xs outline-none"
                     />
                     <button
                       onClick={() => {
@@ -476,7 +476,7 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
                         addOwnMailAddress.mutate(newOwnAddress.trim(), { onSuccess: () => setNewOwnAddress("") });
                       }}
                       disabled={addOwnMailAddress.isPending || !newOwnAddress.trim()}
-                      className="shrink-0 rounded border border-default px-2 py-1 text-xs text-secondary hover:bg-muted-hover disabled:opacity-50"
+                      className="shrink-0 h-8 rounded-lg border border-default px-2.5 text-xs font-bold text-secondary hover:bg-muted-hover disabled:opacity-50"
                     >
                       {addOwnMailAddress.isPending ? <Spinner size={12} /> : "Добавить"}
                     </button>
@@ -490,7 +490,7 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
               <button
                 onClick={() => generateMailAddress.mutate()}
                 disabled={generateMailAddress.isPending}
-                className="flex items-center gap-2 rounded bg-accent px-3 py-1.5 text-sm text-on-accent disabled:opacity-50"
+                className="flex items-center gap-2 h-10 rounded-xl bg-accent px-4 text-sm font-bold text-on-accent disabled:opacity-50"
               >
                 {generateMailAddress.isPending && <Spinner size={14} className="text-white" />}
                 Создать адрес
@@ -521,7 +521,7 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
                 onChange={(e) => setTimezoneInput(e.target.value)}
                 list="timezone-options"
                 placeholder="Europe/Warsaw"
-                className="w-full rounded border px-3 py-1.5 text-sm"
+                className="h-11 w-full rounded-xl border bg-surface px-3.5 text-sm outline-none focus:ring-2 focus:ring-brand/40"
               />
               <datalist id="timezone-options">
                 {COMMON_TIMEZONES.map((tz) => (
@@ -531,7 +531,7 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
               <button
                 onClick={() => timezoneInput.trim() && updateTimezone.mutate(timezoneInput.trim())}
                 disabled={updateTimezone.isPending || !timezoneInput.trim() || timezoneInput.trim() === me?.timezone}
-                className="shrink-0 rounded border border-default px-3 py-1.5 text-sm text-secondary hover:bg-muted-hover disabled:opacity-50"
+                className="shrink-0 h-10 rounded-xl border border-default px-3.5 text-sm font-bold text-secondary hover:bg-muted-hover disabled:opacity-50"
               >
                 Применить
               </button>
@@ -568,12 +568,12 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
                 value={customVoiceId}
                 onChange={(e) => setCustomVoiceId(e.target.value)}
                 placeholder="Свой voice_id с Palabra Platform"
-                className="w-full rounded border px-3 py-1.5 text-sm"
+                className="h-11 w-full rounded-xl border bg-surface px-3.5 text-sm outline-none focus:ring-2 focus:ring-brand/40"
               />
               <button
                 onClick={() => customVoiceId.trim() && updateTtsVoice.mutate(customVoiceId.trim())}
                 disabled={updateTtsVoice.isPending || !customVoiceId.trim()}
-                className="shrink-0 rounded border border-default px-3 py-1.5 text-sm text-secondary hover:bg-muted-hover disabled:opacity-50"
+                className="shrink-0 h-10 rounded-xl border border-default px-3.5 text-sm font-bold text-secondary hover:bg-muted-hover disabled:opacity-50"
               >
                 Применить
               </button>
@@ -584,7 +584,7 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
           </div>
 
           <div className="mb-6">
-            <div className="flex items-center justify-between gap-2 rounded border px-2 py-1.5">
+            <div className="flex items-center justify-between gap-2 rounded-xl border px-3 py-2">
               <div className="min-w-0">
                 <div className="text-sm text-primary">Обработка загруженных файлов</div>
                 <div className="text-xs text-subtle">
@@ -608,7 +608,7 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
 
           {isPushSupported() && (
             <div className="mb-6">
-              <div className="flex items-center justify-between gap-2 rounded border px-2 py-1.5">
+              <div className="flex items-center justify-between gap-2 rounded-xl border px-3 py-2">
                 <div className="min-w-0">
                   <div className="text-sm text-primary">Уведомления в браузере</div>
                   <div className="text-xs text-subtle">
@@ -644,12 +644,12 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
                 step={1}
                 value={mediaCacheLimitMb}
                 onChange={(e) => setMediaCacheLimitMbState(Number(e.target.value))}
-                className="w-24 rounded border px-3 py-1.5 text-sm"
+                className="w-24 h-10 rounded-xl border bg-surface px-3 text-sm outline-none focus:ring-2 focus:ring-brand/40"
               />
               <span className="text-sm text-subtle">МБ</span>
               <button
                 onClick={handleSaveMediaCacheLimit}
-                className="rounded border border-default px-3 py-1.5 text-sm text-secondary hover:bg-muted-hover"
+                className="h-10 rounded-xl border border-default px-3.5 text-sm font-bold text-secondary hover:bg-muted-hover"
               >
                 {mediaCacheSaved ? "Сохранено" : "Сохранить"}
               </button>
@@ -665,7 +665,7 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
             <button
               onClick={() => createInviteCode.mutate()}
               disabled={createInviteCode.isPending}
-              className="flex items-center gap-2 rounded bg-accent px-3 py-1.5 text-sm text-on-accent disabled:opacity-50"
+              className="flex items-center gap-2 h-10 rounded-xl bg-accent px-4 text-sm font-bold text-on-accent disabled:opacity-50"
             >
               {createInviteCode.isPending && <Spinner size={14} className="text-white" />}
               Создать код
@@ -675,7 +675,7 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
                 {inviteCodes.map((c) => {
                   const expired = !c.used_at && new Date(c.expires_at).getTime() < Date.now();
                   return (
-                    <div key={c.id} className="flex items-center justify-between gap-2 rounded border px-3 py-1.5 text-sm">
+                    <div key={c.id} className="flex items-center justify-between gap-2 h-10 rounded-xl border bg-surface px-3 text-sm outline-none focus:ring-2 focus:ring-brand/40">
                       <span className={`font-mono ${c.used_at || expired ? "text-subtle line-through" : "text-primary"}`}>
                         {c.code}
                       </span>

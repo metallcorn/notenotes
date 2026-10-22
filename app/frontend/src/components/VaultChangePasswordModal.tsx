@@ -80,7 +80,7 @@ export default function VaultChangePasswordModal({
           onChange={(e) => setCurrentPassword(e.target.value)}
           placeholder="Текущий пароль"
           disabled={busy}
-          className="mb-2 w-full rounded border px-3 py-2 text-sm disabled:opacity-50"
+          className="mb-2 h-11 w-full rounded-xl border bg-surface px-3.5 text-sm outline-none focus:ring-2 focus:ring-brand/40 disabled:opacity-50"
         />
         <input
           type="password"
@@ -88,7 +88,7 @@ export default function VaultChangePasswordModal({
           onChange={(e) => setNewPassword(e.target.value)}
           placeholder="Новый пароль"
           disabled={busy}
-          className="mb-2 w-full rounded border px-3 py-2 text-sm disabled:opacity-50"
+          className="mb-2 h-11 w-full rounded-xl border bg-surface px-3.5 text-sm outline-none focus:ring-2 focus:ring-brand/40 disabled:opacity-50"
         />
         <input
           type="password"
@@ -96,7 +96,7 @@ export default function VaultChangePasswordModal({
           onChange={(e) => setNewPassword2(e.target.value)}
           placeholder="Повторите новый пароль"
           disabled={busy}
-          className="w-full rounded border px-3 py-2 text-sm disabled:opacity-50"
+          className="h-11 w-full rounded-xl border bg-surface px-3.5 text-sm outline-none focus:ring-2 focus:ring-brand/40 disabled:opacity-50"
         />
         {error && <div className="mt-2 text-xs text-danger">{error}</div>}
         <div className="mt-3 flex justify-end gap-2">
@@ -104,14 +104,14 @@ export default function VaultChangePasswordModal({
             type="button"
             onClick={onClose}
             disabled={busy}
-            className="rounded px-3 py-1.5 text-sm text-subtle hover:bg-muted-hover disabled:opacity-50"
+            className="h-10 rounded-xl px-4 text-sm font-bold text-secondary hover:bg-muted disabled:opacity-50"
           >
             Отмена
           </button>
           <button
             type="submit"
             disabled={busy}
-            className="flex items-center gap-1.5 rounded bg-accent px-3 py-1.5 text-sm text-on-accent disabled:opacity-50"
+            className="flex items-center gap-1.5 h-10 rounded-xl bg-accent px-4 text-sm font-bold text-on-accent disabled:opacity-50"
           >
             {busy && <Spinner size={12} />}
             {busy ? "Меняем…" : "Сменить пароль"}

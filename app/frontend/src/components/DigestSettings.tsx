@@ -48,7 +48,7 @@ export default function DigestSettings() {
             onBlur={() => {
               if (enabled && time && time !== me?.digest_time) update.mutate(time);
             }}
-            className="rounded border px-2 py-1 text-sm disabled:opacity-50"
+            className="h-10 rounded-xl border bg-surface px-3 text-sm outline-none focus:ring-2 focus:ring-brand/40 disabled:opacity-50"
           />
           <span className="text-xs text-subtle">по вашему часовому поясу</span>
         </label>

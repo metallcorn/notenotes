@@ -70,7 +70,7 @@ export default function CreateSpaceButton({ onCreated }: { onCreated: (spaceId: 
 
   if (!adding) {
     return (
-      <button onClick={() => setAdding(true)} className="text-xs text-subtle hover:text-secondary">
+      <button onClick={() => setAdding(true)} className="text-xs font-bold text-subtle hover:text-secondary">
         + спейс
       </button>
     );
@@ -97,28 +97,28 @@ export default function CreateSpaceButton({ onCreated }: { onCreated: (spaceId: 
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             placeholder="Пароль"
-            className="mb-2 w-full rounded border px-3 py-2 text-sm"
+            className="mb-2 h-11 w-full rounded-xl border bg-surface px-3.5 text-sm outline-none focus:ring-2 focus:ring-brand/40"
           />
           <input
             type="password"
             value={password2}
             onChange={(e) => setPassword2(e.target.value)}
             placeholder="Повторите пароль"
-            className="w-full rounded border px-3 py-2 text-sm"
+            className="h-11 w-full rounded-xl border bg-surface px-3.5 text-sm outline-none focus:ring-2 focus:ring-brand/40"
           />
           {error && <div className="mt-2 text-xs text-danger">{error}</div>}
           <div className="mt-3 flex justify-end gap-2">
             <button
               type="button"
               onClick={reset}
-              className="rounded px-3 py-1.5 text-sm text-subtle hover:bg-muted-hover"
+              className="h-10 rounded-xl px-4 text-sm font-bold text-secondary hover:bg-muted"
             >
               Отмена
             </button>
             <button
               type="submit"
               disabled={createSpace.isPending}
-              className="flex items-center gap-1.5 rounded bg-accent px-3 py-1.5 text-sm text-on-accent disabled:opacity-50"
+              className="flex items-center gap-1.5 h-10 rounded-xl bg-accent px-4 text-sm font-bold text-on-accent disabled:opacity-50"
             >
               {createSpace.isPending && <Spinner size={12} />}
               Создать сейф
@@ -137,7 +137,7 @@ export default function CreateSpaceButton({ onCreated }: { onCreated: (spaceId: 
         onChange={(e) => setName(e.target.value)}
         onBlur={() => !name.trim() && setAdding(false)}
         placeholder="Название"
-        className="w-24 rounded border px-1.5 py-0.5 text-xs"
+        className="h-9 w-28 rounded-xl border bg-surface px-2.5 text-xs outline-none focus:ring-2 focus:ring-brand/40"
       />
       <button
         type="button"

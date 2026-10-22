@@ -66,7 +66,7 @@ export default function FolderMoveModal({
           </ul>
         )}
         <div className="mt-3 flex justify-end">
-          <button onClick={onClose} className="rounded px-3 py-1.5 text-sm text-subtle hover:bg-muted-hover">
+          <button onClick={onClose} className="h-10 rounded-xl px-4 text-sm font-bold text-secondary hover:bg-muted">
             Отмена
           </button>
         </div>

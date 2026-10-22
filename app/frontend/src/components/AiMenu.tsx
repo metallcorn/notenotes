@@ -125,12 +125,12 @@ export default function AiMenu({
                       if (e.key === "Enter" && customInstruction.trim()) run("rewrite", customInstruction.trim());
                     }}
                     placeholder="Свой вариант…"
-                    className="min-w-0 flex-1 rounded border px-2 py-1 text-xs"
+                    className="min-w-0 flex-1 h-8 rounded-lg border bg-surface px-2.5 text-xs outline-none"
                   />
                   <button
                     onClick={() => customInstruction.trim() && run("rewrite", customInstruction.trim())}
                     disabled={!customInstruction.trim()}
-                    className="shrink-0 rounded bg-accent px-2 py-1 text-xs text-on-accent disabled:opacity-30"
+                    className="shrink-0 h-8 rounded-lg bg-accent px-3 text-xs font-bold text-on-accent disabled:opacity-30"
                   >
                     ОК
                   </button>

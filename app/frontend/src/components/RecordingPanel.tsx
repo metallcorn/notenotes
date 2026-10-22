@@ -286,7 +286,7 @@ export default function RecordingPanel({
       <div className="pointer-events-none fixed inset-0 z-50 flex items-center justify-center p-4 lg:items-stretch lg:justify-end lg:p-0">
         <div
           style={isDesktop ? { width } : undefined}
-          className="panel-slide-in pointer-events-auto relative flex h-auto w-full max-w-xl flex-col overflow-hidden rounded-lg bg-surface shadow-xl lg:h-full lg:max-w-none lg:rounded-none lg:border-l lg:shadow-2xl"
+          className="panel-slide-in pointer-events-auto relative flex h-auto w-full max-w-xl flex-col overflow-hidden rounded-3xl bg-surface shadow-xl lg:h-full lg:max-w-none lg:rounded-none lg:border-l lg:shadow-2xl"
         >
           <div
             onPointerDown={onHandlePointerDown}
@@ -343,7 +343,7 @@ export default function RecordingPanel({
                 <p className="text-center text-sm text-secondary">
                   Запись отправлена на распознавание — результат появится в заметке через какое-то время.
                 </p>
-                <button onClick={onClose} className="rounded bg-accent px-4 py-2 text-sm text-on-accent hover:bg-accent/90">
+                <button onClick={onClose} className="h-11 rounded-xl bg-accent px-5 text-sm font-bold text-on-accent hover:bg-accent/90">
                   Готово
                 </button>
               </>

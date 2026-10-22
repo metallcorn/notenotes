@@ -119,7 +119,7 @@ export default function McpSettings() {
 
       <ul className="space-y-1">
         {(tokens ?? []).map((t) => (
-          <li key={t.id} className="flex items-center justify-between gap-2 rounded border px-2 py-1.5">
+          <li key={t.id} className="flex items-center justify-between gap-2 rounded-xl border px-3 py-2">
             <div className="min-w-0">
               <div className="truncate text-sm text-primary">{t.name || "Без названия"}</div>
               <div className="text-xs text-subtle">
@@ -150,12 +150,12 @@ export default function McpSettings() {
             if (e.key === "Enter" && !createToken.isPending) handleCreate();
           }}
           placeholder="Название, например «ноутбук»"
-          className="min-w-0 flex-1 rounded border px-3 py-1.5 text-sm"
+          className="min-w-0 flex-1 h-10 rounded-xl border bg-surface px-3 text-sm outline-none focus:ring-2 focus:ring-brand/40"
         />
         <button
           onClick={handleCreate}
           disabled={createToken.isPending}
-          className="flex shrink-0 items-center justify-center rounded bg-accent px-3 py-1.5 text-sm text-on-accent disabled:opacity-50"
+          className="flex shrink-0 items-center justify-center h-10 rounded-xl bg-accent px-4 text-sm font-bold text-on-accent disabled:opacity-50"
         >
           {createToken.isPending ? <Spinner size={14} className="text-white" /> : <Plus size={14} />}
         </button>
@@ -169,7 +169,7 @@ export default function McpSettings() {
           </div>
           <ul className="space-y-1">
             {connections.map((c) => (
-              <li key={c.client_id} className="flex items-center justify-between gap-2 rounded border px-2 py-1.5">
+              <li key={c.client_id} className="flex items-center justify-between gap-2 rounded-xl border px-3 py-2">
                 <div className="min-w-0">
                   <div className="truncate text-sm text-primary">{c.client_name}</div>
                   <div className="text-xs text-subtle">

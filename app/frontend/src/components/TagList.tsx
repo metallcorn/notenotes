@@ -87,12 +87,12 @@ export default function TagList({
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="Название тега"
-            className="w-full rounded border px-2 py-1 text-sm"
+            className="w-full h-10 rounded-xl border bg-surface px-3 text-sm outline-none focus:ring-2 focus:ring-brand/40"
           />
           <button
             type="submit"
             disabled={createTag.isPending}
-            className="flex shrink-0 items-center justify-center gap-1 rounded bg-accent px-2 py-1 text-xs text-on-accent disabled:opacity-50"
+            className="flex h-10 shrink-0 items-center justify-center gap-1 rounded-xl bg-accent px-3 text-xs font-bold text-on-accent disabled:opacity-50"
           >
             {createTag.isPending ? <Spinner size={12} /> : "OK"}
           </button>
@@ -103,7 +103,7 @@ export default function TagList({
               setAdding(false);
             }}
             title="Отменить"
-            className="flex shrink-0 items-center justify-center rounded border px-2 py-1 text-xs text-subtle hover:bg-muted-hover"
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border text-subtle hover:bg-muted-hover"
           >
             <X size={14} />
           </button>
@@ -140,7 +140,7 @@ export default function TagList({
           className="modal-in fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
           onClick={() => setMerging(null)}
         >
-          <div onClick={(e) => e.stopPropagation()} className="w-full max-w-sm rounded-lg bg-surface p-4 shadow-xl">
+          <div onClick={(e) => e.stopPropagation()} className="w-full max-w-sm rounded-3xl bg-surface p-5 shadow-xl">
             <div className="mb-2 text-sm font-medium text-primary">Слить «{merging.name}» с каким тегом?</div>
             <div className="max-h-64 overflow-y-auto">
               {(tags ?? [])
@@ -152,7 +152,7 @@ export default function TagList({
                       mergeTag.mutate({ id: merging.id, targetTagId: t.id });
                       setMerging(null);
                     }}
-                    className="block w-full rounded px-2 py-1.5 text-left text-sm hover:bg-muted-hover"
+                    className="block min-h-10 w-full rounded-xl px-3 text-left text-sm font-semibold hover:bg-muted"
                   >
                     #{t.name}
                   </button>
@@ -162,7 +162,7 @@ export default function TagList({
             <div className="mt-3 flex justify-end">
               <button
                 onClick={() => setMerging(null)}
-                className="rounded px-3 py-1.5 text-sm text-subtle hover:bg-muted-hover"
+                className="h-10 rounded-xl px-4 text-sm font-bold text-secondary hover:bg-muted"
               >
                 Отмена
               </button>
