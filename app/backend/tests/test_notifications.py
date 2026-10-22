@@ -155,7 +155,7 @@ async def test_кнопка_в_телеграме_ведёт_к_месту_в_з
     await notification_dispatch._dispatch_one(notification, db_session)
 
     assert len(sent) == 1
-    url = sent[0][2]["inline_keyboard"][0][0]["url"]
+    url = sent[0][2]["inline_keyboard"][0][0]["web_app"]["url"]
     assert f"?item={item_id}" in url
     assert "find=10.12.2026" in url
 
@@ -193,4 +193,4 @@ async def test_без_find_ссылка_как_раньше(db_session, test_use
 
     await notification_dispatch._dispatch_one(notification, db_session)
 
-    assert "find=" not in sent[0]["inline_keyboard"][0][0]["url"]
+    assert "find=" not in sent[0]["inline_keyboard"][0][0]["web_app"]["url"]
