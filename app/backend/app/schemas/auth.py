@@ -36,15 +36,15 @@ class UserLogin(BaseModel):
     username: str
     password: str
 
+    _normalize_username = field_validator("username", mode="before")(_normalize_username)
+    _normalize_password = field_validator("password", mode="before")(_normalize_password)
+
 
 class TelegramMiniAppLogin(BaseModel):
     """initData из Telegram Mini App — проверяется подписью бота
     (app/telegram_miniapp.py), пароль не нужен."""
 
     init_data: str = Field(min_length=1, max_length=8192)
-
-    _normalize_username = field_validator("username", mode="before")(_normalize_username)
-    _normalize_password = field_validator("password", mode="before")(_normalize_password)
 
 
 class UserOut(BaseModel):
