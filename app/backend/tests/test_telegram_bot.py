@@ -21,7 +21,7 @@ def test_action_buttons_for_created_note():
         {"c1": {"id": "abc-123", "title": "Подарок на день рождения"}},
     )
     rows = _build_action_buttons(records, "https://notenotes.example")
-    assert rows == [[{"text": "Открыть «Подарок на день рождения»", "web_app": {"url": "https://notenotes.example/?item=abc-123"}]]
+    assert rows == [[{"text": "Открыть «Подарок на день рождения»", "web_app": {"url": "https://notenotes.example/?item=abc-123"}}]]
 
 
 def test_action_buttons_for_maps_link():
@@ -48,8 +48,8 @@ def test_action_buttons_multiple_tool_calls_in_one_turn():
     )
     rows = _build_action_buttons(records, "https://notenotes.example")
     assert rows == [
-        [{"text": "Открыть «Покупки»", "web_app": {"url": "https://notenotes.example/?item=list-1"}],
-        [{"text": "Открыть «Расходы»", "web_app": {"url": "https://notenotes.example/?item=table-1"}],
+        [{"text": "Открыть «Покупки»", "web_app": {"url": "https://notenotes.example/?item=list-1"}}],
+        [{"text": "Открыть «Расходы»", "web_app": {"url": "https://notenotes.example/?item=table-1"}}],
     ]
 
 
