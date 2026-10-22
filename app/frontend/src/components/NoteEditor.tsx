@@ -1145,8 +1145,20 @@ export default function NoteEditor({
       editor.commands.setContent(content || "");
     }
     setMode(next);
-    uiStorage.setNoteEditorMode(next);
+    // На телефоне режим не запоминается: каждая заметка открывается в
+    // чтении (см. эффект ниже), «Править» — осознанный шаг для этой одной.
+    if (!isPhone) uiStorage.setNoteEditorMode(next);
   }
+
+  // Телефон (замечание 22.10): заметки открываются в режиме чтения, чтобы
+  // случайный тап не правил текст и инструменты не торчали. Исключение —
+  // пустая, только что созданная заметка: в ней сразу печатают.
+  useEffect(() => {
+    if (!isPhone || !item) return;
+    const empty = !item.title.trim() && !item.content.trim();
+    setMode(empty ? "wysiwyg" : "view");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [item?.id, isPhone]);
 
   // editable, а не отдельный проп в useEditor(...) — та же причина, что и
   // у комментария про editorExtensions/editorProps выше: надёжнее явно
