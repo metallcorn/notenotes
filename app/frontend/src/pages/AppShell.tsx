@@ -29,6 +29,7 @@ import OfflineFlushNotice from "../components/OfflineFlushNotice";
 import BottomNav, { type BottomNavTab } from "../components/BottomNav";
 import CreateSheet from "../components/CreateSheet";
 import DueReminderCard from "../components/DueReminderCard";
+import RecentGrid from "../components/RecentGrid";
 import { ListSkeleton } from "../components/Skeleton";
 import { useNotifications } from "../api/hooks";
 import { dateLocale } from "../i18n";
@@ -735,6 +736,9 @@ export default function AppShell() {
                 <Icon size={16} /> {label}
               </button>
             ))}
+          </div>
+          <div className="lg:hidden">
+            <RecentGrid onOpen={openRecentItem} onAll={openNotesTab} />
           </div>
           <div className="mb-3 hidden space-y-0.5 lg:block">
             {(

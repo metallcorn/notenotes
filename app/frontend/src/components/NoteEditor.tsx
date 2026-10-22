@@ -17,6 +17,7 @@ import { createPortal } from "react-dom";
 import { Archive, ChevronLeft, Code2, Eye, FileText, Globe, History, MoreVertical, Palette, Pencil, Pin, PinOff, Sparkles, Tag as TagIcon, Trash2, Users, WifiOff } from "lucide-react";
 import { ApiError } from "../api/client";
 import type { Item } from "../api/types";
+import { t } from "../i18n";
 import { uiStorage, type ContentWidth } from "../lib/storage";
 import { useNoteAutosave } from "../lib/useNoteAutosave";
 import TableOfContentsPanel from "./TableOfContentsPanel";
@@ -1994,6 +1995,17 @@ export default function NoteEditor({
               />
             )}
           </div>
+          {/* Режим чтения на телефоне (макет «Заметка: чтение», 21.10):
+              панель форматирования спрятана, править — плавающей кнопкой. */}
+          {mode === "view" && (
+            <button
+              type="button"
+              onClick={() => switchMode("wysiwyg")}
+              className="absolute bottom-5 right-5 z-10 flex h-12 items-center gap-2 rounded-full bg-accent px-5 text-sm font-extrabold text-on-accent shadow-nav md:hidden"
+            >
+              <Pencil size={16} /> {t("note.edit")}
+            </button>
+          )}
           {showToc && mode !== "raw" && <TableOfContentsPanel editor={editor} onClose={() => setShowToc(false)} />}
           {showHistory && <VersionHistoryPanel itemId={item.id} onClose={() => setShowHistory(false)} />}
           {showShareModal && <ShareNoteModal itemId={item.id} onClose={() => setShowShareModal(false)} />}

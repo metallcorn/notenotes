@@ -30,6 +30,9 @@ export const ru = {
   "home.more": "ещё {n}",
   "home.spaces": "Спейсы",
   "search.placeholder": "Найти что угодно",
+  "home.recent": "Недавние",
+  "home.allNotes": "Показать все",
+  "note.edit": "Править",
 } as const;
 
 export type MessageKey = keyof typeof ru;

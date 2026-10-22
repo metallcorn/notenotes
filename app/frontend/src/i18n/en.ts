@@ -29,4 +29,7 @@ export const en: Record<MessageKey, string> = {
   "home.more": "{n} more",
   "home.spaces": "Spaces",
   "search.placeholder": "Find anything",
+  "home.recent": "Recent",
+  "home.allNotes": "Show all",
+  "note.edit": "Edit",
 };

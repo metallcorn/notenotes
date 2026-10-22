@@ -131,7 +131,7 @@ export default function EditorToolbar({
   const uploading = uploadProgress !== null;
 
   return (
-    <div className="relative border-b bg-muted">
+    <div className={`relative border-b bg-muted ${readOnly ? "hidden md:block" : ""}`}>
     {edges.left && (
       <button
         type="button"
