@@ -405,6 +405,13 @@ export default function NoteEditor({
   // как раньше, без изменений.
   const [showMobileActions, setShowMobileActions] = useState(false);
   const mobileActionsButtonRef = useRef<HTMLButtonElement>(null);
+  // Заголовочный блок телефона внутри скролла — клик по нему не должен
+  // уводить фокус в конец документа (см. onMouseDown контейнера).
+  const phoneHeadRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  // Шапка «сжалась»: заголовочный блок уехал вверх, и в тонкой строке
+  // вместо пути показывается название; тап по нему — обратно наверх.
+  const [headCollapsed, setHeadCollapsed] = useState(false);
   // Шторка «Вид заметки» (эмодзи + цвет) — телефон, макет 21.10.
   const [showLook, setShowLook] = useState(false);
   // Телефон и десктоп — разные деревья шапки (см. useMediaQuery.ts).
@@ -1664,6 +1671,18 @@ export default function NoteEditor({
                   путь «спейс › папка» вместо выпадашки папки — тап открывает
                   «Куда положить»; справа статус сохранения (в правке) или
                   закрепление (в чтении) и «⋯». */}
+              {headCollapsed ? (
+                <button
+                  type="button"
+                  onClick={() => scrollRef.current?.scrollTo({ top: 0, behavior: "smooth" })}
+                  className="flex h-11 min-w-0 flex-1 items-center gap-1.5 px-1 text-left"
+                >
+                  {item.icon && <span className="shrink-0 text-base leading-none">{item.icon}</span>}
+                  <span className="truncate text-[15px] font-extrabold text-primary" style={item.color ? { color: item.color } : undefined}>
+                    {title || "Без названия"}
+                  </span>
+                </button>
+              ) : (
               <button
                 type="button"
                 onClick={() => !isVaultNote && setShowMoveModal(true)}
@@ -1676,6 +1695,7 @@ export default function NoteEditor({
                 </span>
                 {!isVaultNote && <ChevronDown size={14} strokeWidth={2.4} className="shrink-0" />}
               </button>
+              )}
               {mode !== "view" && (
                 <span className="flex shrink-0 items-center gap-1 text-xs font-bold text-subtle">
                   {updateAvailable ? (
@@ -1898,57 +1918,6 @@ export default function NoteEditor({
             заголовок сверху уже не задет. Теги свёрнуты в выпадающий список
             (как папка — <select>), а не показаны все чипами сразу — та же
             причина. */}
-        {isPhone && (
-          <div className="px-5 pb-3 pt-1">
-            <button
-              type="button"
-              onClick={() => setShowLook(true)}
-              aria-label={t("look.title")}
-              className="text-[44px] leading-none"
-            >
-              {item.icon || "🙂"}
-            </button>
-            <input
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder="Без названия"
-              style={item.color ? { color: item.color } : undefined}
-              className="mt-2 w-full bg-transparent text-[30px] font-extrabold leading-[1.1] tracking-tight outline-none placeholder:text-subtle"
-            />
-            <div className="mt-2 text-[13px] font-semibold text-subtle">
-              {t("note.changed", { when: formatRelativeDay(item.updated_at, dateLocale) })}
-            </div>
-            <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
-              {item.tags.map((tag) => (
-                <span
-                  key={tag.id}
-                  title={tag.auto ? "Автоматически предложенный тег" : undefined}
-                  className={`flex h-8 items-center gap-1 rounded-full px-3 text-xs font-bold ${
-                    tag.auto ? "border border-dashed border-brand/40 bg-brand/10 text-brand-text" : "bg-brand-soft text-brand-text"
-                  }`}
-                >
-                  {tag.auto && <Sparkles size={10} />}
-                  #{tag.name}
-                  <button onClick={() => removeTag.mutate(tag.id)} aria-label={`Убрать тег ${tag.name}`} className="ml-0.5 text-brand-text/70">
-                    ×
-                  </button>
-                </span>
-              ))}
-              <div className="relative">
-                <button
-                  onClick={() => {
-                    setShowTagPicker((v) => !v);
-                    setTagQuery("");
-                  }}
-                  className="flex h-8 items-center gap-1 rounded-full border-[1.5px] border-dashed border-strong px-3 text-xs font-bold text-subtle"
-                >
-                  <TagIcon size={12} /> {t("note.addTag")}
-                </button>
-                {showTagPicker && tagPickerDropdown}
-              </div>
-            </div>
-          </div>
-        )}
         {!isPhone && (
         <div className="flex flex-wrap items-center gap-2 px-3 pb-3">
           <select
@@ -2071,6 +2040,13 @@ export default function NoteEditor({
             // поведением) — реальная просьба: хочется докрутить скролл ниже
             // конца документа, чтобы при желании держать последнюю строку
             // по центру экрана, а не прилипшей к низу окна.
+            ref={scrollRef}
+            onScroll={(e) => {
+              if (!isPhone) return;
+              const limit = (phoneHeadRef.current?.offsetHeight ?? 0) - 24;
+              const next = e.currentTarget.scrollTop > Math.max(limit, 40);
+              if (next !== headCollapsed) setHeadCollapsed(next);
+            }}
             className={`relative min-h-0 flex-1 overflow-y-auto p-4 ${mode !== "raw" ? "pb-[50vh]" : ""}`}
             onMouseDown={(e) => {
               // Реальный найденный баг: EditorContent рендерит собственную
@@ -2102,6 +2078,7 @@ export default function NoteEditor({
               if (mode !== "wysiwyg" || !editor) return;
               if (!editor.state.selection.empty) return;
               if (editor.view.dom.contains(e.target as Node)) return;
+              if (phoneHeadRef.current?.contains(e.target as Node)) return;
               e.preventDefault();
               editor.commands.focus("end");
             }}
@@ -2113,6 +2090,60 @@ export default function NoteEditor({
                 и белым экраном без ErrorBoundary. Теперь ветка всегда
                 смонтирована, режим переключается через CSS, а не через
                 unmount. */}
+            {/* Телефон: заголовочный блок прокручивается вместе с текстом,
+                а не висит шапкой на полэкрана (жалоба 22.10: «когда листаю
+                заметку, шапка закрывает половину, а с клавиатурой — всю»). */}
+            {isPhone && (
+          <div ref={phoneHeadRef} className="-mt-1 px-1 pb-4">
+            <button
+              type="button"
+              onClick={() => setShowLook(true)}
+              aria-label={t("look.title")}
+              className="text-[44px] leading-none"
+            >
+              {item.icon || "🙂"}
+            </button>
+            <input
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="Без названия"
+              style={item.color ? { color: item.color } : undefined}
+              className="mt-2 w-full bg-transparent text-[30px] font-extrabold leading-[1.1] tracking-tight outline-none placeholder:text-subtle"
+            />
+            <div className="mt-2 text-[13px] font-semibold text-subtle">
+              {t("note.changed", { when: formatRelativeDay(item.updated_at, dateLocale) })}
+            </div>
+            <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
+              {item.tags.map((tag) => (
+                <span
+                  key={tag.id}
+                  title={tag.auto ? "Автоматически предложенный тег" : undefined}
+                  className={`flex h-8 items-center gap-1 rounded-full px-3 text-xs font-bold ${
+                    tag.auto ? "border border-dashed border-brand/40 bg-brand/10 text-brand-text" : "bg-brand-soft text-brand-text"
+                  }`}
+                >
+                  {tag.auto && <Sparkles size={10} />}
+                  #{tag.name}
+                  <button onClick={() => removeTag.mutate(tag.id)} aria-label={`Убрать тег ${tag.name}`} className="ml-0.5 text-brand-text/70">
+                    ×
+                  </button>
+                </span>
+              ))}
+              <div className="relative">
+                <button
+                  onClick={() => {
+                    setShowTagPicker((v) => !v);
+                    setTagQuery("");
+                  }}
+                  className="flex h-8 items-center gap-1 rounded-full border-[1.5px] border-dashed border-strong px-3 text-xs font-bold text-subtle"
+                >
+                  <TagIcon size={12} /> {t("note.addTag")}
+                </button>
+                {showTagPicker && tagPickerDropdown}
+              </div>
+            </div>
+          </div>
+        )}
             {editor && (
               <BubbleMenu editor={editor} shouldShow={({ state }) => mode === "wysiwyg" && !state.selection.empty}>
                 <div className="rounded border bg-surface shadow-lg">

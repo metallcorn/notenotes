@@ -30,6 +30,7 @@ import BottomNav, { type BottomNavTab } from "../components/BottomNav";
 import CreateSheet from "../components/CreateSheet";
 import DueReminderCard from "../components/DueReminderCard";
 import RecentGrid from "../components/RecentGrid";
+import UpcomingCard from "../components/UpcomingCard";
 import SpaceFoldersScreen from "../components/SpaceFoldersScreen";
 import SpacesSheet from "../components/SpacesSheet";
 import NoteListHeader from "../components/NoteListHeader";
@@ -791,6 +792,7 @@ export default function AppShell() {
             </button>
           </div>
           <div className="lg:hidden">
+            <UpcomingCard onOpen={openReminder} onOpenItem={openRecentItem} onAll={switchToActivity} />
             <RecentGrid spaceId={homeSpaceFilter} onOpen={openRecentItem} onAll={openNotesTab} />
           </div>
           <div className="mb-3 hidden space-y-0.5 lg:block">
