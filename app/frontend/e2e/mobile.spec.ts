@@ -167,18 +167,28 @@ test("панель форматирования прокручивается п�
   await create(page, "Новая заметка");
   await expect(page.locator(".ProseMirror")).toBeVisible();
   const h1 = page.getByTitle("Заголовок 1");
-  const y = (await h1.boundingBox())!.y + 10;
+  const bar = h1.locator("xpath=ancestor::*[contains(@class,'overflow-x-auto')][1]");
+  // Панель должна уже быть шире экрана, иначе прокручивать нечего, а
+  // жест, начатый до раскладки, уходит в пустоту (плавающее падение).
+  await expect.poll(() => bar.evaluate((el) => el.scrollWidth > el.clientWidth + 20)).toBe(true);
+  await page.waitForTimeout(300);
   // synthesizeScrollGesture в безголовом Chromium не скроллит ничего —
   // только честные touchStart/Move/End.
   const cdp = await page.context().newCDPSession(page);
-  await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: 330, y }] });
-  for (let i = 1; i <= 10; i++) {
-    await cdp.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x: 330 - i * 25, y }] });
-    await page.waitForTimeout(16);
-  }
-  await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
-  await page.waitForTimeout(300);
-  expect(await h1.evaluate((el) => (el.closest(".overflow-x-auto") as HTMLElement).scrollLeft)).toBeGreaterThan(50);
+  const swipe = async () => {
+    const y = (await h1.boundingBox())!.y + 10;
+    await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: 330, y }] });
+    for (let i = 1; i <= 10; i++) {
+      await cdp.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x: 330 - i * 25, y }] });
+      await page.waitForTimeout(16);
+    }
+    await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+    await page.waitForTimeout(300);
+    return bar.evaluate((el) => el.scrollLeft);
+  };
+  let scrolled = await swipe();
+  if (scrolled <= 50) scrolled = await swipe();
+  expect(scrolled).toBeGreaterThan(50);
 });
 
 test("у края панели форматирования видно, что дальше есть ещё", async ({ page }) => {
