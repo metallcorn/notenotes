@@ -120,10 +120,12 @@ export default function NoteAssistantModal({
           результат). На узком экране места на "рядом" нет физически, там
           обычная модалка поверх всего — остаётся как было. */}
       <div className="fixed inset-0 z-50 bg-black/40 lg:hidden" onClick={onClose} />
-      <div className="pointer-events-none fixed inset-0 z-50 flex items-center justify-center p-4 lg:items-stretch lg:justify-end lg:p-0">
+      {/* Телефон: во весь экран (замечание 22.10 — в узкой модалке поле
+          ввода оставалось крохотным), планшет — модалка по центру. */}
+      <div className="pointer-events-none fixed inset-0 z-50 flex items-center justify-center p-0 sm:p-4 lg:items-stretch lg:justify-end lg:p-0">
         <div
           style={isDesktop ? { width } : undefined}
-          className="panel-slide-in pointer-events-auto relative flex h-[85vh] w-full max-w-xl flex-col overflow-hidden rounded-3xl bg-surface shadow-xl lg:h-full lg:max-w-none lg:rounded-none lg:border-l lg:shadow-2xl"
+          className="panel-slide-in pointer-events-auto relative flex h-dvh w-full max-w-xl flex-col overflow-hidden bg-surface shadow-xl sm:h-[85vh] sm:rounded-3xl lg:h-full lg:max-w-none lg:rounded-none lg:border-l lg:shadow-2xl"
         >
           {/* Ручка изменения ширины — только на десктопе, на телефоне
               панель на всю ширину, тянуть нечего. */}

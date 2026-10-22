@@ -22,6 +22,7 @@ import {
   Plane,
   QrCode,
   RotateCcw,
+  Send,
   Sparkles,
   Square,
   StretchHorizontal,
@@ -2027,9 +2028,12 @@ export default function AssistantChat({
             type="submit"
             disabled={pendingAttachment?.status === "processing" || (!input.trim() && !pendingAttachment)}
             title={sendMessage.isPending ? "Ассистент ещё отвечает — сообщение уйдёт следующим ходом" : undefined}
-            className="flex h-12 shrink-0 items-center justify-center rounded-2xl bg-accent px-4 text-sm font-extrabold text-on-accent disabled:opacity-50"
+            aria-label={sendMessage.isPending ? "В очередь" : "Отправить"}
+            className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-accent px-0 text-sm font-extrabold text-on-accent disabled:opacity-50 sm:w-auto sm:px-4"
           >
-            {sendMessage.isPending ? "В очередь" : "Отправить"}
+            {/* На телефоне — иконка: текстовая кнопка съедала ширину поля ввода. */}
+            <Send size={18} className="sm:hidden" />
+            <span className="hidden sm:inline">{sendMessage.isPending ? "В очередь" : "Отправить"}</span>
           </button>
         </form>
       </div>
