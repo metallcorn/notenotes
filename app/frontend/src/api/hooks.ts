@@ -259,11 +259,28 @@ export function useUpdateSpace() {
 
 // Ручной порядок спейсов текущего пользователя (space_members.position):
 // список id в нужном порядке, сервер отдаёт /spaces уже отсортированными.
+// Оптимистично: порядок в кэше меняется сразу при отпускании, иначе список
+// на мгновение отскакивает к старому, пока сервер отвечает (жалоба 22.10).
 export function useReorderSpaces() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (spaceIds: string[]) => api.put<void>("/spaces/order", { space_ids: spaceIds }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["spaces"] }),
+    onMutate: async (spaceIds) => {
+      await qc.cancelQueries({ queryKey: ["spaces"] });
+      const prev = qc.getQueryData<Space[]>(["spaces"]);
+      if (prev) {
+        const pos = new Map(spaceIds.map((id, i) => [id, i]));
+        qc.setQueryData<Space[]>(
+          ["spaces"],
+          [...prev].sort((a, b) => (pos.get(a.id) ?? Number.MAX_SAFE_INTEGER) - (pos.get(b.id) ?? Number.MAX_SAFE_INTEGER)),
+        );
+      }
+      return { prev };
+    },
+    onError: (_err, _ids, ctx) => {
+      if (ctx?.prev) qc.setQueryData(["spaces"], ctx.prev);
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey: ["spaces"] }),
   });
 }
 

@@ -198,8 +198,8 @@ export default function SpacesSheet({
           />
         </div>
         <div className="min-h-0 flex-1 space-y-2 overflow-y-auto">
-          {drag.items.map((space, i) => (
-            <div key={space.id} ref={drag.register(space.id)}>
+          {spaces.map((space, i) => (
+            <div key={space.id} ref={drag.register(space.id)} style={drag.styleFor(space.id)}>
               <SpaceRow
                 space={space}
                 index={i}

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Trash2, X } from "lucide-react";
+import { MessageSquareText, Plus, Sparkles, Trash2, X } from "lucide-react";
 import { useCreateDialog, useDeleteItem, useScopedDialogs } from "../api/hooks";
 import type { DialogSummary } from "../api/types";
 import { uiStorage } from "../lib/storage";
@@ -146,52 +146,79 @@ export default function NoteAssistantModal({
             />
           ) : pastDialogs && pastDialogs.length > 0 ? (
             <div className="flex h-full flex-col">
-              <div className="flex items-center justify-between border-b px-3 py-2">
-                <span className="text-sm font-medium text-subtle">Ассистент</span>
-                <button onClick={onClose} className="flex h-7 w-7 items-center justify-center rounded text-subtle hover:bg-muted-hover">
-                  <X size={16} />
+              <div className="flex items-center gap-3 px-3 pt-3 pb-2">
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-brand text-white" aria-hidden="true">
+                  <Sparkles size={18} strokeWidth={2.4} />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="text-[17px] font-extrabold text-primary">Ассистент</div>
+                  <div className="truncate text-xs font-semibold text-subtle">по этой заметке</div>
+                </div>
+                <button
+                  onClick={onClose}
+                  aria-label="Закрыть"
+                  className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-muted text-primary hover:bg-muted-hover"
+                >
+                  <X size={20} strokeWidth={2.4} />
                 </button>
               </div>
-              <div className="flex-1 overflow-y-auto px-3 py-3">
-                <p className="mb-2 text-sm text-secondary">У этой заметки уже есть разговоры с ассистентом:</p>
-                <div className="flex flex-col gap-1">
+              {/* Макет «Ассистент: диалоги»: кнопка нового разговора
+                  сверху фиолетовой, прошлые разговоры — карточками. */}
+              <div className="flex-1 overflow-y-auto px-3 pb-4">
+                <button
+                  onClick={startNewDialog}
+                  className="flex h-14 w-full items-center justify-center gap-2 rounded-2xl bg-brand text-[15px] font-extrabold text-white hover:bg-brand/90"
+                >
+                  <Plus size={18} strokeWidth={2.6} /> Начать новый разговор
+                </button>
+                <div className="px-1 pb-1.5 pt-4 text-[11px] font-extrabold uppercase tracking-wider text-subtle">
+                  Прошлые разговоры по заметке
+                </div>
+                <div className="flex flex-col gap-2">
                   {pastDialogs.map((d) => (
-                    <div key={d.id} className="flex items-center gap-1 rounded border hover:bg-muted-hover">
-                      <button onClick={() => setDialogId(d.id)} className="min-w-0 flex-1 px-3 py-2 text-left text-sm">
-                        {/* Заголовок у всех диалогов этой заметки одинаковый
-                            ("Ассистент: {название заметки}") — реальная
-                            жалоба: без превью первого вопроса их не отличить
-                            друг от друга. Показываем превью как основную
-                            строку, заголовок — не дублируем вовсе. */}
-                        <div className="truncate font-medium text-primary">
-                          {d.preview || "Новый диалог без сообщений"}
-                        </div>
-                        <div className="text-xs text-subtle">{formatDialogDate(d.updated_at)}</div>
+                    <div key={d.id} className="flex items-center rounded-2xl bg-muted hover:bg-muted-hover">
+                      <button onClick={() => setDialogId(d.id)} className="flex min-h-14 min-w-0 flex-1 items-center gap-3 px-3.5 text-left">
+                        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand-soft text-brand-text">
+                          <MessageSquareText size={16} />
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          {/* Заголовок у всех диалогов этой заметки одинаковый
+                              ("Ассистент: {название заметки}") — без превью
+                              первого вопроса их не отличить друг от друга. */}
+                          <span className="block truncate text-[15px] font-extrabold text-primary">
+                            {d.preview || "Новый диалог без сообщений"}
+                          </span>
+                          <span className="block text-xs font-semibold text-subtle">{formatDialogDate(d.updated_at)}</span>
+                        </span>
                       </button>
                       <button
                         onClick={() => setDeletingDialog(d)}
                         title="Удалить диалог"
-                        className="mr-2 flex h-7 w-7 shrink-0 items-center justify-center text-subtle hover:text-danger"
+                        className="mr-1.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-subtle hover:bg-danger-soft hover:text-danger"
                       >
-                        <Trash2 size={14} />
+                        <Trash2 size={15} />
                       </button>
                     </div>
                   ))}
                 </div>
-                <button
-                  onClick={startNewDialog}
-                  className="mt-3 w-full h-10 rounded-xl bg-accent px-4 text-sm font-bold text-on-accent hover:bg-accent/90"
-                >
-                  Начать новый разговор
-                </button>
               </div>
             </div>
           ) : (
             <div className="flex h-full flex-col">
-              <div className="flex items-center justify-between border-b px-3 py-2">
-                <span className="text-sm font-medium text-subtle">Ассистент</span>
-                <button onClick={onClose} className="flex h-7 w-7 items-center justify-center rounded text-subtle hover:bg-muted-hover">
-                  <X size={16} />
+              <div className="flex items-center gap-3 px-3 pt-3 pb-2">
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-brand text-white" aria-hidden="true">
+                  <Sparkles size={18} strokeWidth={2.4} />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="text-[17px] font-extrabold text-primary">Ассистент</div>
+                  <div className="truncate text-xs font-semibold text-subtle">по этой заметке</div>
+                </div>
+                <button
+                  onClick={onClose}
+                  aria-label="Закрыть"
+                  className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-muted text-primary hover:bg-muted-hover"
+                >
+                  <X size={20} strokeWidth={2.4} />
                 </button>
               </div>
               <div className="flex flex-1 items-center justify-center text-subtle">
