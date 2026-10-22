@@ -7,6 +7,7 @@ from urllib.parse import quote
 
 from sqlalchemy import delete, select
 
+from app.telegram_bot import open_button
 from app import realtime, reminder_actions, telegram_bot
 from app.core.config import get_settings
 from app.db import async_session
@@ -57,7 +58,7 @@ async def _dispatch_one(notification: Notification, db) -> None:
             find = payload.get("find")
             if find:
                 url += f"&find={quote(str(find))}"
-            rows.append([{"text": "Открыть", "url": url}])
+            rows.append([open_button("Открыть", url)])
         # «Сделано» и «отложить» прямо под сообщением (reminder_actions.py):
         # без них напоминание, открытое и не закрытое, висело месяцами и
         # больше ни разу не напоминало о себе.

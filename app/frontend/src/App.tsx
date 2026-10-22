@@ -1,6 +1,8 @@
 import type { ReactElement } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
-import { useMe } from "./api/hooks";
+import { useEffect, useRef, useState } from "react";
+import { useMe, useTelegramMiniAppLogin } from "./api/hooks";
+import { getTelegramInitData, isTelegramMiniApp } from "./lib/telegramMiniApp";
 import { useBoundedRestoring } from "./lib/useBoundedRestoring";
 import LoginPage from "./pages/LoginPage";
 import RegisterPage from "./pages/RegisterPage";
@@ -52,12 +54,27 @@ function RequireAuth({ children }: { children: ReactElement }) {
   // как их успевал восстановить AppShell (реальная жалоба — жест
   // «назад»/обновление сбрасывали место).
   const isRestoring = useBoundedRestoring();
+  // Telegram Mini App: сессии нет — входим подписью initData, а не
+  // отправляем на форму логина. Один раз: повторная попытка с той же
+  // строкой бессмысленна, Telegram её не обновит без перезапуска.
+  const tgLogin = useTelegramMiniAppLogin();
+  const tgTried = useRef(false);
+  const [tgError, setTgError] = useState<string | null>(null);
+  const needTgLogin = isTelegramMiniApp() && !isLoading && !isRestoring && !user && !tgTried.current;
+  useEffect(() => {
+    if (!needTgLogin) return;
+    tgTried.current = true;
+    tgLogin.mutate(getTelegramInitData(), {
+      onError: (err) => setTgError(err instanceof Error ? err.message : "Не удалось войти через Telegram"),
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [needTgLogin]);
 
-  if (isLoading || isRestoring) {
+  if (isLoading || isRestoring || needTgLogin || tgLogin.isPending) {
     return <LoadingScreen />;
   }
   if (!user) {
-    return <Navigate to="/login" replace />;
+    return <Navigate to={tgError ? `/login?tg=${encodeURIComponent(tgError)}` : "/login"} replace />;
   }
   return children;
 }

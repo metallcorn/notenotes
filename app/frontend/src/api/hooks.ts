@@ -62,6 +62,16 @@ export function useLogin() {
   });
 }
 
+// Вход из Telegram Mini App: подписанный Telegram initData вместо
+// логина и пароля (lib/telegramMiniApp.ts, routers/auth.py).
+export function useTelegramMiniAppLogin() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (initData: string) => api.post<User>("/auth/telegram-miniapp", { init_data: initData }),
+    onSuccess: (user) => qc.setQueryData(["me"], user),
+  });
+}
+
 export function useRegister() {
   const qc = useQueryClient();
   return useMutation({

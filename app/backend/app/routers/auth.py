@@ -11,9 +11,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import get_settings
 from app.db import get_db
 from app.deps import get_current_user
-from app.models import InviteCode, Space, SpaceMember, User
-from app.schemas.auth import InviteCodeOut, UserCreate, UserLogin, UserOut, UserUpdate
+from app.models import InviteCode, Space, SpaceMember, TelegramLink, User
+from app.schemas.auth import InviteCodeOut, TelegramMiniAppLogin, UserCreate, UserLogin, UserOut, UserUpdate
 from app.security import create_session_token, hash_password, verify_password
+from app.telegram_miniapp import InitDataError, verify_init_data
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -119,6 +120,34 @@ async def register(payload: UserCreate, response: Response, db: AsyncSession = D
     await db.commit()
     await db.refresh(user)
 
+    _set_session_cookie(response, user.id)
+    return user
+
+
+@router.post("/telegram-miniapp", response_model=UserOut)
+async def login_telegram_miniapp(
+    payload: TelegramMiniAppLogin, response: Response, db: AsyncSession = Depends(get_db)
+) -> User:
+    """Вход из Telegram Mini App: подпись initData — доказательство, что
+    запрос пришёл из Telegram от этого пользователя; привязка бота
+    (telegram_links, chat_id личного чата = id пользователя Telegram)
+    говорит, чей это аккаунт. Ставится та же сессионная кука, что и при
+    обычном входе. Перебирать нечего: без токена бота подпись не собрать."""
+    settings = get_settings()
+    try:
+        fields = verify_init_data(payload.init_data, settings.telegram_bot_token)
+    except InitDataError as exc:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, f"Telegram не подтвердил вход: {exc}") from exc
+    telegram_user_id = int(fields["user"]["id"])
+    link = (await db.execute(select(TelegramLink).where(TelegramLink.chat_id == telegram_user_id))).scalar_one_or_none()
+    if link is None:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "Этот Telegram не привязан к аккаунту: войди на сайте и привяжи бота в настройках",
+        )
+    user = await db.get(User, link.user_id)
+    if user is None:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Пользователь не найден")
     _set_session_cookie(response, user.id)
     return user
 

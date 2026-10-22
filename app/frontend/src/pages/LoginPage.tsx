@@ -11,7 +11,10 @@ export default function LoginPage() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [searchParamsInit] = useSearchParams();
+  // Из Telegram Mini App сюда попадают, если бот не привязан к аккаунту
+  // (App.tsx::RequireAuth): причина — в параметре tg.
+  const [error, setError] = useState<string | null>(searchParamsInit.get("tg"));
   const login = useLogin();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();

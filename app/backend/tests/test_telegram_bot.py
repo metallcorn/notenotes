@@ -21,7 +21,7 @@ def test_action_buttons_for_created_note():
         {"c1": {"id": "abc-123", "title": "Подарок на день рождения"}},
     )
     rows = _build_action_buttons(records, "https://notenotes.example")
-    assert rows == [[{"text": "Открыть «Подарок на день рождения»", "url": "https://notenotes.example/?item=abc-123"}]]
+    assert rows == [[{"text": "Открыть «Подарок на день рождения»", "web_app": {"url": "https://notenotes.example/?item=abc-123"}]]
 
 
 def test_action_buttons_for_maps_link():
@@ -48,8 +48,8 @@ def test_action_buttons_multiple_tool_calls_in_one_turn():
     )
     rows = _build_action_buttons(records, "https://notenotes.example")
     assert rows == [
-        [{"text": "Открыть «Покупки»", "url": "https://notenotes.example/?item=list-1"}],
-        [{"text": "Открыть «Расходы»", "url": "https://notenotes.example/?item=table-1"}],
+        [{"text": "Открыть «Покупки»", "web_app": {"url": "https://notenotes.example/?item=list-1"}],
+        [{"text": "Открыть «Расходы»", "web_app": {"url": "https://notenotes.example/?item=table-1"}],
     ]
 
 
@@ -124,7 +124,7 @@ def test_кнопка_к_открытой_заметке():
 
     assert rows == [[{
         "text": "Открыть «🐕 Marsz Kejterka уже в субботу»",
-        "url": "https://notenotes.example/?item=abc-123",
+        "web_app": {"url": "https://notenotes.example/?item=abc-123"},
     }]]
 
 
@@ -141,7 +141,7 @@ def test_кнопки_к_записям_адженды():
 
     rows = _build_action_buttons(records, "https://notenotes.example")
 
-    assert [r[0]["url"] for r in rows] == [
+    assert [r[0]["web_app"]["url"] for r in rows] == [
         "https://notenotes.example/?item=f91",
         "https://notenotes.example/?item=aa2",
     ]
@@ -162,7 +162,7 @@ def test_прошедшее_кнопки_не_получает():
 
     rows = _build_action_buttons(records, "https://notenotes.example")
 
-    assert [r[0]["url"] for r in rows] == ["https://notenotes.example/?item=f91"]
+    assert [r[0]["web_app"]["url"] for r in rows] == ["https://notenotes.example/?item=f91"]
 
 
 def test_длинная_адженда_не_превращается_в_стену_кнопок():

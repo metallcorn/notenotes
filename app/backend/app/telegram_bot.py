@@ -72,6 +72,14 @@ _forward_batches: dict[str, dict] = {}
 _FORWARD_BATCH_DEBOUNCE_SECONDS = 2.5
 
 
+def open_button(text: str, url: str) -> dict:
+    """Кнопка «Открыть» для ссылок внутрь приложения: web_app вместо url —
+    открывается как Mini App внутри Telegram (вход по подписи initData,
+    routers/auth.py::login_telegram_miniapp), а не во внешнем браузере.
+    Внешние ссылки (карты) остаются обычными url-кнопками."""
+    return {"text": text, "web_app": {"url": url}}
+
+
 def _api_url(method: str) -> str:
     return f"{TELEGRAM_API_BASE}/bot{get_settings().telegram_bot_token}/{method}"
 
@@ -195,6 +203,16 @@ async def register_webhook() -> None:
             data = resp.json()
             if not data.get("ok"):
                 logger.error("Не удалось зарегистрировать команды Telegram-бота: %s", data)
+
+            # Кнопка меню рядом с полем ввода — открывает приложение как
+            # Mini App внутри Telegram (см. open_button).
+            resp = await client.post(
+                _api_url("setChatMenuButton"),
+                json={"menu_button": {"type": "web_app", "text": "Открыть", "web_app": {"url": settings.public_base_url}}},
+            )
+            data = resp.json()
+            if not data.get("ok"):
+                logger.error("Не удалось поставить кнопку меню Telegram-бота: %s", data)
         except Exception:
             logger.exception("Ошибка при регистрации Telegram webhook")
 
@@ -946,9 +964,7 @@ def _build_action_buttons(new_records: list[dict], base_url: str) -> list[list[d
                 continue
             name = tc.get("name")
             if name in (_ITEM_LINK_TOOLS | _ITEM_SHOW_TOOLS) and result.get("id") and result.get("title"):
-                rows.append(
-                    [{"text": f"Открыть «{str(result['title'])[:60]}»", "url": f"{base_url}/?item={result['id']}"}]
-                )
+                rows.append([open_button(f"Открыть «{str(result['title'])[:60]}»", f"{base_url}/?item={result['id']}")])
             elif name == "create_maps_link" and result.get("url"):
                 rows.append([{"text": "Открыть в Google Maps", "url": result["url"]}])
             elif name == "list_agenda":
@@ -959,7 +975,7 @@ def _build_action_buttons(new_records: list[dict], base_url: str) -> list[list[d
     unique: list[list[dict]] = []
     seen: set[str] = set()
     for row in rows:
-        key = row[0].get("url", "")
+        key = row[0].get("url") or (row[0].get("web_app") or {}).get("url", "")
         if key and key in seen:
             continue
         seen.add(key)
@@ -981,7 +997,7 @@ def _agenda_buttons(result: dict) -> list[list[dict]]:
         if not url or entry.get("уже_прошло"):
             continue
         title = str(entry.get("title") or "запись")
-        rows.append([{"text": f"Открыть «{title[:50]}»", "url": url}])
+        rows.append([open_button(f"Открыть «{title[:50]}»", url)])
     return rows
 
 

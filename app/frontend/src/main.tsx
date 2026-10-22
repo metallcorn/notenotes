@@ -10,6 +10,7 @@ import { installForceRepaintOnVisible } from "./lib/forceRepaint";
 import { applyTheme } from "./lib/theme";
 import { uiStorage } from "./lib/storage";
 import { locale } from "./i18n";
+import { initTelegramMiniApp } from "./lib/telegramMiniApp";
 
 installForceRepaintOnVisible();
 import "@fontsource-variable/manrope";
@@ -22,6 +23,8 @@ import "./index.css";
 applyTheme(uiStorage.getTheme());
 // index.html — lang="ru" статически; здесь — язык, выбранный в i18n.
 document.documentElement.lang = locale;
+// Внутри Telegram: SDK, полный экран, цвета шапки (обычный браузер — no-op).
+initTelegramMiniApp();
 
 // Точечная диагностика бага "белый экран в standalone PWA" (см.
 // diagnostics.ts) — если причина в необработанном исключении где-то в
