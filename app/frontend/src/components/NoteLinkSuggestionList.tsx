@@ -61,7 +61,7 @@ const NoteLinkSuggestionList = forwardRef<NoteLinkSuggestionListHandle, Props>((
   }));
 
   return (
-    <div className="max-h-64 w-64 overflow-y-auto rounded border bg-surface py-1 shadow-lg">
+    <div className="max-h-64 w-64 overflow-y-auto rounded-2xl border bg-surface py-1.5 shadow-lg">
       {!query.trim() && <div className="px-3 py-2 text-xs text-subtle">Начните вводить название заметки…</div>}
       {query.trim() && loading && <div className="px-3 py-2 text-xs text-subtle">Ищем…</div>}
       {query.trim() && !loading && results.length === 0 && (

@@ -52,7 +52,7 @@ const SlashMenuList = forwardRef<SlashMenuListHandle, Props>(({ items, command }
   }
 
   return (
-    <div data-testid="slash-command-menu" className="w-56 overflow-hidden rounded border bg-surface py-1 shadow-lg">
+    <div data-testid="slash-command-menu" className="w-56 overflow-hidden rounded-2xl border bg-surface py-1.5 shadow-lg">
       {items.map((item, i) => (
         <button
           key={item.title}

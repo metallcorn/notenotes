@@ -58,11 +58,11 @@ function FolderDialogPicker({
       <div className="fixed inset-0 z-40" onClick={onClose} />
       <div
         style={{ top: pos.top, left: pos.left, maxWidth: "calc(100vw - 24px)" }}
-        className="fixed z-50 max-h-72 w-64 overflow-y-auto rounded border bg-surface py-1 shadow-lg"
+        className="fixed z-50 max-h-72 w-64 overflow-y-auto rounded-2xl border bg-surface py-1.5 shadow-lg"
       >
         <button
           onClick={onNew}
-          className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm font-medium text-brand hover:bg-brand/10"
+          className="flex min-h-10 w-full items-center gap-2.5 px-4 text-left text-sm font-bold text-brand-text hover:bg-brand-soft"
         >
           <Plus size={14} /> Новый диалог
         </button>
@@ -154,7 +154,7 @@ function NoteTemplateMenu({
         createPortal(
           <>
             <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-            <div style={pos} className="fixed z-50 w-48 rounded border bg-surface py-1 shadow-lg">
+            <div style={pos} className="fixed z-50 w-48 rounded-2xl border bg-surface py-1.5 shadow-lg">
               {NOTE_TEMPLATES.map((t) => (
                 <button
                   key={t.id}
@@ -162,7 +162,7 @@ function NoteTemplateMenu({
                     setOpen(false);
                     onSelect(t);
                   }}
-                  className="block w-full px-3 py-1.5 text-left text-sm text-secondary hover:bg-muted-hover"
+                  className="block min-h-10 w-full px-4 py-2 text-left text-sm font-semibold text-secondary hover:bg-muted"
                 >
                   {t.label}
                 </button>

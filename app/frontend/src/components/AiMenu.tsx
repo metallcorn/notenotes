@@ -78,17 +78,17 @@ export default function AiMenu({
             <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
             <div
               style={{ top: position.top, left: position.left }}
-              className="fixed z-50 w-64 rounded border bg-surface py-1 shadow-lg"
+              className="fixed z-50 w-64 rounded-2xl border bg-surface py-1.5 shadow-lg"
             >
               <button
                 onClick={() => run("summarize")}
-                className="block w-full px-3 py-1.5 text-left text-sm text-secondary hover:bg-muted-hover"
+                className="block min-h-10 w-full px-4 py-2 text-left text-sm font-semibold text-secondary hover:bg-muted"
               >
                 Суммаризировать
               </button>
               <button
                 onClick={() => run("reformat")}
-                className="block w-full px-3 py-1.5 text-left text-sm text-secondary hover:bg-muted-hover"
+                className="block min-h-10 w-full px-4 py-2 text-left text-sm font-semibold text-secondary hover:bg-muted"
               >
                 Переформатировать
               </button>

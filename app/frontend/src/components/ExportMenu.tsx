@@ -29,16 +29,16 @@ export default function ExportMenu({ onExport }: { onExport: (format: "md" | "ht
       {open && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-          <div className="absolute right-0 top-full z-50 mt-1 w-40 rounded border bg-surface py-1 shadow-lg">
+          <div className="absolute right-0 top-full z-50 mt-1 w-40 rounded-2xl border bg-surface py-1.5 shadow-lg">
             <button
               onClick={() => handle("md")}
-              className="block w-full px-3 py-1.5 text-left text-sm text-secondary hover:bg-muted-hover"
+              className="block min-h-10 w-full px-4 py-2 text-left text-sm font-semibold text-secondary hover:bg-muted"
             >
               Markdown (.md)
             </button>
             <button
               onClick={() => handle("html")}
-              className="block w-full px-3 py-1.5 text-left text-sm text-secondary hover:bg-muted-hover"
+              className="block min-h-10 w-full px-4 py-2 text-left text-sm font-semibold text-secondary hover:bg-muted"
             >
               HTML (.html)
             </button>

@@ -122,7 +122,7 @@ function FolderMenu({ folder, triggerRef, onAddChild, onRename, onMove, onDelete
             onAddChild(folder.id);
             onClose();
           }}
-          className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-secondary hover:bg-muted-hover"
+          className="flex min-h-10 w-full items-center gap-2.5 px-4 text-left text-sm font-semibold text-secondary hover:bg-muted"
         >
           <Plus size={14} /> Подпапка
         </button>
@@ -131,7 +131,7 @@ function FolderMenu({ folder, triggerRef, onAddChild, onRename, onMove, onDelete
             onRename(folder);
             onClose();
           }}
-          className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-secondary hover:bg-muted-hover"
+          className="flex min-h-10 w-full items-center gap-2.5 px-4 text-left text-sm font-semibold text-secondary hover:bg-muted"
         >
           <Pencil size={13} /> Переименовать
         </button>
@@ -140,7 +140,7 @@ function FolderMenu({ folder, triggerRef, onAddChild, onRename, onMove, onDelete
             onMove(folder);
             onClose();
           }}
-          className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-secondary hover:bg-muted-hover"
+          className="flex min-h-10 w-full items-center gap-2.5 px-4 text-left text-sm font-semibold text-secondary hover:bg-muted"
         >
           <FolderInput size={13} /> Перенести в другой спейс
         </button>
@@ -149,7 +149,7 @@ function FolderMenu({ folder, triggerRef, onAddChild, onRename, onMove, onDelete
             onDelete(folder);
             onClose();
           }}
-          className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-danger hover:bg-danger/10"
+          className="flex min-h-10 w-full items-center gap-2.5 px-4 text-left text-sm font-bold text-danger hover:bg-danger-soft"
         >
           <X size={14} /> Удалить
         </button>

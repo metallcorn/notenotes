@@ -365,7 +365,7 @@ export default function TicketAttachmentCard({ node, editor, getPos }: NodeViewP
             </div>
 
             {reminderMenuOpen && (
-              <div className="absolute left-3 top-full z-10 mt-1 flex flex-col gap-0.5 rounded border bg-surface p-1 shadow-lg">
+              <div className="absolute left-3 top-full z-10 mt-1 flex flex-col gap-0.5 rounded-2xl border bg-surface p-1.5 shadow-lg">
                 {REMINDER_PRESETS.map((preset) => (
                   <button
                     key={preset.hours}

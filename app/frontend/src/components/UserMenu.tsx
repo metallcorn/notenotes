@@ -108,7 +108,7 @@ export default function UserMenu({
                 setShowSettings(true);
                 setOpen(false);
               }}
-              className="flex w-full items-center gap-2 border-b border-default px-3 py-2 text-left text-sm text-secondary hover:bg-muted"
+              className="flex min-h-11 w-full items-center gap-2.5 border-b border-default px-4 text-left text-sm font-semibold text-secondary hover:bg-muted"
             >
               <Settings size={14} />
               Настройки ассистента
@@ -118,14 +118,14 @@ export default function UserMenu({
                 window.dispatchEvent(new Event(OPEN_FEEDBACK_EVENT));
                 setOpen(false);
               }}
-              className="flex w-full items-center gap-2 border-b border-default px-3 py-2 text-left text-sm text-secondary hover:bg-muted"
+              className="flex min-h-11 w-full items-center gap-2.5 border-b border-default px-4 text-left text-sm font-semibold text-secondary hover:bg-muted"
             >
               <MessageSquare size={14} />
               Оставить отзыв
             </button>
             <button
               onClick={() => logout.mutate()}
-              className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-secondary hover:bg-muted"
+              className="flex min-h-11 w-full items-center gap-2.5 px-4 text-left text-sm font-semibold text-secondary hover:bg-muted"
             >
               <LogOut size={14} />
               Выйти

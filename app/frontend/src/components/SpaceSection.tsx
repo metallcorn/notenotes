@@ -119,7 +119,7 @@ export default function SpaceSection({
                       lockVault(space.id);
                       setMenuOpen(false);
                     }}
-                    className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-warning hover:bg-warning/10"
+                    className="flex min-h-10 w-full items-center gap-2.5 px-4 text-left text-sm font-bold text-warning hover:bg-warning/10"
                   >
                     <LockOpen size={14} /> Закрыть сейф
                   </button>
@@ -130,7 +130,7 @@ export default function SpaceSection({
                       setChangingPassword(true);
                       setMenuOpen(false);
                     }}
-                    className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-secondary hover:bg-muted-hover"
+                    className="flex min-h-10 w-full items-center gap-2.5 px-4 text-left text-sm font-semibold text-secondary hover:bg-muted"
                   >
                     <KeyRound size={14} /> Сменить пароль сейфа
                   </button>
@@ -140,7 +140,7 @@ export default function SpaceSection({
                     setManagingMembers(true);
                     setMenuOpen(false);
                   }}
-                  className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-secondary hover:bg-muted-hover"
+                  className="flex min-h-10 w-full items-center gap-2.5 px-4 text-left text-sm font-semibold text-secondary hover:bg-muted"
                 >
                   <Users size={14} /> Участники спейса
                 </button>
@@ -149,7 +149,7 @@ export default function SpaceSection({
                     setRenaming(true);
                     setMenuOpen(false);
                   }}
-                  className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-secondary hover:bg-muted-hover"
+                  className="flex min-h-10 w-full items-center gap-2.5 px-4 text-left text-sm font-semibold text-secondary hover:bg-muted"
                 >
                   <Pencil size={14} /> Переименовать спейс
                 </button>
@@ -161,7 +161,7 @@ export default function SpaceSection({
                     setConfirmingDelete(true);
                     setMenuOpen(false);
                   }}
-                  className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-danger hover:bg-danger/10"
+                  className="flex min-h-10 w-full items-center gap-2.5 px-4 text-left text-sm font-bold text-danger hover:bg-danger-soft"
                 >
                   <Trash2 size={14} /> Удалить спейс
                 </button>

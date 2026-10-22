@@ -1635,7 +1635,7 @@ export default function NoteEditor({
                 <Palette size={16} />
               </button>
               {showColorPicker && (
-                <div className="absolute right-0 z-20 mt-1 flex w-40 flex-wrap gap-1 rounded border bg-surface p-2 shadow-lg">
+                <div className="absolute right-0 z-20 mt-1 flex w-40 flex-wrap gap-1 rounded-2xl border bg-surface p-2 shadow-lg">
                   <button
                     onClick={() => {
                       updateItem.mutate({ id: item.id, color: null });
@@ -1778,7 +1778,7 @@ export default function NoteEditor({
               {item.tags.length > 0 ? `Теги (${item.tags.length})` : "+ тег"}
             </button>
             {showTagPicker && (
-              <div className="absolute z-10 mt-1 w-56 rounded border bg-surface p-1 shadow-lg">
+              <div className="absolute z-10 mt-1 w-56 rounded-2xl border bg-surface p-1.5 shadow-lg">
                 {item.tags.length > 0 && (
                   <div className="mb-1 flex flex-wrap gap-1 border-b p-1 pb-2">
                     {item.tags.map((tag) => (

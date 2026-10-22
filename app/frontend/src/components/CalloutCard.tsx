@@ -44,7 +44,7 @@ function VariantSwitcher({ variant, onPick }: { variant: CalloutVariant; onPick:
       {open && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-          <div className="absolute left-0 top-full z-50 mt-1 flex gap-0.5 rounded border bg-surface p-1 shadow-lg">
+          <div className="absolute left-0 top-full z-50 mt-1 flex gap-0.5 rounded-2xl border bg-surface p-1.5 shadow-lg">
             {ADMONITION_VARIANTS.map((v) => (
               <button
                 key={v}
