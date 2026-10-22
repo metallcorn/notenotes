@@ -30,7 +30,10 @@ export default function DialogList({
     <div className="flex h-full flex-col">
       {/* Макет «Ассистент: диалоги» (21.10): тёмная карточка-приглашение с
           подсказками; «+ Новый» — фиолетовая пилюля в шапке. На десктопе
-          шапки нет (слева уже колонка), остаётся кнопка. */}
+          шапки нет (слева уже колонка), остаётся кнопка. Шапка и карточка
+          внутри прокрутки: иначе они съедали полэкрана над списком
+          (замечание 22.10). */}
+      <div className="min-h-0 flex-1 overflow-y-auto">
       <div className="flex items-end justify-between px-4 pt-2 lg:hidden">
         <h1 className="text-[28px] font-extrabold tracking-tight text-primary">{t("nav.assistant")}</h1>
         <button
@@ -75,7 +78,7 @@ export default function DialogList({
         </div>
       </div>
       <div className="px-4 pb-1.5 text-[11px] font-extrabold uppercase tracking-wider text-subtle lg:hidden">{t("dialogs.recent")}</div>
-      <div className="flex-1 overflow-y-auto px-3">
+      <div className="px-3">
         {isLoading && <ListSkeleton rows={5} />}
         {/* isError отдельно от "диалогов правда нет" — раньше сбой сети
             (например, на телефоне при слабом сигнале) выглядел неотличимо
@@ -117,6 +120,7 @@ export default function DialogList({
             </button>
           </div>
         ))}
+      </div>
       </div>
 
       {deleting && (

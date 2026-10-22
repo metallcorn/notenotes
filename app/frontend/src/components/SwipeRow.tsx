@@ -53,7 +53,7 @@ export default function SwipeRow({
   };
 
   return (
-    <div className={`relative overflow-hidden rounded-2xl ${className}`}>
+    <div data-swipe-row="" className={`relative overflow-hidden rounded-2xl ${className}`}>
       <div className="absolute inset-y-0 right-0 flex" style={{ width }} aria-hidden={offset === 0}>
         {actions.map((a) => (
           <button

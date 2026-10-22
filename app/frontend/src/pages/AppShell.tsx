@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { useSearchParams } from "react-router-dom";
 import { Bell, ChevronLeft, ChevronRight, FileStack, LayoutGrid, Lock, Sparkles, Trash2 } from "lucide-react";
 import { useSpaces } from "../api/hooks";
@@ -310,6 +310,7 @@ export default function AppShell() {
       { mobileOnly: true },
     );
     if (activeSpaceId) uiStorage.setLastItemId(activeSpaceId, itemParam);
+    if (itemParam) uiStorage.pushRecentlyOpened(itemParam);
     uiStorage.setLastDialogId(dialogParam);
     // Пробы геометрии (search_params_sync_start/settled) убраны 10.10:
     // они ответили на свой вопрос. Ставились, чтобы проверить гипотезу
@@ -662,6 +663,42 @@ export default function AppShell() {
     openFoldersView();
   }
 
+  // Свайп по экрану влево/вправо на телефоне листает вкладки нижней панели
+  // (Главная → Заметки → Ассистент → Активность), как ожидал владелец.
+  // Только касания, только вне редактора; жест, начатый на горизонтально
+  // прокручиваемой полосе (пилюли) или на карточке со своим свайпом
+  // (SwipeRow), не считается.
+  const swipeStart = useRef<{ x: number; y: number; ok: boolean } | null>(null);
+  const TAB_ORDER: Exclude<BottomNavTab, null>[] = ["home", "notes", "assistant", "activity"];
+  function onSwipePointerDown(e: ReactPointerEvent) {
+    if (e.pointerType !== "touch" || isDesktop || mobileView === "editor") return;
+    const target = e.target as HTMLElement;
+    let ok = true;
+    for (let el: HTMLElement | null = target; el && el !== e.currentTarget; el = el.parentElement) {
+      if (el.dataset.swipeRow !== undefined) ok = false;
+      const ox = getComputedStyle(el).overflowX;
+      if ((ox === "auto" || ox === "scroll") && el.scrollWidth > el.clientWidth + 1) ok = false;
+      if (!ok) break;
+    }
+    swipeStart.current = { x: e.clientX, y: e.clientY, ok };
+  }
+  function onSwipePointerUp(e: ReactPointerEvent) {
+    const start = swipeStart.current;
+    swipeStart.current = null;
+    if (!start || !start.ok || e.pointerType !== "touch") return;
+    const dx = e.clientX - start.x;
+    const dy = e.clientY - start.y;
+    if (Math.abs(dx) < 70 || Math.abs(dy) > 50 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
+    const current = bottomTab ?? "home";
+    const index = TAB_ORDER.indexOf(current);
+    const next = TAB_ORDER[index + (dx < 0 ? 1 : -1)];
+    if (!next) return;
+    if (next === "home") closeListView();
+    else if (next === "notes") openNotesTab();
+    else if (next === "assistant") switchToAssistant();
+    else switchToActivity();
+  }
+
   function openSpaceFromSheet(spaceId: string) {
     setViewMode("notes");
     setActiveSpaceId(spaceId);
@@ -719,7 +756,7 @@ export default function AppShell() {
           вертикали — выпадающее меню шаблонов заметки (NoteTemplateMenu)
           рисовалось, но было невидимым и съедало следующий клик своим
           fixed-бэкдропом. Косметика ширины не стоила этой цены — убрано. */}
-      <div className="flex min-h-0 flex-1">
+      <div className="flex min-h-0 flex-1" onPointerDown={onSwipePointerDown} onPointerUp={onSwipePointerUp}>
       <aside
         className={`${mobileView === "sidebar" ? "flex" : "hidden"} w-full shrink-0 flex-col bg-app lg:flex lg:border-r lg:bg-muted`}
         style={
@@ -793,7 +830,7 @@ export default function AppShell() {
           </div>
           <div className="lg:hidden">
             <UpcomingCard onOpen={openReminder} onOpenItem={openRecentItem} onAll={switchToActivity} />
-            <RecentGrid spaceId={homeSpaceFilter} onOpen={openRecentItem} onAll={openNotesTab} />
+            <RecentGrid spaceId={homeSpaceFilter} openedIds={uiStorage.getRecentlyOpened()} onOpen={openRecentItem} onAll={openNotesTab} />
           </div>
           <div className="mb-3 hidden space-y-0.5 lg:block">
             {(

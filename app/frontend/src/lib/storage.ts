@@ -87,6 +87,12 @@ export const uiStorage = {
   // привязаны к спейсу с точки зрения пользователя (список общий на все
   // спейсы сразу), так что и "последний открытый диалог" тоже один на всё,
   // а не разный для каждого спейса.
+  // Недавно ОТКРЫТЫЕ записи (замечание 22.10: «Недавние» на Главной — только
+  // по дате правки, а только что прочитанная заметка туда не попадала).
+  // Сервер просмотры не считает, поэтому список локальный: последние 8 id.
+  getRecentlyOpened: (): string[] => read<string[]>("recentlyOpened", []),
+  pushRecentlyOpened: (id: string): void =>
+    write("recentlyOpened", [id, ...read<string[]>("recentlyOpened", []).filter((x) => x !== id)].slice(0, 8)),
   getLastDialogId: (): string | null => read<string | null>("lastDialog", null),
   setLastDialogId: (dialogId: string | null): void => write("lastDialog", dialogId),
 
