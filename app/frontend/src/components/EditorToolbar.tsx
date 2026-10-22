@@ -39,12 +39,14 @@ function ToolbarButton({
   disabled,
   title,
   children,
+  dark = false,
 }: {
   onClick: () => void;
   active?: boolean;
   disabled?: boolean;
   title: string;
   children: ReactNode;
+  dark?: boolean;
 }) {
   return (
     <button
@@ -53,8 +55,14 @@ function ToolbarButton({
       onMouseDown={(e) => e.preventDefault()}
       onClick={onClick}
       disabled={disabled}
-      className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl disabled:opacity-30 ${
-        active ? "bg-accent text-on-accent" : "text-secondary hover:bg-muted-hover"
+      className={`flex shrink-0 items-center justify-center rounded-xl disabled:opacity-30 ${dark ? "h-11 w-11" : "h-9 w-9"} ${
+        dark
+          ? active
+            ? "bg-white/15 text-nav-text"
+            : "text-nav-text hover:bg-white/10"
+          : active
+            ? "bg-accent text-on-accent"
+            : "text-secondary hover:bg-muted-hover"
       }`}
     >
       {children}
@@ -78,6 +86,7 @@ export default function EditorToolbar({
   readOnly,
   showToc,
   onToggleToc,
+  variant = "light",
 }: {
   editor: Editor | null;
   onInsertImage: () => void;
@@ -97,6 +106,9 @@ export default function EditorToolbar({
   readOnly: boolean;
   showToc: boolean;
   onToggleToc: () => void;
+  // "dark" — внутри плавающей панели телефона (MobileEditorToolbar):
+  // тёмная плашка, кнопки 44px, без нижней границы.
+  variant?: "light" | "dark";
 }) {
   // На телефоне панель шире экрана и прокручивается вбок, но полосы
   // прокрутки на тач-экранах не видно: кнопки просто обрываются у края, и
@@ -129,16 +141,21 @@ export default function EditorToolbar({
 
   if (!editor) return null;
   const uploading = uploadProgress !== null;
+  const dark = variant === "dark";
+  // Внутри компонента все ToolbarButton получают dark одним местом.
+  const TB = (p: Omit<Parameters<typeof ToolbarButton>[0], "dark">) => <ToolbarButton {...p} dark={dark} />;
+  const fade = dark ? "from-nav via-nav" : "from-muted via-muted";
+  const sep = dark ? "bg-white/15" : "bg-default";
 
   return (
-    <div className={`relative border-b bg-muted ${readOnly ? "hidden md:block" : ""}`}>
+    <div className={`relative ${dark ? "bg-nav" : "border-b bg-muted"} ${readOnly && !dark ? "hidden md:block" : ""}`}>
     {edges.left && (
       <button
         type="button"
         title="Прокрутить панель влево"
         onMouseDown={(e) => e.preventDefault()}
         onClick={() => scrollBy(-1)}
-        className="absolute inset-y-0 left-0 z-10 flex w-8 items-center justify-start [@media(pointer:coarse)]:pointer-events-none bg-gradient-to-r from-muted via-muted to-transparent pl-0.5 text-subtle"
+        className={`absolute inset-y-0 left-0 z-10 flex w-8 items-center justify-start [@media(pointer:coarse)]:pointer-events-none bg-gradient-to-r ${fade} to-transparent pl-0.5 text-subtle`}
       >
         <ChevronLeft size={16} />
       </button>
@@ -149,7 +166,7 @@ export default function EditorToolbar({
         title="Прокрутить панель вправо"
         onMouseDown={(e) => e.preventDefault()}
         onClick={() => scrollBy(1)}
-        className="absolute inset-y-0 right-0 z-10 flex w-8 items-center justify-end [@media(pointer:coarse)]:pointer-events-none bg-gradient-to-l from-muted via-muted to-transparent pr-0.5 text-subtle"
+        className={`absolute inset-y-0 right-0 z-10 flex w-8 items-center justify-end [@media(pointer:coarse)]:pointer-events-none bg-gradient-to-l ${fade} to-transparent pr-0.5 text-subtle`}
       >
         <ChevronRight size={16} />
       </button>
@@ -161,87 +178,87 @@ export default function EditorToolbar({
     >
       <div className={`flex flex-nowrap items-center gap-0.5 ${readOnly ? "pointer-events-none opacity-40" : ""}`}>
       <AiMenu onAction={onAiAction} onOpenAssistant={onOpenAssistant} loading={aiLoading} />
-      <span className="mx-1 h-4 w-px shrink-0 bg-default" />
-      <ToolbarButton
+      <span className={`mx-1 h-4 w-px shrink-0 ${sep}`} />
+      <TB
         title="Заголовок 1"
         active={editor.isActive("heading", { level: 1 })}
         onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()}
       >
         <Heading1 size={16} />
-      </ToolbarButton>
-      <ToolbarButton
+      </TB>
+      <TB
         title="Заголовок 2"
         active={editor.isActive("heading", { level: 2 })}
         onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}
       >
         <Heading2 size={16} />
-      </ToolbarButton>
-      <ToolbarButton
+      </TB>
+      <TB
         title="Заголовок 3"
         active={editor.isActive("heading", { level: 3 })}
         onClick={() => editor.chain().focus().toggleHeading({ level: 3 }).run()}
       >
         <Heading3 size={16} />
-      </ToolbarButton>
-      <span className="mx-1 h-4 w-px shrink-0 bg-default" />
-      <ToolbarButton
+      </TB>
+      <span className={`mx-1 h-4 w-px shrink-0 ${sep}`} />
+      <TB
         title="Жирный"
         active={editor.isActive("bold")}
         onClick={() => editor.chain().focus().toggleBold().run()}
       >
         <Bold size={16} />
-      </ToolbarButton>
-      <ToolbarButton
+      </TB>
+      <TB
         title="Курсив"
         active={editor.isActive("italic")}
         onClick={() => editor.chain().focus().toggleItalic().run()}
       >
         <Italic size={16} />
-      </ToolbarButton>
-      <ToolbarButton
+      </TB>
+      <TB
         title="Зачёркнутый"
         active={editor.isActive("strike")}
         onClick={() => editor.chain().focus().toggleStrike().run()}
       >
         <Strikethrough size={16} />
-      </ToolbarButton>
-      <ToolbarButton
+      </TB>
+      <TB
         title="Код"
         active={editor.isActive("code")}
         onClick={() => editor.chain().focus().toggleCode().run()}
       >
         <Code size={16} />
-      </ToolbarButton>
-      <span className="mx-1 h-4 w-px shrink-0 bg-default" />
-      <ToolbarButton
+      </TB>
+      <span className={`mx-1 h-4 w-px shrink-0 ${sep}`} />
+      <TB
         title="Маркированный список"
         active={editor.isActive("bulletList")}
         onClick={() => editor.chain().focus().toggleBulletList().run()}
       >
         <List size={16} />
-      </ToolbarButton>
-      <ToolbarButton
+      </TB>
+      <TB
         title="Нумерованный список"
         active={editor.isActive("orderedList")}
         onClick={() => editor.chain().focus().toggleOrderedList().run()}
       >
         <ListOrdered size={16} />
-      </ToolbarButton>
-      <ToolbarButton
+      </TB>
+      <TB
         title="Цитата"
         active={editor.isActive("blockquote")}
         onClick={() => editor.chain().focus().toggleBlockquote().run()}
       >
         <Quote size={16} />
-      </ToolbarButton>
-      <ToolbarButton
+      </TB>
+      <TB
         title="Блок кода"
         active={editor.isActive("codeBlock")}
         onClick={() => editor.chain().focus().toggleCodeBlock().run()}
       >
         <SquareCode size={16} />
-      </ToolbarButton>
-      <ToolbarButton
+      </TB>
+      <TB
         title="Спойлер"
         onClick={() =>
           editor
@@ -252,8 +269,8 @@ export default function EditorToolbar({
         }
       >
         <MessageSquare size={16} />
-      </ToolbarButton>
-      <ToolbarButton
+      </TB>
+      <TB
         title="Инфо-блок (совет/важно/опасно — переключается на самом блоке)"
         onClick={() =>
           editor
@@ -264,62 +281,62 @@ export default function EditorToolbar({
         }
       >
         <Info size={16} />
-      </ToolbarButton>
-      <ToolbarButton title="Разделитель" onClick={() => editor.chain().focus().setHorizontalRule().run()}>
+      </TB>
+      <TB title="Разделитель" onClick={() => editor.chain().focus().setHorizontalRule().run()}>
         <Minus size={16} />
-      </ToolbarButton>
-      <ToolbarButton
+      </TB>
+      <TB
         title="Простая сетка"
         active={editor.isActive("table")}
         onClick={() => editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()}
       >
         <TableIcon size={16} />
-      </ToolbarButton>
+      </TB>
       {onInsertTable && (
-        <ToolbarButton title="Таблица" onClick={onInsertTable}>
+        <TB title="Таблица" onClick={onInsertTable}>
           <TableProperties size={16} />
-        </ToolbarButton>
+        </TB>
       )}
-      <span className="mx-1 h-4 w-px shrink-0 bg-default" />
-      <ToolbarButton title="Картинка" disabled={uploading} onClick={onInsertImage}>
+      <span className={`mx-1 h-4 w-px shrink-0 ${sep}`} />
+      <TB title="Картинка" disabled={uploading} onClick={onInsertImage}>
         {uploading ? <Spinner size={16} /> : <ImageIcon size={16} />}
-      </ToolbarButton>
-      <ToolbarButton title="Файл" disabled={uploading} onClick={onInsertFile}>
+      </TB>
+      <TB title="Файл" disabled={uploading} onClick={onInsertFile}>
         {uploading ? <Spinner size={16} /> : <FileUp size={16} />}
-      </ToolbarButton>
+      </TB>
       {onOpenRecorder && (
-        <ToolbarButton title="Записать аудио" onClick={onOpenRecorder}>
+        <TB title="Записать аудио" onClick={onOpenRecorder}>
           <Mic size={16} />
-        </ToolbarButton>
+        </TB>
       )}
       {uploading && (
-        <span className="shrink-0 text-xs tabular-nums text-subtle">
+        <span className={`shrink-0 text-xs tabular-nums ${dark ? "text-nav-muted" : "text-subtle"}`}>
           {uploadBatch && uploadBatch.total > 1 ? `${uploadBatch.current}/${uploadBatch.total} · ` : ""}
           {uploadProgress}%
         </span>
       )}
-      <span className="mx-1 h-4 w-px shrink-0 bg-default" />
-      <ToolbarButton title="Отменить" disabled={!editor.can().undo()} onClick={() => editor.chain().focus().undo().run()}>
+      <span className={`mx-1 h-4 w-px shrink-0 ${sep}`} />
+      <TB title="Отменить" disabled={!editor.can().undo()} onClick={() => editor.chain().focus().undo().run()}>
         <Undo2 size={16} />
-      </ToolbarButton>
-      <ToolbarButton title="Повторить" disabled={!editor.can().redo()} onClick={() => editor.chain().focus().redo().run()}>
+      </TB>
+      <TB title="Повторить" disabled={!editor.can().redo()} onClick={() => editor.chain().focus().redo().run()}>
         <Redo2 size={16} />
-      </ToolbarButton>
+      </TB>
       </div>
-      <span className="mx-1 h-4 w-px shrink-0 bg-default" />
-      <ToolbarButton title="Узкий текст" active={contentWidth === "narrow"} onClick={() => onContentWidthChange("narrow")}>
+      <span className={`mx-1 h-4 w-px shrink-0 ${sep}`} />
+      <TB title="Узкий текст" active={contentWidth === "narrow"} onClick={() => onContentWidthChange("narrow")}>
         <AlignCenter size={16} />
-      </ToolbarButton>
-      <ToolbarButton title="Широкий текст" active={contentWidth === "wide"} onClick={() => onContentWidthChange("wide")}>
+      </TB>
+      <TB title="Широкий текст" active={contentWidth === "wide"} onClick={() => onContentWidthChange("wide")}>
         <StretchHorizontal size={16} />
-      </ToolbarButton>
-      <ToolbarButton title="Во весь экран" active={contentWidth === "full"} onClick={() => onContentWidthChange("full")}>
+      </TB>
+      <TB title="Во весь экран" active={contentWidth === "full"} onClick={() => onContentWidthChange("full")}>
         <Maximize2 size={16} />
-      </ToolbarButton>
-      <span className="mx-1 h-4 w-px shrink-0 bg-default" />
-      <ToolbarButton title="Содержание заметки" active={showToc} onClick={onToggleToc}>
+      </TB>
+      <span className={`mx-1 h-4 w-px shrink-0 ${sep}`} />
+      <TB title="Содержание заметки" active={showToc} onClick={onToggleToc}>
         <ListTree size={16} />
-      </ToolbarButton>
+      </TB>
     </div>
     </div>
   );

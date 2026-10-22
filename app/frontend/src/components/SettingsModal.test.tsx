@@ -18,6 +18,7 @@ const hooks = vi.hoisted(() => {
   const empty = { data: [], isLoading: false };
   return {
     useMe: vi.fn(() => ({ data: { llm_provider: "", timezone: "Europe/Warsaw", digest_time: "09:00" } })),
+    useLogout: vi.fn(() => idle),
     useMemories: vi.fn(() => empty),
     useAddMemory: vi.fn(() => idle),
     useDeleteMemory: vi.fn(() => idle),

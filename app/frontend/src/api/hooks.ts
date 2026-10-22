@@ -341,7 +341,7 @@ export function useFolders(spaceId: string | undefined) {
 export function useCreateFolder(spaceId: string | undefined) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (payload: { name: string; parent_id?: string | null }) =>
+    mutationFn: (payload: { name: string; parent_id?: string | null; icon?: string | null }) =>
       api.post<Folder>("/folders", { space_id: spaceId, ...payload }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["folders", spaceId] }),
   });
@@ -350,7 +350,7 @@ export function useCreateFolder(spaceId: string | undefined) {
 export function useUpdateFolder(spaceId: string | undefined) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, ...payload }: { id: string; name?: string; parent_id?: string | null }) =>
+    mutationFn: ({ id, ...payload }: { id: string; name?: string; parent_id?: string | null; icon?: string | null }) =>
       api.patch<Folder>(`/folders/${id}`, payload),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["folders", spaceId] }),
   });

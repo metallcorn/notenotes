@@ -1,5 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import { Bot, Check, Copy, Plug, Plus, Send, Settings2, Share2, Trash2, X } from "lucide-react";
+import { Bot, Check, ChevronLeft, ChevronRight, Copy, Plug, Plus, Send, Settings2, Share2, Trash2, X } from "lucide-react";
+import { applyTheme } from "../lib/theme";
+import { uiStorage, type Theme } from "../lib/storage";
+import { useMediaQuery } from "../lib/useMediaQuery";
+import { t } from "../i18n";
 import {
   useAddMemory,
   useAddOwnMailAddress,
@@ -9,6 +13,7 @@ import {
   useGenerateMailAddress,
   useInviteCodes,
   useMailStatus,
+  useLogout,
   useMe,
   useMemories,
   useRegenerateMailAddress,
@@ -142,7 +147,22 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
     updateDisabledTools.mutate([...disabled]);
   }
 
-  const [active, setActive] = useState<SectionKey>("assistant");
+  // Телефон (макет «Настройки», 21.10): экран целиком, сначала корневой
+  // список разделов с темой и «Выйти», раздел открывается с кнопкой
+  // «назад». На десктопе — как раньше, модалка с колонкой разделов.
+  const isPhone = useMediaQuery("(max-width: 639px)");
+  const [phoneSection, setPhoneSection] = useState<SectionKey | null>(null);
+  const [desktopSection, setDesktopSection] = useState<SectionKey>("assistant");
+  const active: SectionKey = isPhone ? (phoneSection ?? "assistant") : desktopSection;
+  const setActive = (key: SectionKey) => (isPhone ? setPhoneSection(key) : setDesktopSection(key));
+  const showRoot = isPhone && phoneSection === null;
+  const logout = useLogout();
+  const [theme, setThemeState] = useState<Theme>(() => uiStorage.getTheme());
+  function pickTheme(next: Theme) {
+    uiStorage.setTheme(next);
+    applyTheme(next);
+    setThemeState(next);
+  }
   // Предыдущая секция — только чтобы знать направление. В ref, не в
   // state: от него не должен зависеть рендер, иначе лишний проход.
   const previousSection = useRef<SectionKey>("assistant");
@@ -152,31 +172,116 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
   useEffect(() => {
     previousSection.current = active;
   }, [active]);
+  const SUBTITLES: Record<SectionKey, string> = {
+    assistant: t("settings.sub.assistant"),
+    channels: t("settings.sub.channels"),
+    connect: t("settings.sub.connect"),
+    app: t("settings.sub.app"),
+  };
 
   const toggleableSkills = (skills ?? []).filter((s) => s.toggleable);
   const coreSkills = (skills ?? []).filter((s) => !s.toggleable);
 
   return (
-    <div className="modal-in fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
+    <div className="modal-in fixed inset-0 z-50 flex items-center justify-center bg-black/40 sm:p-4" onClick={onClose}>
       <div
         onClick={(e) => e.stopPropagation()}
-        className="flex max-h-[88vh] w-full max-w-3xl flex-col overflow-hidden rounded-3xl bg-surface shadow-xl"
+        className="flex h-full w-full flex-col overflow-hidden bg-app shadow-xl sm:h-auto sm:max-h-[88vh] sm:max-w-3xl sm:rounded-3xl sm:bg-surface"
+        style={{ paddingTop: "var(--safe-top)" }}
       >
-        <div className="flex items-center justify-between px-5 py-4">
-          <div className="text-xl font-extrabold tracking-tight text-primary">Настройки</div>
-          <button
-            onClick={onClose}
-            aria-label="Закрыть"
-            className="flex h-10 w-10 items-center justify-center rounded-xl bg-muted text-primary hover:bg-muted-hover"
-          >
-            <X size={18} />
-          </button>
+        <div className="flex items-center gap-2 px-3 py-3 sm:justify-between sm:px-5 sm:py-4">
+          {isPhone && (
+            <button
+              onClick={() => (phoneSection ? setPhoneSection(null) : onClose())}
+              aria-label={t("nav.back")}
+              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-surface text-primary shadow-card"
+            >
+              <ChevronLeft size={20} strokeWidth={2.4} />
+            </button>
+          )}
+          <div className="min-w-0 flex-1 text-xl font-extrabold tracking-tight text-primary">
+            {showRoot ? "Настройки" : isPhone ? SECTIONS.find((x) => x.key === active)?.label : "Настройки"}
+          </div>
+          {!isPhone && (
+            <button
+              onClick={onClose}
+              aria-label="Закрыть"
+              className="flex h-10 w-10 items-center justify-center rounded-xl bg-muted text-primary hover:bg-muted-hover"
+            >
+              <X size={18} />
+            </button>
+          )}
         </div>
 
+        {showRoot ? (
+          <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-[max(20px,var(--safe-bottom))]">
+            <div className="flex items-center gap-3.5 px-1">
+              <span className="flex h-[60px] w-[60px] shrink-0 items-center justify-center rounded-2xl bg-nav text-2xl font-extrabold text-lime">
+                {(me?.name || "?").slice(0, 1).toUpperCase()}
+              </span>
+              <div className="min-w-0">
+                <div className="truncate text-[22px] font-extrabold tracking-tight text-primary">{me?.name}</div>
+                <div className="truncate text-[13px] font-semibold text-subtle">
+                  @{me?.username}
+                  {me?.timezone ? ` · ${me.timezone}` : ""}
+                </div>
+              </div>
+            </div>
+            <div className="mt-4 rounded-2xl bg-surface p-3.5 shadow-card">
+              <div className="text-[11px] font-extrabold uppercase tracking-wider text-subtle">{t("settings.theme")}</div>
+              <div role="radiogroup" aria-label={t("settings.theme")} className="mt-2.5 grid grid-cols-3 gap-1.5">
+                {(
+                  [
+                    ["light", t("settings.light"), "bg-[#F5F4EF] text-[#15151A]"],
+                    ["dark", t("settings.dark"), "bg-[#0E0E12] text-[#F2F1EC]"],
+                    ["system", t("settings.system"), "bg-muted text-primary"],
+                  ] as const
+                ).map(([value, label, cls]) => (
+                  <button
+                    key={value}
+                    type="button"
+                    role="radio"
+                    aria-checked={theme === value}
+                    onClick={() => pickTheme(value)}
+                    className={`h-16 rounded-2xl text-[13px] font-extrabold ${cls} ${
+                      theme === value ? "ring-2 ring-brand ring-offset-2 ring-offset-surface" : "ring-1 ring-default"
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="mt-2.5 rounded-2xl bg-surface py-1 shadow-card">
+              {SECTIONS.map((sct, i) => (
+                <button
+                  key={sct.key}
+                  onClick={() => setPhoneSection(sct.key)}
+                  className={`flex min-h-14 w-full items-center gap-3 px-3.5 text-left ${i > 0 ? "border-t border-default" : ""}`}
+                >
+                  <span className="flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-xl bg-brand-soft text-brand-text">
+                    <sct.icon size={16} aria-hidden />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-[15px] font-extrabold text-primary">{sct.label}</span>
+                    <span className="block text-xs font-semibold text-subtle">{SUBTITLES[sct.key]}</span>
+                  </span>
+                  <ChevronRight size={16} className="shrink-0 text-subtle" />
+                </button>
+              ))}
+            </div>
+            <button
+              onClick={() => logout.mutate()}
+              className="mt-3 h-[52px] w-full rounded-2xl bg-surface text-[15px] font-extrabold text-danger shadow-card"
+            >
+              {t("settings.logout")}
+            </button>
+          </div>
+        ) : (
         <div className="flex min-h-0 flex-1 flex-col sm:flex-row">
-          {/* Слева — переход по разделам. На узком экране превращается в
-              горизонтальную полосу: колонка там съела бы половину ширины. */}
-          <nav className="flex shrink-0 gap-1.5 overflow-x-auto px-3 pb-2 sm:w-52 sm:flex-col sm:overflow-x-visible sm:px-3 sm:pb-3">
+          {/* Слева — переход по разделам (десктоп). На телефоне разделы —
+              корневой экран выше, полоса не нужна. */}
+          <nav className="hidden shrink-0 gap-1.5 overflow-x-auto px-3 pb-2 sm:flex sm:w-52 sm:flex-col sm:overflow-x-visible sm:px-3 sm:pb-3">
             {SECTIONS.map((s) => (
               <button
                 key={s.key}
@@ -715,6 +820,7 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
           )}
           </div>
         </div>
+        )}
       </div>
     </div>
   );

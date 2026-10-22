@@ -1,6 +1,24 @@
 import { useSearch } from "../api/hooks";
 import SemanticResults from "./SemanticResults";
 import Spinner from "./Spinner";
+import { t } from "../i18n";
+
+const KIND_LABEL: Record<string, string> = { note: "заметка", list: "список", table: "таблица", dialog: "диалог" };
+
+// Подсветка найденного слова в превью (макет «Поиск», 21.10).
+function highlight(text: string, query: string) {
+  const q = query.trim();
+  if (!q) return text;
+  const i = text.toLowerCase().indexOf(q.toLowerCase());
+  if (i < 0) return text;
+  return (
+    <>
+      {text.slice(0, i)}
+      <mark className="rounded bg-lime/70 px-0.5 text-primary">{text.slice(i, i + q.length)}</mark>
+      {text.slice(i + q.length)}
+    </>
+  );
+}
 
 export default function SearchResults({
   query,
@@ -18,6 +36,9 @@ export default function SearchResults({
   return (
     <>
     <ul className="px-3 pt-2">
+      {!isLoading && fast.length > 0 && (
+        <li className="px-1 pb-1.5 text-[11px] font-extrabold uppercase tracking-wider text-subtle">{t("search.exact")}</li>
+      )}
       {isLoading && (
         <li className="flex items-center gap-2 p-3 text-sm font-semibold text-subtle">
           <Spinner /> Ищем…
@@ -37,9 +58,15 @@ export default function SearchResults({
               selectedId === item.id ? "ring-2 ring-brand" : "hover:shadow-float"
             }`}
           >
-            <div className="truncate text-[15px] font-extrabold text-primary">{item.title || "Без названия"}</div>
-            <div className="mt-0.5 truncate text-[13px] text-subtle">
-              {item.content.slice(0, 120).replace(/\n/g, " ")}
+            <div className="flex items-baseline justify-between gap-2">
+              <span className="truncate text-[15px] font-extrabold text-primary">
+                {item.icon ? `${item.icon} ` : ""}
+                {item.title || "Без названия"}
+              </span>
+              <span className="shrink-0 text-xs font-bold text-subtle">{KIND_LABEL[item.material_type] ?? ""}</span>
+            </div>
+            <div className="mt-0.5 line-clamp-2 text-[13px] leading-snug text-secondary">
+              {highlight(item.content.slice(0, 160).replace(/\n/g, " "), query)}
             </div>
           </button>
         </li>

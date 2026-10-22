@@ -12,6 +12,7 @@ import {
 import type { TableColumn } from "../api/types";
 import { useTableSync } from "../lib/useTableSync";
 import Spinner from "./Spinner";
+import { t } from "../i18n";
 
 const COLUMN_TYPES: { value: string; label: string }[] = [
   { value: "text", label: "Текст" },
@@ -207,19 +208,57 @@ export default function TableGrid({ tableId }: { tableId: string }) {
     );
   }
 
+  // Две карточки-итога (макет «Таблица», 21.10): число строк и сумма по
+  // первому числовому столбцу; числового нет — число столбцов.
+  const numericColumn = table.columns.find((c) => c.type === "number");
+  const total = numericColumn
+    ? table.rows.reduce((acc, r) => acc + (Number.parseFloat(r.cells[numericColumn.id] ?? "") || 0), 0)
+    : null;
+
   return (
     <div>
       {table.columns.length > 0 && (
-        <div className="mb-2 flex justify-end">
-          <button
-            type="button"
-            onClick={() => setView((v) => (v === "cards" ? "grid" : "cards"))}
-            className="flex h-9 items-center gap-1.5 rounded-full bg-muted px-3 text-xs font-bold text-secondary hover:bg-muted-hover"
-          >
-            {view === "cards" ? <Table2 size={14} /> : <LayoutGrid size={14} />}
-            {view === "cards" ? "Таблицей" : "Карточками"}
-          </button>
-        </div>
+        <>
+          <div className="mb-3 grid grid-cols-2 gap-2.5">
+            <div className="rounded-2xl bg-nav p-3.5 text-nav-text">
+              <div className="text-xs font-bold text-nav-muted">{t("table.rows")}</div>
+              <div className="mt-1 text-[26px] font-extrabold leading-none tracking-tight">{table.rows.length}</div>
+            </div>
+            <div className="rounded-2xl bg-lime p-3.5 text-on-lime">
+              <div className="truncate text-xs font-bold opacity-70">{numericColumn ? `${t("table.total")} · ${numericColumn.name}` : t("table.columns")}</div>
+              <div className="mt-1 truncate text-[26px] font-extrabold leading-none tracking-tight">
+                {total !== null ? total.toLocaleString("ru-RU") : table.columns.length}
+              </div>
+            </div>
+          </div>
+          <div className="mb-2.5 flex items-center justify-between gap-2">
+            <div role="radiogroup" aria-label="Вид" className="flex gap-1 rounded-2xl bg-muted-active/60 p-1">
+              {(["cards", "grid"] as const).map((v) => (
+                <button
+                  key={v}
+                  type="button"
+                  role="radio"
+                  aria-checked={view === v}
+                  onClick={() => setView(v)}
+                  className={`flex h-[34px] items-center gap-1.5 rounded-xl px-3 text-[13px] font-extrabold transition-colors ${
+                    view === v ? "bg-surface text-primary shadow-card" : "text-secondary"
+                  }`}
+                >
+                  {v === "cards" ? <LayoutGrid size={14} /> : <Table2 size={14} />}
+                  {v === "cards" ? t("table.cards") : t("table.grid")}
+                </button>
+              ))}
+            </div>
+            {!addingColumn && (
+              <button
+                onClick={() => setAddingColumn(true)}
+                className="h-[38px] shrink-0 rounded-full bg-surface px-3.5 text-[13px] font-extrabold text-primary shadow-card hover:bg-muted"
+              >
+                {t("table.addColumn")}
+              </button>
+            )}
+          </div>
+        </>
       )}
       {table.columns.length === 0 ? (
         <div className="p-3 text-sm text-subtle">Пока нет ни одного столбца — добавьте первый ниже</div>
@@ -320,33 +359,35 @@ export default function TableGrid({ tableId }: { tableId: string }) {
             <X size={14} />
           </button>
         </form>
-      ) : (
+      ) : table.columns.length === 0 ? (
         <button
           onClick={() => setAddingColumn(true)}
-          className="mt-2 flex h-9 items-center gap-1.5 rounded-full px-3 text-xs font-bold text-subtle hover:bg-muted hover:text-secondary"
+          className="mt-2 flex h-10 items-center gap-1.5 rounded-full bg-surface px-4 text-sm font-extrabold text-primary shadow-card hover:bg-muted"
         >
           <Plus size={14} /> Столбец
         </button>
-      )}
+      ) : null}
 
       {table.columns.length > 0 && (
-        <form onSubmit={submitNewRow} className="mt-3 flex flex-wrap gap-2 rounded-2xl bg-muted p-2">
-          {table.columns.map((col) => (
-            <input
-              key={col.id}
-              value={newRow[col.id] ?? ""}
-              onChange={(e) => setNewRow((prev) => ({ ...prev, [col.id]: e.target.value }))}
-              placeholder={col.name}
-              className="h-11 min-w-[7rem] flex-1 rounded-xl border-0 bg-surface px-3 text-sm outline-none focus:ring-2 focus:ring-brand/40"
-            />
-          ))}
+        <form onSubmit={submitNewRow} className="mt-3 rounded-2xl bg-muted p-2">
+          <div className="flex flex-wrap gap-2">
+            {table.columns.map((col) => (
+              <input
+                key={col.id}
+                value={newRow[col.id] ?? ""}
+                onChange={(e) => setNewRow((prev) => ({ ...prev, [col.id]: e.target.value }))}
+                placeholder={col.name}
+                className="h-11 min-w-[7rem] flex-1 rounded-xl border-0 bg-surface px-3 text-sm outline-none focus:ring-2 focus:ring-brand/40"
+              />
+            ))}
+          </div>
           <button
             type="submit"
             aria-label="Добавить строку"
             disabled={addRow.isPending}
-            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-accent text-on-accent disabled:opacity-50"
+            className="mt-2 flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-accent text-base font-extrabold text-on-accent disabled:opacity-50"
           >
-            {addRow.isPending ? <Spinner size={14} className="text-white" /> : <Plus size={14} />}
+            {addRow.isPending ? <Spinner size={14} /> : t("table.addRow")}
           </button>
         </form>
       )}

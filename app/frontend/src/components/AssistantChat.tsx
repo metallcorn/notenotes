@@ -22,6 +22,7 @@ import {
   Plane,
   QrCode,
   RotateCcw,
+  Sparkles,
   Square,
   StretchHorizontal,
   Ticket,
@@ -1687,7 +1688,11 @@ export default function AssistantChat({
         >
           <ChevronLeft size={20} strokeWidth={2.4} />
         </button>
-        <div className="flex min-w-0 flex-1 items-center gap-1">
+        <span className="hidden h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-brand text-white max-lg:flex" aria-hidden="true">
+          <Sparkles size={18} strokeWidth={2.4} />
+        </span>
+        <div className="flex min-w-0 flex-1 flex-col justify-center lg:flex-row lg:items-center lg:gap-1">
+          <span className="flex min-w-0 items-center gap-1">
           <span className="truncate text-[15px] font-extrabold tracking-tight text-primary">{dialog?.title || "Диалог"}</span>
           <button
             onClick={() => setRenamingTitle(true)}
@@ -1696,6 +1701,8 @@ export default function AssistantChat({
           >
             <Pencil size={12} />
           </button>
+          </span>
+          <span className="truncate text-xs font-semibold text-subtle lg:hidden">Видит все твои заметки, кроме сейфа</span>
         </div>
         <button
           onClick={toggleAutoSpeak}
@@ -1981,7 +1988,7 @@ export default function AssistantChat({
             onClick={toggleRecording}
             title={isRecording ? "Остановить запись" : "Голосовой ввод"}
             className={`relative flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-2xl ${
-              isRecording ? "bg-danger-soft text-danger" : "bg-brand-soft text-brand-text hover:bg-brand/20"
+              isRecording ? "bg-danger-soft text-danger" : "bg-lime text-on-lime hover:bg-lime/80"
             }`}
           >
             {isRecording && (

@@ -102,3 +102,23 @@ async def test_move_folder_with_vault_rejected(auth_client):
 
     r = await auth_client.post(f"/api/folders/{folder_id}/move", json={"space_id": vault_space})
     assert r.status_code == 400
+
+
+async def test_folder_icon_set_and_clear(auth_client):
+    space_id = await _make_space(auth_client)
+    r = await auth_client.post("/api/folders", json={"space_id": space_id, "name": "Поездки", "icon": "✈️"})
+    assert r.status_code == 201 and r.json()["icon"] == "✈️"
+    folder_id = r.json()["id"]
+
+    # Переименование без icon в теле значок не трогает.
+    r = await auth_client.patch(f"/api/folders/{folder_id}", json={"name": "Отпуск"})
+    assert r.status_code == 200 and r.json()["icon"] == "✈️"
+
+    r = await auth_client.patch(f"/api/folders/{folder_id}", json={"icon": "🏖️"})
+    assert r.status_code == 200 and r.json()["icon"] == "🏖️"
+
+    r = await auth_client.patch(f"/api/folders/{folder_id}", json={"icon": None})
+    assert r.status_code == 200 and r.json()["icon"] is None
+
+    r = await auth_client.post("/api/folders", json={"space_id": space_id, "name": "Без значка"})
+    assert r.status_code == 201 and r.json()["icon"] is None

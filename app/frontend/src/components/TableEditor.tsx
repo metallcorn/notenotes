@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { ChevronLeft, Download, Trash2 } from "lucide-react";
 import { useDeleteItem, useTable, useUpdateItem } from "../api/hooks";
+import { t } from "../i18n";
 import ConfirmDialog from "./ConfirmDialog";
 import Spinner from "./Spinner";
 import TableGrid from "./TableGrid";
@@ -46,37 +47,46 @@ export default function TableEditor({
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex items-center gap-2 border-b p-3">
+      {/* Шапка (макет «Таблица», 21.10): на телефоне — назад, подпись,
+          экспорт и удаление 44px, заголовок крупно отдельной строкой. */}
+      {/* Одно поле заголовка на оба варианта: на телефоне flex-wrap уносит
+          его на отдельную строку под кнопками (order-last), на десктопе оно
+          стоит в ряду. Два поля с одним placeholder ломали бы e2e и читалки. */}
+      <div className="flex flex-wrap items-center gap-2 p-3 lg:flex-nowrap lg:border-b">
         <button
           onClick={onBack}
+          aria-label={t("nav.back")}
           className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-surface text-primary shadow-card lg:hidden"
         >
           <ChevronLeft size={20} strokeWidth={2.4} />
         </button>
+        <div className="min-w-0 flex-1 truncate pl-1 text-[13px] font-bold text-subtle lg:hidden">{t("create.table")}</div>
         <input
           value={title}
           onChange={(e) => setTitle(e.target.value)}
           onBlur={saveTitle}
           placeholder="Название таблицы"
-          className="min-w-0 flex-1 truncate border-none bg-transparent text-xl font-extrabold tracking-tight text-primary outline-none placeholder:text-subtle"
+          className="order-last mt-1 w-full min-w-0 border-none bg-transparent px-2 text-[28px] font-extrabold leading-tight tracking-tight text-primary outline-none placeholder:text-subtle lg:order-none lg:mt-0 lg:w-auto lg:flex-1 lg:truncate lg:px-0 lg:text-xl"
         />
         <a
           href={`/api/tables/${table.id}/export.csv`}
           title="Экспорт в CSV"
-          className="flex h-8 w-8 shrink-0 items-center justify-center text-subtle hover:text-secondary"
+          aria-label="Экспорт в CSV"
+          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-surface text-primary shadow-card lg:h-9 lg:w-9 lg:bg-transparent lg:text-subtle lg:shadow-none lg:hover:bg-muted"
         >
-          <Download size={15} />
+          <Download size={18} className="lg:hidden" />
+          <Download size={15} className="hidden lg:block" />
         </a>
         <button
           title="Удалить таблицу"
           onClick={() => setConfirmingDelete(true)}
-          className="flex h-8 w-8 shrink-0 items-center justify-center text-subtle hover:text-danger"
+          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-surface text-primary shadow-card lg:h-9 lg:w-9 lg:bg-transparent lg:text-subtle lg:shadow-none lg:hover:bg-muted lg:hover:text-danger"
         >
-          <Trash2 size={16} />
+          <Trash2 size={18} className="lg:hidden" />
+          <Trash2 size={16} className="hidden lg:block" />
         </button>
       </div>
-
-      <div className="min-h-0 flex-1 overflow-auto p-3">
+      <div className="min-h-0 flex-1 overflow-auto p-3 lg:pt-3">
         <TableGrid tableId={itemId} />
       </div>
 

@@ -83,7 +83,7 @@ describe("вид «Документы»", () => {
 
   it("поиск фильтрует по имени, спейсу и заметке", async () => {
     view();
-    const input = screen.getByPlaceholderText(/Название, спейс или заметка/);
+    const input = screen.getByPlaceholderText(/Ищет и по тексту/);
 
     await userEvent.type(input, "ВНЖ");
     expect(screen.getByText("karta_pobytu.pdf")).toBeTruthy();

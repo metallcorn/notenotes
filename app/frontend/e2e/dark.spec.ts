@@ -47,10 +47,19 @@ test("тёмная тема: главная, список, шторка, зам�
   const home = nav.getByRole("button", { name: "Главная" });
   if (!(await home.isVisible())) await page.locator("button:visible:has(svg.lucide-chevron-left)").first().click();
   await home.click();
-  await expect(page.getByText("Спейсы")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Спейсы", exact: true })).toBeVisible();
   await shot(page, "home");
 
+  await page.getByRole("button", { name: "Спейсы", exact: true }).click();
+  await expect(page.getByRole("dialog", { name: "Спейсы" })).toBeVisible();
+  await page.waitForTimeout(400);
+  await shot(page, "spaces");
+  await page.keyboard.press("Escape");
+
   await nav.getByRole("button", { name: "Заметки" }).click();
+  await page.waitForTimeout(500);
+  await shot(page, "folders");
+  await page.getByRole("button", { name: /Все заметки/ }).first().click();
   await page.waitForTimeout(500);
   await shot(page, "list");
 

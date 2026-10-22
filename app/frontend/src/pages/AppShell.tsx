@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Bell, ChevronLeft, ChevronRight, FileStack, Sparkles, Trash2 } from "lucide-react";
+import { Bell, ChevronLeft, ChevronRight, FileStack, LayoutGrid, Lock, Sparkles, Trash2 } from "lucide-react";
 import { useSpaces } from "../api/hooks";
 import { uiStorage, type ViewMode } from "../lib/storage";
 import { withViewTransition } from "../lib/viewTransition";
@@ -30,20 +30,24 @@ import BottomNav, { type BottomNavTab } from "../components/BottomNav";
 import CreateSheet from "../components/CreateSheet";
 import DueReminderCard from "../components/DueReminderCard";
 import RecentGrid from "../components/RecentGrid";
+import SpaceFoldersScreen from "../components/SpaceFoldersScreen";
+import SpacesSheet from "../components/SpacesSheet";
+import NoteListHeader from "../components/NoteListHeader";
 import { ListSkeleton } from "../components/Skeleton";
 import { useNotifications } from "../api/hooks";
 import { dateLocale } from "../i18n";
 import { t } from "../i18n";
 
-type MobileView = "sidebar" | "list" | "editor";
+type MobileView = "sidebar" | "folders" | "list" | "editor";
 
-// Порядок "глубины" мобильного стека — sidebar (корень) → list → editor.
+// Порядок "глубины" мобильного стека — sidebar (Главная) → folders (папки
+// спейса, макет 21.10) → list → editor.
 // Реальная жалоба: переходы между экранами ощущались как обычный fade, а
 // не слайд, свойственный навигации "вглубь"/"назад". View Transitions API
 // сам по себе не знает направления — до вызова withViewTransition
 // проставляем data-атрибут на <html>, index.css выбирает нужные keyframes
 // по нему (см. комментарий там же).
-const MOBILE_VIEW_DEPTH: Record<MobileView, number> = { sidebar: 0, list: 1, editor: 2 };
+const MOBILE_VIEW_DEPTH: Record<MobileView, number> = { sidebar: 0, folders: 1, list: 2, editor: 3 };
 
 function setTransitionDirection(from: MobileView, to: MobileView): void {
   const dir = MOBILE_VIEW_DEPTH[to] >= MOBILE_VIEW_DEPTH[from] ? "forward" : "back";
@@ -97,6 +101,13 @@ export default function AppShell() {
   const [mobileView, setMobileView] = useState<MobileView>("list");
   // Шторка «Создать» с «+» нижней панели (BottomNav/CreateSheet).
   const [createOpen, setCreateOpen] = useState(false);
+  // Шторка «Спейсы» и шторка тегов (телефон, макет «Спейсы» 21.10).
+  const [spacesOpen, setSpacesOpen] = useState(false);
+  const [tagsOpen, setTagsOpen] = useState(false);
+  // Пилюля спейса на Главной — фильтр «Недавних»; null — все.
+  const [homeSpaceFilter, setHomeSpaceFilter] = useState<string | null>(null);
+  // Поиск в списке заметок на телефоне раскрывается кнопкой в шапке.
+  const [listSearchOpen, setListSearchOpen] = useState(false);
   const { data: notifications } = useNotifications();
   const unreadCount = (notifications ?? []).filter((n) => !n.read_at).length;
 
@@ -250,7 +261,9 @@ export default function AppShell() {
     const dialogParam = searchParams.get("dialog");
     const listParam = searchParams.get("list");
     const screenParam = searchParams.get("screen");
-    const nextMobileView: MobileView = itemParam || dialogParam ? "editor" : listParam ? "list" : "sidebar";
+    const foldersParam = searchParams.get("folders");
+    const nextMobileView: MobileView =
+      itemParam || dialogParam ? "editor" : listParam ? "list" : foldersParam ? "folders" : "sidebar";
     setTransitionDirection(mobileView, nextMobileView);
     withViewTransition(
       () => {
@@ -283,7 +296,7 @@ export default function AppShell() {
         // возврате жестом "назад" на голый список (?list=1, без item/
         // screen) — список рисовался как DialogList/ActivityView/
         // TrashView вместо NoteList той папки, откуда реально вышли.
-        else if (listParam) setViewModeState("notes");
+        else if (listParam || foldersParam) setViewModeState("notes");
         setSelectedItemIdState(itemParam);
         setSelectedDialogId(dialogParam);
         setMobileView(nextMobileView);
@@ -396,6 +409,7 @@ export default function AppShell() {
         // иначе подсветка даты всплывёт на следующей открытой.
         next.delete("find");
         next.delete("dialog");
+        next.delete("folders");
         next.set("list", "1");
         // screen — маркер для Активности/Корзины (полноэкранные разделы без
         // своего item/dialog): без него popstate/«назад» из заметки,
@@ -423,9 +437,32 @@ export default function AppShell() {
       next.delete("find");
       next.delete("dialog");
       next.delete("list");
+      next.delete("folders");
       next.delete("screen");
       return next;
     }, { replace: true });
+  }
+
+  // Экран папок спейса (телефон): вкладка «Заметки» нижней панели. С
+  // Главной — push (спуск на уровень), со списка — replace: это тот же
+  // «назад к папкам», отдельной записи в history ему не нужно.
+  function openFoldersView() {
+    setViewMode("notes");
+    setTagId(null);
+    const push = mobileView === "sidebar";
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete("item");
+        next.delete("find");
+        next.delete("dialog");
+        next.delete("list");
+        next.delete("screen");
+        next.set("folders", "1");
+        return next;
+      },
+      push ? undefined : { replace: true },
+    );
   }
 
   function selectFolder(spaceId: string, folderId: string | null) {
@@ -604,7 +641,9 @@ export default function AppShell() {
   const bottomTab: BottomNavTab =
     mobileView === "sidebar"
       ? "home"
-      : viewMode === "assistant"
+      : mobileView === "folders"
+        ? "notes"
+        : viewMode === "assistant"
         ? "assistant"
         : viewMode === "activity"
           ? "activity"
@@ -619,8 +658,15 @@ export default function AppShell() {
   const dateLine = now.toLocaleDateString(dateLocale, { weekday: "long", day: "numeric", month: "long" });
 
   function openNotesTab() {
+    openFoldersView();
+  }
+
+  function openSpaceFromSheet(spaceId: string) {
     setViewMode("notes");
-    openListView();
+    setActiveSpaceId(spaceId);
+    setActiveFolderId(null);
+    setTagId(null);
+    openFoldersView();
   }
 
   return (
@@ -716,29 +762,36 @@ export default function AppShell() {
             CSS-баг с overflow, который "перекрывает интерфейсом" попапы). */}
         <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4 pt-2 lg:p-3">
           <DueReminderCard onOpen={openReminder} onMore={switchToActivity} />
-          {/* Разделы. На телефоне Ассистент и Активность — в нижней панели,
-              здесь остаются только Документы и Корзина; на десктопе — все
-              четыре списком. */}
-          <div className="mb-3 flex gap-2 lg:hidden">
-            {(
-              [
-                [switchToDocuments, "documents", t("nav.documents"), FileStack],
-                [switchToTrash, "trash", t("nav.trash"), Trash2],
-              ] as const
-            ).map(([onClick, mode, label, Icon]) => (
+          {/* Пилюли спейсов (макет «Главная», 21.10): фильтр «Недавних» и
+              заодно выбор активного спейса для вкладки «Заметки». Последняя
+              пилюля открывает шторку «Спейсы» — там же Документы, Корзина
+              и Теги, у которых на телефоне нет своей кнопки. На десктопе
+              все разделы — списком ниже. */}
+          <div className="-mx-4 mb-3 flex gap-2 overflow-x-auto px-4 pb-0.5 lg:hidden" style={{ scrollbarWidth: "none" }}>
+            {[{ id: null as string | null, name: t("spaces.all"), is_vault: false }, ...(spaces ?? [])].map((s) => (
               <button
-                key={mode}
-                onClick={onClick}
-                className={`flex h-10 flex-1 items-center justify-center gap-2 rounded-full text-sm font-semibold transition-colors ${
-                  viewMode === mode ? "bg-accent text-on-accent" : "border border-default bg-surface text-primary hover:bg-muted"
+                key={s.id ?? "all"}
+                onClick={() => {
+                  setHomeSpaceFilter(s.id);
+                  if (s.id) setActiveSpaceId(s.id);
+                }}
+                className={`flex h-9 shrink-0 items-center gap-1.5 rounded-full px-4 text-sm font-bold transition-colors ${
+                  homeSpaceFilter === s.id ? "bg-accent text-on-accent" : "border border-default bg-surface text-primary"
                 }`}
               >
-                <Icon size={16} /> {label}
+                {s.is_vault && <Lock size={12} />}
+                {s.name}
               </button>
             ))}
+            <button
+              onClick={() => setSpacesOpen(true)}
+              className="flex h-9 shrink-0 items-center gap-1.5 rounded-full border border-default bg-surface px-4 text-sm font-bold text-primary"
+            >
+              <LayoutGrid size={14} /> {t("spaces.title")}
+            </button>
           </div>
           <div className="lg:hidden">
-            <RecentGrid onOpen={openRecentItem} onAll={openNotesTab} />
+            <RecentGrid spaceId={homeSpaceFilter} onOpen={openRecentItem} onAll={openNotesTab} />
           </div>
           <div className="mb-3 hidden space-y-0.5 lg:block">
             {(
@@ -763,28 +816,49 @@ export default function AppShell() {
               </button>
             ))}
           </div>
-          <div className="mb-2 flex items-center justify-between px-1">
-            <span className="text-[11px] font-extrabold uppercase tracking-wider text-subtle">{t("home.spaces")}</span>
-            <CreateSpaceButton onCreated={(id) => selectFolder(id, null)} />
+          {/* Дерево спейсов и папок — только на десктопе: на телефоне у
+              спейса свой экран (SpaceFoldersScreen). */}
+          <div className="hidden lg:block">
+            <div className="mb-2 flex items-center justify-between px-1">
+              <span className="text-[11px] font-extrabold uppercase tracking-wider text-subtle">{t("home.spaces")}</span>
+              <CreateSpaceButton onCreated={(id) => selectFolder(id, null)} />
+            </div>
+            {(spaces ?? []).map((space) => (
+              <SpaceSection
+                key={space.id}
+                space={space}
+                isActive={activeSpaceId === space.id}
+                activeFolderId={activeFolderId}
+                collapsed={collapsedSpaces.has(space.id)}
+                onToggleCollapse={() => toggleSpaceCollapsed(space.id)}
+                onSelectFolder={selectFolder}
+              />
+            ))}
+            <TagList selectedTagId={tagId} onSelect={selectTag} />
           </div>
-          {(spaces ?? []).map((space) => (
-            <SpaceSection
-              key={space.id}
-              space={space}
-              isActive={activeSpaceId === space.id}
-              activeFolderId={activeFolderId}
-              collapsed={collapsedSpaces.has(space.id)}
-              onToggleCollapse={() => toggleSpaceCollapsed(space.id)}
-              onSelectFolder={selectFolder}
-            />
-          ))}
-          <TagList selectedTagId={tagId} onSelect={selectTag} />
         </div>
         <div className="hidden shrink-0 items-center gap-1 border-t p-3 lg:flex">
           <UserMenu />
           <NotificationBell updateAvailable={updateAvailable} onOpenReminder={openReminder} />
         </div>
       </aside>
+
+      {/* Экран папок спейса — второй уровень мобильного стека (макет
+          «Папки спейса», 21.10). На десктопе его роль играет дерево в aside. */}
+      <div className={`${mobileView === "folders" ? "flex" : "hidden"} min-h-0 w-full shrink-0 flex-col lg:hidden`}>
+        {activeSpace ? (
+          <SpaceFoldersScreen
+            space={activeSpace}
+            selectedFolderId={activeFolderId}
+            onSelectFolder={(folderId) => selectFolder(activeSpace.id, folderId)}
+            onOpenSpaces={() => setSpacesOpen(true)}
+          />
+        ) : (
+          <div className="p-4">
+            <ListSkeleton rows={6} withIcon={false} />
+          </div>
+        )}
+      </div>
 
       {/* Реальная жалоба: раньше это была одна большая (во всю высоту)
           кликабельная кнопка, совмещавшая ресайз и сворачивание — тянуть
@@ -843,16 +917,24 @@ export default function AppShell() {
             >
               {viewMode === "notes" ? (
                 <>
-                  <div className="flex items-center gap-2 p-3 lg:border-b">
-                    <button
-                      onClick={closeListView}
-                      aria-label={t("nav.home")}
-                      className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-surface text-primary shadow-card lg:hidden"
-                    >
-                      <ChevronLeft size={20} strokeWidth={2.4} />
-                    </button>
+                  <NoteListHeader
+                    space={activeSpace}
+                    folderId={activeFolderId}
+                    tagId={tagId}
+                    searchOpen={listSearchOpen || !!query.trim()}
+                    onToggleSearch={() => {
+                      if (listSearchOpen || query.trim()) {
+                        setQuery("");
+                        setListSearchOpen(false);
+                      } else setListSearchOpen(true);
+                    }}
+                    onBack={openFoldersView}
+                    onSelectFolder={(folderId) => activeSpace && selectFolder(activeSpace.id, folderId)}
+                    onSelectTag={selectTag}
+                  />
+                  <div className={`${listSearchOpen || query.trim() ? "flex" : "hidden"} items-center gap-2 p-3 lg:flex lg:border-b`}>
                     <div className="min-w-0 flex-1">
-                      <SearchBar value={query} onChange={setQuery} />
+                      <SearchBar value={query} onChange={setQuery} autoFocus={listSearchOpen} />
                     </div>
                   </div>
                   <div className="min-h-0 flex-1 overflow-y-auto">
@@ -971,6 +1053,41 @@ export default function AppShell() {
           onAssistant={switchToAssistant}
           onActivity={switchToActivity}
         />
+      )}
+      {spacesOpen && (
+        <SpacesSheet
+          spaces={spaces ?? []}
+          activeSpaceId={activeSpaceId}
+          onPick={(space) => openSpaceFromSheet(space.id)}
+          onCreated={openSpaceFromSheet}
+          onTrash={switchToTrash}
+          onDocuments={switchToDocuments}
+          onTags={() => setTagsOpen(true)}
+          onClose={() => setSpacesOpen(false)}
+        />
+      )}
+      {tagsOpen && (
+        <div
+          className="modal-in fixed inset-0 z-50 flex items-end justify-center bg-black/45 sm:items-center sm:p-4"
+          onClick={() => setTagsOpen(false)}
+          role="dialog"
+          aria-modal="true"
+          aria-label={t("nav.tags")}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="sheet-in max-h-[80dvh] w-full max-w-md overflow-y-auto rounded-t-3xl bg-app px-3 pb-[max(20px,var(--safe-bottom))] pt-2.5 shadow-xl sm:rounded-3xl sm:pb-5"
+          >
+            <div className="mx-auto mb-3 h-[5px] w-10 rounded-full bg-muted-active sm:hidden" aria-hidden="true" />
+            <TagList
+              selectedTagId={tagId}
+              onSelect={(id) => {
+                setTagsOpen(false);
+                selectTag(id);
+              }}
+            />
+          </div>
+        </div>
       )}
       {createOpen && (
         <CreateSheet

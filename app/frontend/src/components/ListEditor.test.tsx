@@ -82,7 +82,7 @@ describe("ListEditor", () => {
     render(<ListEditor itemId="list-1" onDeleted={vi.fn()} onBack={vi.fn()} />);
     const user = userEvent.setup();
     await user.click(screen.getByText("Пока пусто"));
-    expect(screen.getByPlaceholderText("Новый пункт…")).toHaveFocus();
+    expect(screen.getByPlaceholderText("Добавить пункт…")).toHaveFocus();
   });
 
   it("renders entries with checkboxes reflecting their checked state", () => {
@@ -99,7 +99,7 @@ describe("ListEditor", () => {
     expect(boxes).toHaveLength(2);
     expect(boxes[0]).not.toBeChecked();
     expect(boxes[1]).toBeChecked();
-    expect(screen.getByText("1/2")).toBeInTheDocument();
+    expect(screen.getByText("1 из 2")).toBeInTheDocument();
   });
 
   it("toggling a checkbox calls the update mutation with the entry id and new state", async () => {
@@ -132,7 +132,7 @@ describe("ListEditor", () => {
     hooks.useList.mockReturnValue({ data: baseList() });
     render(<ListEditor itemId="list-1" onDeleted={vi.fn()} onBack={vi.fn()} />);
     const user = userEvent.setup();
-    const input = screen.getByPlaceholderText("Новый пункт…");
+    const input = screen.getByPlaceholderText("Добавить пункт…");
     await user.type(input, "  Сыр  ");
     const form = input.closest("form")!;
     await user.click(within(form).getByRole("button"));
@@ -145,7 +145,7 @@ describe("ListEditor", () => {
     hooks.useList.mockReturnValue({ data: baseList() });
     render(<ListEditor itemId="list-1" onDeleted={vi.fn()} onBack={vi.fn()} />);
     const user = userEvent.setup();
-    const input = screen.getByPlaceholderText("Новый пункт…");
+    const input = screen.getByPlaceholderText("Добавить пункт…");
     await user.type(input, "   ");
     const submitButton = within(input.closest("form")!).getByRole("button");
     expect(submitButton).toBeDisabled();

@@ -8,6 +8,7 @@ class FolderCreate(BaseModel):
     space_id: uuid.UUID
     parent_id: uuid.UUID | None = None
     name: str = Field(min_length=1, max_length=255)
+    icon: str | None = Field(default=None, max_length=16)
 
 
 class FolderUpdate(BaseModel):
@@ -17,6 +18,8 @@ class FolderUpdate(BaseModel):
 
     name: str | None = Field(default=None, min_length=1, max_length=255)
     parent_id: uuid.UUID | None = None
+    # Как parent_id: icon=null в теле — «убрать значок», отсутствие — «не трогать».
+    icon: str | None = Field(default=None, max_length=16)
 
 
 class FolderMoveSpace(BaseModel):
@@ -30,4 +33,5 @@ class FolderOut(BaseModel):
     space_id: uuid.UUID
     parent_id: uuid.UUID | None
     name: str
+    icon: str | None = None
     created_at: datetime

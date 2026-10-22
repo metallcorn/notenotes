@@ -20,7 +20,7 @@ function mockMutation() {
 }
 
 function folder(overrides: Partial<Folder> = {}): Folder {
-  return { id: "f1", space_id: "s1", parent_id: null, name: "Авто", created_at: "2026-08-01T00:00:00Z", ...overrides };
+  return { id: "f1", space_id: "s1", parent_id: null, name: "Авто", icon: null, created_at: "2026-08-01T00:00:00Z", ...overrides };
 }
 
 describe("FolderTree — меню папки не обрезается скролл-контейнером", () => {

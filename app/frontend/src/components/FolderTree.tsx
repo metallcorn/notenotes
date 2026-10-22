@@ -1,7 +1,7 @@
-import { FormEvent, useEffect, useRef, useState } from "react";
+import { FormEvent, Suspense, lazy, useEffect, useRef, useState } from "react";
 import type { DragEvent, RefObject } from "react";
 import { createPortal } from "react-dom";
-import { FolderInput, MoreVertical, Pencil, Plus, X } from "lucide-react";
+import { FolderInput, MoreVertical, Pencil, Plus, Smile, X } from "lucide-react";
 import type { Folder } from "../api/types";
 import {
   useCreateFolder,
@@ -24,6 +24,8 @@ import PromptDialog from "./PromptDialog";
 import ConfirmDialog from "./ConfirmDialog";
 import FolderMoveModal from "./FolderMoveModal";
 
+const EmojiPickerPopover = lazy(() => import("./EmojiPickerPopover"));
+
 interface NodeProps {
   folder: Folder;
   all: Folder[];
@@ -33,6 +35,7 @@ interface NodeProps {
   onRename: (folder: Folder) => void;
   onDelete: (folder: Folder) => void;
   onMove: (folder: Folder) => void;
+  onIcon: (folder: Folder) => void;
   dnd: DropHandlers | null;
 }
 
@@ -86,13 +89,14 @@ function useDropTarget(dnd: DropHandlers | null, target: string | null) {
 // клипует всё, что выходит за его границы. Портал в document.body с
 // position:fixed (тот же приём, что уже применён у ExpandedTextPanel в
 // RecognizedTextView.tsx и у попапов слэш-команд) решает это раз и навсегда.
-function FolderMenu({ folder, triggerRef, onAddChild, onRename, onMove, onDelete, onClose }: {
+function FolderMenu({ folder, triggerRef, onAddChild, onRename, onMove, onDelete, onIcon, onClose }: {
   folder: Folder;
   triggerRef: RefObject<HTMLButtonElement>;
   onAddChild: (id: string) => void;
   onRename: (folder: Folder) => void;
   onMove: (folder: Folder) => void;
   onDelete: (folder: Folder) => void;
+  onIcon: (folder: Folder) => void;
   onClose: () => void;
 }) {
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
@@ -137,6 +141,15 @@ function FolderMenu({ folder, triggerRef, onAddChild, onRename, onMove, onDelete
         </button>
         <button
           onClick={() => {
+            onIcon(folder);
+            onClose();
+          }}
+          className="flex min-h-10 w-full items-center gap-2.5 px-4 text-left text-sm font-semibold text-secondary hover:bg-muted"
+        >
+          <Smile size={13} /> Значок
+        </button>
+        <button
+          onClick={() => {
             onMove(folder);
             onClose();
           }}
@@ -159,7 +172,7 @@ function FolderMenu({ folder, triggerRef, onAddChild, onRename, onMove, onDelete
   );
 }
 
-function FolderNode({ folder, all, selectedFolderId, onSelect, onAddChild, onRename, onDelete, onMove, dnd }: NodeProps) {
+function FolderNode({ folder, all, selectedFolderId, onSelect, onAddChild, onRename, onDelete, onMove, onIcon, dnd }: NodeProps) {
   const children = all.filter((f) => f.parent_id === folder.id);
   const [menuOpen, setMenuOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -183,8 +196,9 @@ function FolderNode({ folder, all, selectedFolderId, onSelect, onAddChild, onRen
               : "text-secondary hover:bg-muted"
         }`}
       >
-        <button className="min-h-10 flex-1 truncate text-left" onClick={() => onSelect(folder.id)}>
-          {folder.name}
+        <button className="flex min-h-10 min-w-0 flex-1 items-center gap-2 text-left" onClick={() => onSelect(folder.id)}>
+          {folder.icon && <span className="shrink-0 text-base leading-none">{folder.icon}</span>}
+          <span className="truncate">{folder.name}</span>
         </button>
         {/* Раньше тут было три отдельные кнопки подряд — реальная жалоба:
             на узкой (особенно свежеразвёрнутой, до ресайза) панели
@@ -208,6 +222,7 @@ function FolderNode({ folder, all, selectedFolderId, onSelect, onAddChild, onRen
               onRename={onRename}
               onMove={onMove}
               onDelete={onDelete}
+              onIcon={onIcon}
               onClose={() => setMenuOpen(false)}
             />
           )}
@@ -226,6 +241,7 @@ function FolderNode({ folder, all, selectedFolderId, onSelect, onAddChild, onRen
               onRename={onRename}
               onDelete={onDelete}
               onMove={onMove}
+              onIcon={onIcon}
               dnd={dnd}
             />
           ))}
@@ -294,6 +310,9 @@ export default function FolderTree({
   const [renaming, setRenaming] = useState<Folder | null>(null);
   const [deleting, setDeleting] = useState<Folder | null>(null);
   const [moving, setMoving] = useState<Folder | null>(null);
+  const [iconFor, setIconFor] = useState<Folder | null>(null);
+  const [newIcon, setNewIcon] = useState<string | null>(null);
+  const [newIconPicker, setNewIconPicker] = useState(false);
 
   const all = folders ?? [];
   const roots = all.filter((f) => f.parent_id === null);
@@ -301,8 +320,9 @@ export default function FolderTree({
   async function submitNew(e: FormEvent) {
     e.preventDefault();
     if (!newName.trim()) return;
-    await createFolder.mutateAsync({ name: newName.trim(), parent_id: addingParentId ?? null });
+    await createFolder.mutateAsync({ name: newName.trim(), parent_id: addingParentId ?? null, icon: newIcon });
     setNewName("");
+    setNewIcon(null);
     setAddingParentId(undefined);
   }
 
@@ -344,6 +364,7 @@ export default function FolderTree({
             onRename={setRenaming}
             onDelete={setDeleting}
             onMove={setMoving}
+            onIcon={setIconFor}
             dnd={dnd}
           />
         ))}
@@ -358,6 +379,21 @@ export default function FolderTree({
 
       {addingParentId !== undefined && (
         <form onSubmit={submitNew} className="mt-1 flex gap-1.5 px-1">
+          <div className="relative shrink-0">
+            <button
+              type="button"
+              title="Значок папки"
+              onClick={() => setNewIconPicker((v) => !v)}
+              className="flex h-10 w-10 items-center justify-center rounded-xl border border-dashed bg-surface text-lg leading-none"
+            >
+              {newIcon ?? "📁"}
+            </button>
+            {newIconPicker && (
+              <Suspense fallback={null}>
+                <EmojiPickerPopover onSelect={setNewIcon} onClose={() => setNewIconPicker(false)} />
+              </Suspense>
+            )}
+          </div>
           <input
             autoFocus
             value={newName}
@@ -376,6 +412,7 @@ export default function FolderTree({
             type="button"
             onClick={() => {
               setNewName("");
+              setNewIcon(null);
               setAddingParentId(undefined);
             }}
             title="Отменить"
@@ -384,6 +421,21 @@ export default function FolderTree({
             <X size={14} />
           </button>
         </form>
+      )}
+
+      {iconFor && (
+        // Пикер — по центру экрана, не у строки: строка может быть внизу
+        // скролл-контейнера, и попап обрезался бы (см. FolderMenu выше).
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="relative">
+            <Suspense fallback={null}>
+              <EmojiPickerPopover
+                onSelect={(emoji) => updateFolder.mutate({ id: iconFor.id, icon: emoji })}
+                onClose={() => setIconFor(null)}
+              />
+            </Suspense>
+          </div>
+        </div>
       )}
 
       {renaming && (

@@ -6,27 +6,35 @@ import ReminderModal from "./ReminderModal";
 // Повторяющиеся напоминания: форма должна уметь завести повтор и, что
 // важнее, НЕ заводить его молча — случайно включённый повтор человек потом
 // идёт отключать каждый день.
+const cta = () => screen.getByRole("button", { name: /^Напомнить/ });
+
+async function pickWhen() {
+  const date = document.querySelector('input[type="date"]') as HTMLInputElement;
+  const time = document.querySelector('input[type="time"]') as HTMLInputElement;
+  await userEvent.type(date, "2026-11-10");
+  await userEvent.type(time, "09:00");
+}
+
 describe("ReminderModal: повтор", () => {
   it("по умолчанию повтора нет", async () => {
     const onCreate = vi.fn();
     render(<ReminderModal defaultTitle="Полить цветы" onCreate={onCreate} onCancel={() => {}} />);
 
-    const when = document.querySelector('input[type="datetime-local"]') as HTMLInputElement;
-    await userEvent.type(when, "2026-11-10T09:00");
-    await userEvent.click(screen.getByRole("button", { name: "Создать" }));
+    await pickWhen();
+    await userEvent.click(cta());
 
     expect(onCreate).toHaveBeenCalledTimes(1);
     expect(onCreate.mock.calls[0][0].repeat).toBe("");
+    expect(onCreate.mock.calls[0][0].triggerAt.getHours()).toBe(9);
   });
 
   it("выбранный период уходит наружу", async () => {
     const onCreate = vi.fn();
     render(<ReminderModal defaultTitle="Оплатить ZUS" onCreate={onCreate} onCancel={() => {}} />);
 
-    const when = document.querySelector('input[type="datetime-local"]') as HTMLInputElement;
-    await userEvent.type(when, "2026-11-10T09:00");
+    await pickWhen();
     await userEvent.selectOptions(screen.getByRole("combobox"), "monthly");
-    await userEvent.click(screen.getByRole("button", { name: "Создать" }));
+    await userEvent.click(cta());
 
     expect(onCreate.mock.calls[0][0].repeat).toBe("monthly");
   });
@@ -46,8 +54,20 @@ describe("ReminderModal: повтор", () => {
 
     await userEvent.selectOptions(screen.getByRole("combobox"), "daily");
 
-    expect(screen.getByRole("button", { name: "Создать" })).toBeDisabled();
-    await userEvent.click(screen.getByRole("button", { name: "Создать" }));
+    expect(cta()).toBeDisabled();
+    await userEvent.click(cta());
     expect(onCreate).not.toHaveBeenCalled();
+  });
+
+  it("быстрый вариант «Завтра утром» ставит 9:00 следующего дня", async () => {
+    const onCreate = vi.fn();
+    render(<ReminderModal defaultTitle="x" onCreate={onCreate} onCancel={() => {}} />);
+    await userEvent.click(screen.getByRole("button", { name: "Завтра утром" }));
+    await userEvent.click(cta());
+    const at: Date = onCreate.mock.calls[0][0].triggerAt;
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    expect(at.getDate()).toBe(tomorrow.getDate());
+    expect(at.getHours()).toBe(9);
   });
 });

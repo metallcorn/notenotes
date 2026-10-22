@@ -8,14 +8,17 @@ import { dateLocale, t } from "../i18n";
 // изменённых записи плитками 2×2. Данные — тот же useRecentItems, что у
 // вкладки «Недавнее» в Активности.
 export default function RecentGrid({
+  spaceId,
   onOpen,
   onAll,
 }: {
+  // Пилюли спейсов на Главной: null — все спейсы.
+  spaceId: string | null;
   onOpen: (spaceId: string, itemId: string) => void;
   onAll: () => void;
 }) {
   const { data: items } = useRecentItems();
-  const recent = (items ?? []).slice(0, 4);
+  const recent = (items ?? []).filter((i) => !spaceId || i.space_id === spaceId).slice(0, 4);
   if (recent.length === 0) return null;
   return (
     <section aria-label={t("home.recent")} className="mb-3">

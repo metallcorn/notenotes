@@ -1,5 +1,6 @@
 import { FormEvent, ReactNode, useEffect, useRef, useState } from "react";
-import { ArrowDown, ChevronLeft, History, Plus, Trash2, X } from "lucide-react";
+import { ArrowDown, ChevronLeft, History, MoreVertical, Plus, Trash2, X } from "lucide-react";
+import { t } from "../i18n";
 import { useAddListEntry, useDeleteItem, useDeleteListEntry, useList, useUpdateItem, useUpdateListEntry } from "../api/hooks";
 import type { ListEntry } from "../api/types";
 import { useListSync } from "../lib/useListSync";
@@ -107,12 +108,12 @@ function ListEntryRow({
   return (
     <li
       id={`list-entry-${entry.id}`}
-      className="group flex min-h-12 items-center gap-3 rounded-2xl bg-surface px-3 py-1.5 shadow-card transition-colors duration-500"
+      className="group flex min-h-[52px] items-center gap-3 rounded-xl px-2.5 py-1 transition-colors duration-500"
     >
-      {/* Крупный круглый чекбокс (макет «Список-чеклист», 21.10): на
-          телефоне в 16px попасть пальцем трудно. Настоящий <input> остаётся
-          ради клавиатуры и читалок, рисуется поверх него кружок. */}
-      <label className="relative flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center">
+      {/* Крупный чекбокс со скруглёнными углами (макет «Список-чеклист»,
+          21.10): на телефоне в 16px попасть пальцем трудно. Настоящий
+          <input> остаётся ради клавиатуры и читалок, рисуется поверх него. */}
+      <label className="relative flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center">
         <input
           type="checkbox"
           checked={entry.checked}
@@ -121,7 +122,7 @@ function ListEntryRow({
         />
         <span
           aria-hidden="true"
-          className="flex h-6 w-6 items-center justify-center rounded-full border-2 border-strong bg-surface text-on-accent transition-colors peer-checked:border-brand peer-checked:bg-brand peer-focus-visible:ring-2 peer-focus-visible:ring-brand/40"
+          className="flex h-[26px] w-[26px] items-center justify-center rounded-[9px] border-[2.5px] border-strong bg-surface text-on-accent transition-colors peer-checked:border-brand peer-checked:bg-brand peer-focus-visible:ring-2 peer-focus-visible:ring-brand/40"
         >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3" className={entry.checked ? "" : "opacity-0"}>
             <path d="M5 12l5 5L20 7" />
@@ -137,14 +138,14 @@ function ListEntryRow({
           onKeyDown={(e) => {
             if (e.key === "Enter") (e.target as HTMLInputElement).blur();
           }}
-          className={`min-w-0 flex-1 border-none bg-transparent text-[15px] font-semibold outline-none ${
+          className={`min-w-0 flex-1 border-none bg-transparent text-base font-bold outline-none ${
             entry.checked ? "text-subtle line-through" : "text-primary"
           }`}
         />
       ) : (
         <div
           onClick={() => setEditing(true)}
-          className={`min-w-0 flex-1 cursor-text truncate text-[15px] font-semibold ${
+          className={`min-w-0 flex-1 cursor-text truncate text-base font-bold ${
             entry.checked ? "text-subtle line-through" : "text-primary"
           }`}
         >
@@ -203,6 +204,7 @@ export default function ListEditor({
   const [newEntryText, setNewEntryText] = useState("");
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const [syncedId, setSyncedId] = useState<string | null>(null);
   const newEntryInputRef = useRef<HTMLInputElement>(null);
 
@@ -236,56 +238,102 @@ export default function ListEditor({
   }
 
   const doneCount = list.entries.filter((e) => e.checked).length;
+  const open = list.entries.filter((e) => !e.checked);
+  const done = list.entries.filter((e) => e.checked);
+  const row = (entry: ListEntry) => (
+    <ListEntryRow
+      key={entry.id}
+      entry={entry}
+      onToggle={(checked) => updateEntry.mutate({ entryId: entry.id, checked })}
+      onTextChange={(text) => updateEntry.mutate({ entryId: entry.id, text })}
+      onDelete={() => deleteEntry.mutate(entry.id)}
+    />
+  );
 
   return (
     <div className="flex h-full">
-    <div className="flex min-w-0 flex-1 flex-col">
-      <div className="flex items-center gap-2 border-b p-3">
+    <div className="relative flex min-w-0 flex-1 flex-col">
+      {/* Шапка (макет «Список-чеклист», 21.10): назад, подпись, «⋯» на
+          телефоне; на десктопе — те же действия отдельными кнопками. */}
+      <div className="flex flex-wrap items-center gap-2 p-3 lg:flex-nowrap lg:border-b">
         <button
           onClick={onBack}
+          aria-label={t("nav.back")}
           className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-surface text-primary shadow-card lg:hidden"
         >
           <ChevronLeft size={20} strokeWidth={2.4} />
         </button>
+        <div className="min-w-0 flex-1 truncate pl-1 text-[13px] font-bold text-subtle lg:hidden">{t("create.list")}</div>
         <input
           value={title}
           onChange={(e) => setTitle(e.target.value)}
           onBlur={saveTitle}
           placeholder="Название списка"
-          className="min-w-0 flex-1 truncate border-none bg-transparent text-xl font-extrabold tracking-tight text-primary outline-none placeholder:text-subtle"
+          className="order-last mt-1 w-full min-w-0 border-none bg-transparent px-2 text-[28px] font-extrabold leading-tight tracking-tight text-primary outline-none placeholder:text-subtle lg:order-none lg:mt-0 lg:w-auto lg:flex-1 lg:truncate lg:px-0 lg:text-xl"
         />
-        {list.entries.length > 0 && (
-          <span className="shrink-0 rounded-full bg-brand-soft px-2.5 py-1 text-xs font-extrabold text-brand-text">
-            {doneCount}/{list.entries.length}
-          </span>
-        )}
         <button
           onClick={() => setShowHistory((v) => !v)}
           title="История версий"
-          className="flex h-8 w-8 shrink-0 items-center justify-center text-subtle hover:text-secondary"
+          className="hidden h-9 w-9 shrink-0 items-center justify-center rounded-xl text-subtle hover:bg-muted hover:text-secondary lg:flex"
         >
           <History size={16} />
         </button>
         <button
           title="Удалить список"
           onClick={() => setConfirmingDelete(true)}
-          className="flex h-8 w-8 shrink-0 items-center justify-center text-subtle hover:text-danger"
+          className="hidden h-9 w-9 shrink-0 items-center justify-center rounded-xl text-subtle hover:bg-muted hover:text-danger lg:flex"
         >
           <Trash2 size={16} />
         </button>
+        <div className="relative shrink-0 lg:hidden">
+          <button
+            onClick={() => setMenuOpen((v) => !v)}
+            title="Действия со списком"
+            className="flex h-11 w-11 items-center justify-center rounded-2xl bg-surface text-primary shadow-card"
+          >
+            <MoreVertical size={20} />
+          </button>
+          {menuOpen && (
+            <>
+              <div className="fixed inset-0 z-20" onClick={() => setMenuOpen(false)} />
+              <div className="absolute right-0 top-full z-30 mt-1 w-52 overflow-hidden rounded-2xl border bg-surface py-1.5 shadow-lg">
+                <button
+                  onClick={() => {
+                    setShowHistory((v) => !v);
+                    setMenuOpen(false);
+                  }}
+                  className="flex min-h-10 w-full items-center gap-2.5 px-4 text-left text-sm font-semibold text-secondary hover:bg-muted"
+                >
+                  <History size={14} /> История версий
+                </button>
+                <button
+                  onClick={() => {
+                    setConfirmingDelete(true);
+                    setMenuOpen(false);
+                  }}
+                  className="flex min-h-10 w-full items-center gap-2.5 px-4 text-left text-sm font-bold text-danger hover:bg-danger-soft"
+                >
+                  <Trash2 size={14} /> Удалить список
+                </button>
+              </div>
+            </>
+          )}
+        </div>
       </div>
-
       {list.entries.length > 0 && (
-        <div className="px-4 pb-1 pt-2">
-          <div className="h-1.5 overflow-hidden rounded-full bg-muted">
+        <div className="flex items-center gap-2.5 px-5 pb-1 pt-3 lg:px-4">
+          <div className="h-2.5 flex-1 overflow-hidden rounded-full bg-muted">
             <div
               className="h-full rounded-full bg-brand transition-[width] duration-300"
               style={{ width: `${Math.round((doneCount / list.entries.length) * 100)}%` }}
             />
           </div>
+          <span className="shrink-0 text-sm font-extrabold text-primary">
+            {t("list.progress", { done: doneCount, total: list.entries.length })}
+          </span>
         </div>
       )}
-      <div className="flex-1 overflow-y-auto p-3">
+      <div className="flex-1 overflow-y-auto p-3 pb-24">
         {list.entries.length === 0 ? (
           // Реальная жалоба: пустой список выглядел как "тут ничего не
           // работает" — не было понятно, что пункты добавляются полем
@@ -301,37 +349,43 @@ export default function ListEditor({
             </div>
           </button>
         ) : (
-          <ul className="space-y-2">
-            {list.entries.map((entry) => (
-              <ListEntryRow
-                key={entry.id}
-                entry={entry}
-                onToggle={(checked) => updateEntry.mutate({ entryId: entry.id, checked })}
-                onTextChange={(text) => updateEntry.mutate({ entryId: entry.id, text })}
-                onDelete={() => deleteEntry.mutate(entry.id)}
-              />
-            ))}
-          </ul>
+          <>
+            {open.length > 0 && <ul className="rounded-3xl bg-surface p-1.5 shadow-card">{open.map(row)}</ul>}
+            {done.length > 0 && (
+              <>
+                <div className="px-3 pb-1.5 pt-4 text-[11px] font-extrabold uppercase tracking-wider text-subtle">
+                  {t("list.done")} · {done.length}
+                </div>
+                <ul className="px-1.5">{done.map(row)}</ul>
+              </>
+            )}
+          </>
         )}
       </div>
 
-      <form onSubmit={handleAddEntry} className="flex gap-2 p-3">
-        <input
-          ref={newEntryInputRef}
-          value={newEntryText}
-          onChange={(e) => setNewEntryText(e.target.value)}
-          placeholder="Новый пункт…"
-          className="h-12 min-w-0 flex-1 rounded-2xl bg-surface px-4 text-[15px] shadow-float outline-none focus:ring-2 focus:ring-brand/40"
-        />
-        <button
-          type="submit"
-          aria-label="Добавить пункт"
-          disabled={addEntry.isPending || !newEntryText.trim()}
-          className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-accent text-on-accent disabled:opacity-50"
+      {/* Плавающая строка добавления (макет): поле + лаймовый «+». */}
+      <div className="pointer-events-none absolute inset-x-3 bottom-3 z-10 lg:static lg:inset-auto lg:p-3">
+        <form
+          onSubmit={handleAddEntry}
+          className="pointer-events-auto flex gap-2 rounded-3xl bg-surface p-1.5 shadow-float"
         >
-          {addEntry.isPending ? <Spinner size={14} className="text-white" /> : <Plus size={14} />}
-        </button>
-      </form>
+          <input
+            ref={newEntryInputRef}
+            value={newEntryText}
+            onChange={(e) => setNewEntryText(e.target.value)}
+            placeholder={t("list.addItem")}
+            className="h-12 min-w-0 flex-1 rounded-2xl bg-transparent px-3 text-base outline-none"
+          />
+          <button
+            type="submit"
+            aria-label="Добавить пункт"
+            disabled={addEntry.isPending || !newEntryText.trim()}
+            className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-lime text-on-lime disabled:opacity-50"
+          >
+            {addEntry.isPending ? <Spinner size={14} /> : <Plus size={22} strokeWidth={2.8} />}
+          </button>
+        </form>
+      </div>
 
       {confirmingDelete && (
         <ConfirmDialog

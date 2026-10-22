@@ -1,12 +1,21 @@
 import { Search, X } from "lucide-react";
 import { t } from "../i18n";
 
-export default function SearchBar({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+export default function SearchBar({
+  value,
+  onChange,
+  autoFocus = false,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  autoFocus?: boolean;
+}) {
   return (
     <label className="flex h-12 items-center gap-2.5 rounded-2xl bg-surface pl-4 pr-2 shadow-float focus-within:ring-2 focus-within:ring-brand/40">
       <Search size={20} className="shrink-0 text-subtle" aria-hidden="true" />
       <input
         type="search"
+        autoFocus={autoFocus}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={t("search.placeholder")}

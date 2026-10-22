@@ -88,6 +88,8 @@ export interface Folder {
   space_id: string;
   parent_id: string | null;
   name: string;
+  // Эмодзи-значок (макет «Папки спейса», 21.10); null — нейтральная плитка.
+  icon: string | null;
   created_at: string;
 }
 

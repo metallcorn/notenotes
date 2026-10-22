@@ -18,7 +18,7 @@ import { ListSkeleton } from "./Skeleton";
 import { startItemDrag } from "../lib/dragItem";
 import { NOTE_TEMPLATES, type NoteTemplate } from "../lib/noteTemplates";
 import { formatRelativeDay } from "../lib/format";
-import { dateLocale } from "../i18n";
+import { dateLocale, t } from "../i18n";
 
 // Тот же портал-в-body паттерн, что только что сделан для FolderMenu в
 // FolderTree.tsx — список заметок тоже живёт внутри overflow-y-auto,
@@ -442,7 +442,7 @@ export default function NoteList({
         {pinned.length > 0 && (
           <>
             <li className="px-4 pb-1.5 pt-1 text-[11px] font-extrabold uppercase tracking-wider text-subtle">
-              Закреплено
+              {t("list.pinned")}
             </li>
             {pinned.map((item) => (
               <NoteRow key={item.id} item={item} selected={selectedId === item.id} onSelect={onSelect} draggable={!isVault} />
@@ -450,7 +450,7 @@ export default function NoteList({
           </>
         )}
         {pinned.length > 0 && rest.length > 0 && (
-          <li className="px-4 pb-1.5 pt-2 text-[11px] font-extrabold uppercase tracking-wider text-subtle">Остальное</li>
+          <li className="px-4 pb-1.5 pt-2 text-[11px] font-extrabold uppercase tracking-wider text-subtle">{t("list.recent")}</li>
         )}
         {rest.map((item) => (
           <NoteRow key={item.id} item={item} selected={selectedId === item.id} onSelect={onSelect} draggable={!isVault} />

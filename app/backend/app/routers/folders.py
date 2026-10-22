@@ -42,7 +42,7 @@ async def create_folder(
         if parent is None or parent.space_id != payload.space_id:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "Родительская папка вне этого спейса")
 
-    folder = Folder(space_id=payload.space_id, parent_id=payload.parent_id, name=payload.name)
+    folder = Folder(space_id=payload.space_id, parent_id=payload.parent_id, name=payload.name, icon=payload.icon)
     db.add(folder)
     await db.commit()
     await db.refresh(folder)
@@ -62,6 +62,9 @@ async def update_folder(
 
     if "name" in fields and payload.name is not None:
         folder.name = payload.name
+
+    if "icon" in fields:
+        folder.icon = payload.icon or None
 
     if "parent_id" in fields:
         new_parent_id = payload.parent_id

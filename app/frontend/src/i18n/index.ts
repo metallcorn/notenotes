@@ -39,3 +39,19 @@ export function t(key: MessageKey, params?: Record<string, string | number>): st
   if (!params) return text;
   return text.replace(/\{(\w+)\}/g, (m, name: string) => (name in params ? String(params[name]) : m));
 }
+
+// Число с нужной формой слова: в словаре формы через «|» — для русского
+// три («заметка|заметки|заметок»), для английского две. Возвращает
+// «3 заметки», «1 note», «5 notes».
+export function tn(key: MessageKey, n: number): string {
+  const forms = (DICTIONARIES[locale][key] ?? ru[key]).split("|");
+  let idx: number;
+  if (locale === "ru") {
+    const m10 = n % 10;
+    const m100 = n % 100;
+    idx = m10 === 1 && m100 !== 11 ? 0 : m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14) ? 1 : 2;
+  } else {
+    idx = n === 1 ? 0 : 1;
+  }
+  return `${n} ${forms[Math.min(idx, forms.length - 1)]}`;
+}

@@ -304,6 +304,9 @@ class Folder(Base):
         ForeignKey("folders.id", ondelete="CASCADE"), nullable=True, index=True
     )
     name: Mapped[str] = mapped_column(String(255))
+    # Эмодзи-значок папки (макет «Папки спейса», 21.10). Один символ
+    # эмодзи — до 16 байт в UTF-8 с модификаторами, поэтому String(16).
+    icon: Mapped[str | None] = mapped_column(String(16), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 

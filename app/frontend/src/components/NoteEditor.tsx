@@ -14,10 +14,14 @@ import { Markdown } from "tiptap-markdown";
 import { Suspense, lazy, useEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent, RefObject } from "react";
 import { createPortal } from "react-dom";
-import { Archive, ChevronLeft, Code2, Eye, FileText, Globe, History, MoreVertical, Palette, Pencil, Pin, PinOff, Sparkles, Tag as TagIcon, Trash2, Users, WifiOff } from "lucide-react";
+import { AlarmClock, Archive, ArrowRight, ChevronDown, ChevronLeft, Code2, Download, Eye, FileText, Globe, History, Lock, MoreVertical, Palette, Pencil, Pin, PinOff, Smile, Sparkles, Tag as TagIcon, Trash2, Users, WifiOff } from "lucide-react";
 import { ApiError } from "../api/client";
 import type { Item } from "../api/types";
-import { t } from "../i18n";
+import { dateLocale, t } from "../i18n";
+import { formatRelativeDay } from "../lib/format";
+import { NOTE_COLORS } from "../lib/noteColors";
+import { PHONE_QUERY, useMediaQuery } from "../lib/useMediaQuery";
+import { takePendingNoteAction } from "../lib/pendingNoteAction";
 import { uiStorage, type ContentWidth } from "../lib/storage";
 import { useNoteAutosave } from "../lib/useNoteAutosave";
 import TableOfContentsPanel from "./TableOfContentsPanel";
@@ -46,6 +50,8 @@ import {
 } from "../api/hooks";
 import VersionHistoryPanel from "./VersionHistoryPanel";
 import EditorToolbar from "./EditorToolbar";
+import MobileEditorToolbar from "./MobileEditorToolbar";
+import NoteLookSheet from "./NoteLookSheet";
 import AiMenu, { type AiAction } from "./AiMenu";
 import ImageToolbar from "./ImageToolbar";
 import VideoToolbar from "./VideoToolbar";
@@ -133,9 +139,11 @@ const lowlight = createLowlight(common);
 type Mode = "view" | "wysiwyg" | "raw";
 
 const MODE_LABEL: Record<Mode, string> = { view: "Просмотр", wysiwyg: "WYSIWYG", raw: "Markdown" };
+// Подписи режимов в шторке телефона — короче и по-русски (макет «Заметка: меню»).
+const MODE_LABEL_SHEET: Record<Mode, string> = { view: t("note.menu.read"), wysiwyg: t("note.menu.edit"), raw: t("note.menu.markdown") };
 const MODE_ICON: Record<Mode, typeof Eye> = { view: Eye, wysiwyg: Pencil, raw: Code2 };
 
-const COLORS = ["#ef4444", "#f97316", "#eab308", "#22c55e", "#14b8a6", "#3b82f6", "#a855f7", "#ec4899"];
+const COLORS = NOTE_COLORS;
 
 // Реальная жалоба: на мобильном вся строка действий (режим/цвет/закрепить/
 // поделиться/история/экспорт/архив/удалить) не схлопывалась — заголовку
@@ -149,8 +157,6 @@ function MobileNoteActionsMenu({
   mode,
   switchMode,
   updateItem,
-  showColorPicker,
-  setShowColorPicker,
   currentSpaceIsPublicPages,
   setShowShareModal,
   setShowHistory,
@@ -158,6 +164,12 @@ function MobileNoteActionsMenu({
   archiveItem,
   setConfirmingDelete,
   deleteItem,
+  openLook,
+  openMove,
+  openReminder,
+  vaultTargetId,
+  onToVault,
+  suggestTags,
   onClose,
 }: {
   triggerRef: RefObject<HTMLButtonElement>;
@@ -165,8 +177,6 @@ function MobileNoteActionsMenu({
   mode: Mode;
   switchMode: (m: Mode) => void;
   updateItem: { mutate: (payload: { id: string; pinned?: boolean; color?: string | null }) => void };
-  showColorPicker: boolean;
-  setShowColorPicker: (v: boolean | ((prev: boolean) => boolean)) => void;
   currentSpaceIsPublicPages: boolean;
   setShowShareModal: (v: boolean) => void;
   setShowHistory: (v: boolean | ((prev: boolean) => boolean)) => void;
@@ -174,6 +184,13 @@ function MobileNoteActionsMenu({
   archiveItem: { mutate: (id: string) => void; isPending: boolean };
   setConfirmingDelete: (v: boolean) => void;
   deleteItem: { isPending: boolean };
+  openLook: () => void;
+  openMove: () => void;
+  openReminder: () => void;
+  // Разблокированный сейф, куда можно перенести заметку; null — плитки нет.
+  vaultTargetId: string | null;
+  onToVault: (spaceId: string) => void;
+  suggestTags: { mutate: () => void; isPending: boolean };
   onClose: () => void;
 }) {
   // triggerRef больше не нужен для позиционирования: меню — шторка снизу
@@ -245,73 +262,73 @@ function MobileNoteActionsMenu({
                 mode === m ? "bg-surface text-primary shadow-card" : "text-secondary"
               }`}
             >
-              {MODE_LABEL[m]}
+              {MODE_LABEL_SHEET[m]}
             </button>
           ))}
         </div>
 
+        {/* Восемь плиток, как в макете: закрепить, вид, перенести,
+            напомнить, ссылка/markdown, история, скачать, в сейф. */}
         <div className="mt-3.5 grid grid-cols-4 gap-2">
-          {tile(item.pinned ? "Открепить" : "Закрепить", item.pinned ? PinOff : Pin, () => {
+          {tile(item.pinned ? t("note.menu.unpin") : t("note.menu.pin"), item.pinned ? PinOff : Pin, () => {
             updateItem.mutate({ id: item.id, pinned: !item.pinned });
             onClose();
           }, { active: item.pinned })}
-          {tile("Цвет", Palette, () => setShowColorPicker((v) => !v), { active: showColorPicker })}
-          {tile("История", History, () => {
-            setShowHistory((v) => !v);
+          {tile(t("note.menu.look"), Smile, () => {
+            openLook();
+            onClose();
+          })}
+          {tile(t("note.menu.move"), ArrowRight, () => {
+            openMove();
+            onClose();
+          })}
+          {tile(t("note.menu.remind"), AlarmClock, () => {
+            openReminder();
             onClose();
           })}
           {currentSpaceIsPublicPages
-            ? tile("Ссылка", Globe, () => {
+            ? tile(t("note.menu.link"), Globe, () => {
                 setShowShareModal(true);
                 onClose();
               })
-            : tile("Markdown", FileText, () => {
+            : tile(t("note.menu.markdown"), FileText, () => {
                 void handleExport("md");
                 onClose();
               })}
-        </div>
-        {showColorPicker && (
-          <div className="mt-2 flex flex-wrap items-center gap-2 rounded-2xl bg-muted p-3">
-            <button
-              onClick={() => {
-                updateItem.mutate({ id: item.id, color: null });
-                setShowColorPicker(false);
-              }}
-              title="Без цвета"
-              className="flex h-9 w-9 items-center justify-center rounded-full border-2 border-default bg-surface text-sm font-bold text-subtle"
-            >
-              ×
-            </button>
-            {COLORS.map((c) => (
-              <button
-                key={c}
-                onClick={() => {
-                  updateItem.mutate({ id: item.id, color: c });
-                  setShowColorPicker(false);
-                }}
-                style={{ backgroundColor: c }}
-                aria-label={`Цвет ${c}`}
-                className={`h-9 w-9 rounded-full ${item.color === c ? "ring-2 ring-primary ring-offset-2 ring-offset-muted" : ""}`}
-              />
-            ))}
-          </div>
-        )}
-
-        <div className="mt-3.5 rounded-2xl bg-muted p-1">
-          {currentSpaceIsPublicPages &&
-            row("Экспорт в Markdown", FileText, () => {
-              void handleExport("md");
-              onClose();
-            })}
-          {row("Экспорт в HTML", FileText, () => {
+          {tile(t("note.menu.history"), History, () => {
+            setShowHistory((v) => !v);
+            onClose();
+          })}
+          {tile(t("note.menu.download"), Download, () => {
             void handleExport("html");
             onClose();
           })}
-          {row("В архив — убрать с глаз", Archive, () => {
+          {vaultTargetId
+            ? tile(t("note.menu.toVault"), Lock, () => {
+                onToVault(vaultTargetId);
+                onClose();
+              }, { dark: true })
+            : currentSpaceIsPublicPages
+              ? tile(t("note.menu.markdown"), FileText, () => {
+                  void handleExport("md");
+                  onClose();
+                })
+              : tile("HTML", FileText, () => {
+                  void handleExport("html");
+                  onClose();
+                })}
+        </div>
+
+        <div className="mt-3.5 rounded-2xl bg-muted p-1">
+          {row(t("note.menu.suggestTags"), Sparkles, () => {
+            suggestTags.mutate();
+            onClose();
+          }, { disabled: suggestTags.isPending })}
+          {row(t("note.menu.archive"), Archive, () => {
             archiveItem.mutate(item.id);
             onClose();
           }, { disabled: archiveItem.isPending })}
-          {row("Удалить в корзину", Trash2, () => {
+          {row(t("note.menu.delete"), Trash2, () => {
             setConfirmingDelete(true);
             onClose();
           }, { disabled: deleteItem.isPending, danger: true })}
@@ -388,6 +405,10 @@ export default function NoteEditor({
   // как раньше, без изменений.
   const [showMobileActions, setShowMobileActions] = useState(false);
   const mobileActionsButtonRef = useRef<HTMLButtonElement>(null);
+  // Шторка «Вид заметки» (эмодзи + цвет) — телефон, макет 21.10.
+  const [showLook, setShowLook] = useState(false);
+  // Телефон и десктоп — разные деревья шапки (см. useMediaQuery.ts).
+  const isPhone = useMediaQuery(PHONE_QUERY);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [reminderModalOpen, setReminderModalOpen] = useState(false);
   const [reminderAnchorPos, setReminderAnchorPos] = useState<number | null>(null);
@@ -1225,6 +1246,21 @@ export default function NoteEditor({
     setRecordingPanelOpen(true);
   }
 
+  // Заметка создана из шторки «Создать» плитками «Голосом» / «Скан / фото» /
+  // «Файл» (CreateSheet, lib/pendingNoteAction.ts): как только редактор
+  // загрузил её — сразу открыть запись или системный выбор файла. Эффект
+  // смотрит на status/collabStatus только потому, что их выставляет конец
+  // загрузки (initializedItemIdRef — ref, сам по себе ре-рендер не даёт).
+  useEffect(() => {
+    if (!item || !editor || initializedItemIdRef.current !== item.id) return;
+    const action = takePendingNoteAction(item.id);
+    if (!action) return;
+    if (action === "record") openRecorder();
+    else if (action === "photo") imageInputRef.current?.click();
+    else fileInputRef.current?.click();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [item?.id, editor, status, collabStatus]);
+
   function onRecordingStarted(uploadId: string) {
     if (!editor || recordingInsertPos === null) return;
     // Плейсхолдер — точная строка, которую backend ищет и заменяет на
@@ -1538,6 +1574,75 @@ export default function NoteEditor({
     setShowTagPicker(false);
   }
 
+  // Выпадашка тегов — одна на оба варианта шапки (телефон/десктоп).
+  const tagPickerDropdown = (
+    <div className="absolute left-0 z-10 mt-1 w-56 rounded-2xl border bg-surface p-1.5 shadow-lg">
+      {!isPhone && item.tags.length > 0 && (
+        <div className="mb-1 flex flex-wrap gap-1 border-b p-1 pb-2">
+          {item.tags.map((tag) => (
+            <span
+              key={tag.id}
+              title={tag.auto ? "Автоматически предложенный тег" : undefined}
+              className={`flex items-center gap-1 rounded-full px-2 py-0.5 text-xs ${
+                tag.auto ? "border border-dashed border-brand/40 bg-brand/10 text-brand" : "bg-muted-hover text-secondary"
+              }`}
+            >
+              {tag.auto && <Sparkles size={10} />}
+              #{tag.name}
+              <button onClick={() => removeTag.mutate(tag.id)} className="text-subtle hover:text-danger">
+                ×
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+      <input
+        autoFocus
+        value={tagQuery}
+        onChange={(e) => setTagQuery(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && !tagExactMatch && tagQuery.trim()) createAndAttachTag();
+        }}
+        placeholder="Найти или создать тег"
+        className="mb-1 h-9 w-full rounded-xl border px-2.5 text-sm outline-none"
+      />
+      <div className="max-h-40 overflow-y-auto">
+        {filteredAvailableTags.map((tag) => (
+          <button
+            key={tag.id}
+            onClick={() => {
+              addTag.mutate(tag.id);
+              setShowTagPicker(false);
+            }}
+            className="block min-h-9 w-full rounded-xl px-2.5 text-left text-sm font-semibold hover:bg-muted-hover"
+          >
+            #{tag.name}
+          </button>
+        ))}
+        {tagQuery.trim() && !tagExactMatch && (
+          <button
+            onClick={createAndAttachTag}
+            disabled={createTag.isPending}
+            className="flex min-h-9 w-full items-center gap-1.5 rounded-xl px-2.5 text-left text-sm font-semibold text-secondary hover:bg-muted-hover disabled:opacity-50"
+          >
+            {createTag.isPending && <Spinner size={12} />}
+            Создать «{tagQuery.trim()}»
+          </button>
+        )}
+        {filteredAvailableTags.length === 0 && !tagQuery.trim() && (
+          <div className="px-2 py-1 text-xs text-subtle">Нет доступных тегов</div>
+        )}
+      </div>
+    </div>
+  );
+  // Сейф, куда «В сейф» из меню телефона может перенести заметку: первый
+  // уже разблокированный (пароль посреди переноса не спрашиваем — тот же
+  // принцип, что у MoveItemModal/onSelectVaultSpace).
+  const vaultTargetId =
+    !isVaultNote ? ((spaces ?? []).find((sp) => sp.is_vault && getVaultKey(sp.id))?.id ?? null) : null;
+  const currentSpace = (spaces ?? []).find((sp) => sp.id === item.space_id);
+  const currentFolder = (folders ?? []).find((f) => f.id === item.folder_id);
+
   return (
     <div className="flex h-full flex-col">
       <div className="flex flex-col border-b">
@@ -1553,6 +1658,55 @@ export default function NoteEditor({
           >
             <ChevronLeft size={20} strokeWidth={2.4} />
           </button>
+          {isPhone ? (
+            <>
+              {/* Телефон (макеты «Заметка: чтение»/«Новая заметка», 21.10):
+                  путь «спейс › папка» вместо выпадашки папки — тап открывает
+                  «Куда положить»; справа статус сохранения (в правке) или
+                  закрепление (в чтении) и «⋯». */}
+              <button
+                type="button"
+                onClick={() => !isVaultNote && setShowMoveModal(true)}
+                disabled={isVaultNote}
+                className="flex h-11 min-w-0 flex-1 items-center gap-1 px-1 text-left text-[13px] font-bold text-subtle"
+              >
+                <span className="truncate">
+                  {currentSpace?.name ?? ""}
+                  {currentFolder ? ` › ${currentFolder.name}` : ""}
+                </span>
+                {!isVaultNote && <ChevronDown size={14} strokeWidth={2.4} className="shrink-0" />}
+              </button>
+              {mode !== "view" && (
+                <span className="flex shrink-0 items-center gap-1 text-xs font-bold text-subtle">
+                  {updateAvailable ? (
+                    <span className="text-warning">Не сохраняется</span>
+                  ) : collabStatus === "disconnected" ? (
+                    <span className="flex items-center gap-1 text-warning">
+                      <WifiOff size={12} /> Нет связи
+                    </span>
+                  ) : collabStatus === "connecting" || collabStatus === "stale" || status === "saving" ? (
+                    <>
+                      <Spinner size={12} /> {t("note.saving")}
+                    </>
+                  ) : (
+                    <span className="text-success">● {t("note.saved")}</span>
+                  )}
+                </span>
+              )}
+              {mode === "view" && (
+                <button
+                  onClick={() => updateItem.mutate({ id: item.id, pinned: !item.pinned })}
+                  aria-label={item.pinned ? t("note.menu.unpin") : t("note.menu.pin")}
+                  className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl ${
+                    item.pinned ? "bg-lime text-on-lime" : "bg-surface text-primary shadow-card"
+                  }`}
+                >
+                  {item.pinned ? <Pin size={18} fill="currentColor" /> : <Pin size={18} />}
+                </button>
+              )}
+            </>
+          ) : (
+            <>
           <div className="relative shrink-0">
             <button
               onClick={() => setShowEmojiPicker((v) => !v)}
@@ -1583,6 +1737,8 @@ export default function NoteEditor({
             style={item.color ? { color: item.color } : undefined}
             className="min-w-0 flex-1 bg-transparent text-xl font-extrabold tracking-tight outline-none placeholder:text-subtle"
           />
+            </>
+          )}
           <div className="hidden shrink-0 items-center gap-1 md:flex">
             <span className="mr-1 flex items-center gap-1 whitespace-nowrap text-xs text-subtle">
               {(collabStatus === "connecting" || collabStatus === "stale") && (
@@ -1718,8 +1874,6 @@ export default function NoteEditor({
             mode={mode}
             switchMode={switchMode}
             updateItem={updateItem}
-            showColorPicker={showColorPicker}
-            setShowColorPicker={setShowColorPicker}
             currentSpaceIsPublicPages={currentSpaceIsPublicPages}
             setShowShareModal={setShowShareModal}
             setShowHistory={setShowHistory}
@@ -1727,6 +1881,15 @@ export default function NoteEditor({
             archiveItem={archiveItem}
             setConfirmingDelete={setConfirmingDelete}
             deleteItem={deleteItem}
+            openLook={() => setShowLook(true)}
+            openMove={() => setShowMoveModal(true)}
+            openReminder={() => {
+              setReminderAnchorPos(null);
+              setReminderModalOpen(true);
+            }}
+            vaultTargetId={vaultTargetId}
+            onToVault={setPendingSpaceId}
+            suggestTags={suggestTags}
             onClose={() => setShowMobileActions(false)}
           />
         )}
@@ -1735,6 +1898,58 @@ export default function NoteEditor({
             заголовок сверху уже не задет. Теги свёрнуты в выпадающий список
             (как папка — <select>), а не показаны все чипами сразу — та же
             причина. */}
+        {isPhone && (
+          <div className="px-5 pb-3 pt-1">
+            <button
+              type="button"
+              onClick={() => setShowLook(true)}
+              aria-label={t("look.title")}
+              className="text-[44px] leading-none"
+            >
+              {item.icon || "🙂"}
+            </button>
+            <input
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="Без названия"
+              style={item.color ? { color: item.color } : undefined}
+              className="mt-2 w-full bg-transparent text-[30px] font-extrabold leading-[1.1] tracking-tight outline-none placeholder:text-subtle"
+            />
+            <div className="mt-2 text-[13px] font-semibold text-subtle">
+              {t("note.changed", { when: formatRelativeDay(item.updated_at, dateLocale) })}
+            </div>
+            <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
+              {item.tags.map((tag) => (
+                <span
+                  key={tag.id}
+                  title={tag.auto ? "Автоматически предложенный тег" : undefined}
+                  className={`flex h-8 items-center gap-1 rounded-full px-3 text-xs font-bold ${
+                    tag.auto ? "border border-dashed border-brand/40 bg-brand/10 text-brand-text" : "bg-brand-soft text-brand-text"
+                  }`}
+                >
+                  {tag.auto && <Sparkles size={10} />}
+                  #{tag.name}
+                  <button onClick={() => removeTag.mutate(tag.id)} aria-label={`Убрать тег ${tag.name}`} className="ml-0.5 text-brand-text/70">
+                    ×
+                  </button>
+                </span>
+              ))}
+              <div className="relative">
+                <button
+                  onClick={() => {
+                    setShowTagPicker((v) => !v);
+                    setTagQuery("");
+                  }}
+                  className="flex h-8 items-center gap-1 rounded-full border-[1.5px] border-dashed border-strong px-3 text-xs font-bold text-subtle"
+                >
+                  <TagIcon size={12} /> {t("note.addTag")}
+                </button>
+                {showTagPicker && tagPickerDropdown}
+              </div>
+            </div>
+          </div>
+        )}
+        {!isPhone && (
         <div className="flex flex-wrap items-center gap-2 px-3 pb-3">
           <select
             value={item.folder_id ?? ""}
@@ -1777,68 +1992,7 @@ export default function NoteEditor({
               <TagIcon size={12} />
               {item.tags.length > 0 ? `Теги (${item.tags.length})` : "+ тег"}
             </button>
-            {showTagPicker && (
-              <div className="absolute z-10 mt-1 w-56 rounded-2xl border bg-surface p-1.5 shadow-lg">
-                {item.tags.length > 0 && (
-                  <div className="mb-1 flex flex-wrap gap-1 border-b p-1 pb-2">
-                    {item.tags.map((tag) => (
-                      <span
-                        key={tag.id}
-                        title={tag.auto ? "Автоматически предложенный тег" : undefined}
-                        className={`flex items-center gap-1 rounded-full px-2 py-0.5 text-xs ${
-                          tag.auto
-                            ? "border border-dashed border-brand/40 bg-brand/10 text-brand"
-                            : "bg-muted-hover text-secondary"
-                        }`}
-                      >
-                        {tag.auto && <Sparkles size={10} />}
-                        #{tag.name}
-                        <button onClick={() => removeTag.mutate(tag.id)} className="text-subtle hover:text-danger">
-                          ×
-                        </button>
-                      </span>
-                    ))}
-                  </div>
-                )}
-                <input
-                  autoFocus
-                  value={tagQuery}
-                  onChange={(e) => setTagQuery(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && !tagExactMatch && tagQuery.trim()) createAndAttachTag();
-                  }}
-                  placeholder="Найти или создать тег"
-                  className="mb-1 w-full rounded border px-2 py-1 text-xs outline-none"
-                />
-                <div className="max-h-40 overflow-y-auto">
-                  {filteredAvailableTags.map((tag) => (
-                    <button
-                      key={tag.id}
-                      onClick={() => {
-                        addTag.mutate(tag.id);
-                        setShowTagPicker(false);
-                      }}
-                      className="block w-full rounded px-2 py-1 text-left text-xs hover:bg-muted-hover"
-                    >
-                      #{tag.name}
-                    </button>
-                  ))}
-                  {tagQuery.trim() && !tagExactMatch && (
-                    <button
-                      onClick={createAndAttachTag}
-                      disabled={createTag.isPending}
-                      className="flex w-full items-center gap-1.5 rounded px-2 py-1 text-left text-xs text-secondary hover:bg-muted-hover disabled:opacity-50"
-                    >
-                      {createTag.isPending && <Spinner size={12} />}
-                      Создать «{tagQuery.trim()}»
-                    </button>
-                  )}
-                  {filteredAvailableTags.length === 0 && !tagQuery.trim() && (
-                    <div className="px-2 py-1 text-xs text-subtle">Нет доступных тегов</div>
-                  )}
-                </div>
-              </div>
-            )}
+            {showTagPicker && tagPickerDropdown}
           </div>
 
           <button
@@ -1851,6 +2005,7 @@ export default function NoteEditor({
             Предложить теги
           </button>
         </div>
+        )}
 
         {/* Бэклинки (ТЗ §7) — заметки, ссылающиеся НА эту через [[название.
             Показываем только когда есть что показывать — пустая строка
@@ -1876,7 +2031,7 @@ export default function NoteEditor({
       <input ref={fileInputRef} type="file" multiple hidden onChange={onPickFile} />
 
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-        {mode !== "raw" && (
+        {mode !== "raw" && !isPhone && (
           <EditorToolbar
             editor={editor}
             onInsertImage={() => imageInputRef.current?.click()}
@@ -1996,21 +2151,63 @@ export default function NoteEditor({
             )}
           </div>
           {/* Режим чтения на телефоне (макет «Заметка: чтение», 21.10):
-              панель форматирования спрятана, править — плавающей кнопкой. */}
+              панель форматирования спрятана, править — плавающей кнопкой,
+              рядом — фиолетовая «спросить ассистента про эту заметку». */}
           {mode === "view" && (
-            <button
-              type="button"
-              onClick={() => switchMode("wysiwyg")}
-              className="absolute bottom-5 right-5 z-10 flex h-12 items-center gap-2 rounded-full bg-accent px-5 text-sm font-extrabold text-on-accent shadow-nav md:hidden"
-            >
-              <Pencil size={16} /> {t("note.edit")}
-            </button>
+            <div className="absolute inset-x-0 bottom-5 z-10 flex justify-center gap-2.5 md:hidden">
+              <button
+                type="button"
+                onClick={() => switchMode("wysiwyg")}
+                className="flex h-[52px] items-center gap-2 rounded-full bg-accent px-6 text-[15px] font-extrabold text-on-accent shadow-nav"
+              >
+                <Pencil size={18} strokeWidth={2.4} /> {t("note.edit")}
+              </button>
+              <button
+                type="button"
+                onClick={openAssistant}
+                aria-label={t("note.ask")}
+                className="flex h-[52px] w-[52px] items-center justify-center rounded-full bg-brand text-white shadow-nav"
+              >
+                <Sparkles size={20} strokeWidth={2.4} />
+              </button>
+            </div>
+          )}
+          {/* Правка на телефоне: тёмная панель над клавиатурой (макет
+              «Новая заметка»), а не полоса кнопок сверху. */}
+          {isPhone && mode === "wysiwyg" && (
+            <MobileEditorToolbar
+              editor={editor}
+              onInsertImage={() => imageInputRef.current?.click()}
+              onInsertFile={() => fileInputRef.current?.click()}
+              onOpenRecorder={isVaultNote ? undefined : openRecorder}
+              onInsertTable={
+                isVaultNote
+                  ? undefined
+                  : () => {
+                      if (!editor) return;
+                      setInsertTablePos(editor.state.selection.from);
+                      setInsertTableModalOpen(true);
+                    }
+              }
+              uploadProgress={uploadProgress}
+              uploadBatch={uploadBatch}
+              contentWidth={contentWidth}
+              onContentWidthChange={changeContentWidth}
+              onAiAction={applyAiAction}
+              onOpenAssistant={openAssistant}
+              aiLoading={aiLoading}
+              readOnly={false}
+              showToc={showToc}
+              onToggleToc={() => setShowToc((v) => !v)}
+            />
           )}
           {showToc && mode !== "raw" && <TableOfContentsPanel editor={editor} onClose={() => setShowToc(false)} />}
           {showHistory && <VersionHistoryPanel itemId={item.id} onClose={() => setShowHistory(false)} />}
           {showShareModal && <ShareNoteModal itemId={item.id} onClose={() => setShowShareModal(false)} />}
         </div>
       </div>
+
+      {showLook && <NoteLookSheet item={item} onClose={() => setShowLook(false)} />}
 
       {confirmingDelete && (
         <ConfirmDialog
@@ -2061,6 +2258,7 @@ export default function NoteEditor({
           )}
           currentSpaceId={item.space_id}
           currentFolderId={item.folder_id}
+          itemTitle={title}
           onSelectVaultSpace={(spaceId) => {
             setShowMoveModal(false);
             setPendingSpaceId(spaceId);

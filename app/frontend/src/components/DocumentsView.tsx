@@ -131,17 +131,22 @@ export default function DocumentsView({
 }) {
   const { data, isLoading } = useDocuments();
   const [query, setQuery] = useState("");
+  // Фильтр по типу (макет «Документы», 21.10): по content_type файла.
+  const [kind, setKind] = useState<"all" | "doc" | "photo" | "voice">("all");
+  const kindOf = (d: DocumentEntry): "doc" | "photo" | "voice" =>
+    d.content_type.startsWith("image/") ? "photo" : d.content_type.startsWith("audio/") ? "voice" : "doc";
 
   const filtered = useMemo(() => {
     const needle = query.trim().toLowerCase();
-    if (!needle) return data?.documents ?? [];
     return (data?.documents ?? []).filter(
       (d) =>
-        d.filename.toLowerCase().includes(needle) ||
-        d.space_name.toLowerCase().includes(needle) ||
-        (d.item_title ?? "").toLowerCase().includes(needle),
+        (kind === "all" || kindOf(d) === kind) &&
+        (!needle ||
+          d.filename.toLowerCase().includes(needle) ||
+          d.space_name.toLowerCase().includes(needle) ||
+          (d.item_title ?? "").toLowerCase().includes(needle)),
     );
-  }, [data, query]);
+  }, [data, query, kind]);
 
   const series = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -174,15 +179,37 @@ export default function DocumentsView({
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Название, спейс или заметка"
+          placeholder={t("docs.searchPlaceholder")}
           className="min-w-0 flex-1 bg-transparent text-[15px] outline-none placeholder:text-subtle"
         />
       </label>
+      <div className="flex gap-2 overflow-x-auto px-3 pb-2" style={{ scrollbarWidth: "none" }}>
+        {(
+          [
+            ["all", t("docs.all")],
+            ["doc", t("docs.documents")],
+            ["photo", t("docs.photos")],
+            ["voice", t("docs.voice")],
+          ] as const
+        ).map(([k, label]) => (
+          <button
+            key={k}
+            type="button"
+            onClick={() => setKind(k)}
+            aria-pressed={kind === k}
+            className={`h-9 shrink-0 rounded-full px-3.5 text-[13px] font-bold transition-colors ${
+              kind === k ? "bg-accent text-on-accent" : "bg-surface text-primary shadow-card"
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
 
       <div className="flex-1 overflow-y-auto">
         {isLoading && <ListSkeleton rows={8} />}
 
-        {!isLoading && series.length > 0 && (
+        {!isLoading && series.length > 0 && kind === "all" && (
           <>
             <div className="px-4 pb-1 pt-2 text-[11px] font-extrabold uppercase tracking-wider text-subtle">
               Серии

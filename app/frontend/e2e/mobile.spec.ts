@@ -82,10 +82,61 @@ async function create(page: Page, title: "Новая заметка" | "Новы
   }).toPass({ timeout: 20_000 });
 }
 
-async function openSidebar(page: Page) {
-  if (await page.getByText("Все заметки").isVisible()) return;
-  await page.locator("button:visible:has(svg.lucide-chevron-left)").first().click();
-  await expect(page.getByText("Все заметки")).toBeVisible();
+// Навигация после редизайна 22.10: на телефоне Главная → папки спейса →
+// список → заметка, разделы — в нижней панели и в шторке «Спейсы»; на
+// десктопе (lg) дерево спейсов и разделы всегда видны в левой колонке.
+const nav = (page: Page) => page.getByRole("navigation", { name: "Разделы" });
+
+async function goHome(page: Page) {
+  await expect(async () => {
+    const home = nav(page).getByRole("button", { name: "Главная" });
+    if (await home.isVisible()) {
+      await home.click();
+      await expect(page.getByRole("button", { name: "Спейсы", exact: true })).toBeVisible({ timeout: 3000 });
+      // Переход между экранами анимирован (view transition) — иначе
+      // скриншот ловит ещё старый экран.
+      await page.waitForTimeout(450);
+      return;
+    }
+    // Десктоп: Главной как экрана нет, дерево папок видно всегда.
+    if (await page.getByText("Все заметки").first().isVisible()) return;
+    await page.locator("button:visible:has(svg.lucide-chevron-left)").first().click({ timeout: 1500 });
+    throw new Error("ещё не дома");
+  }).toPass({ timeout: 15_000 });
+}
+
+// Открыть раздел по названию: кнопка нижней панели, иначе кнопка в левой
+// колонке (десктоп), иначе — через шторку «Спейсы» (Документы/Корзина на
+// телефоне живут там).
+async function openSection(page: Page, label: "Ассистент" | "Активность" | "Документы" | "Корзина") {
+  const inNav = nav(page).getByRole("button", { name: label, exact: true });
+  if (await inNav.isVisible()) {
+    await inNav.click();
+    return;
+  }
+  const direct = page.getByRole("button", { name: label, exact: true }).first();
+  if (await direct.isVisible()) {
+    await direct.click();
+    return;
+  }
+  await page.getByRole("button", { name: "Спейсы", exact: true }).click();
+  const sheet = page.getByRole("dialog", { name: "Спейсы" });
+  await expect(sheet).toBeVisible();
+  await page.waitForTimeout(400);
+  await sheet.getByRole("button", { name: label, exact: true }).click();
+}
+
+// «Все заметки» текущего спейса: на телефоне — карточка на экране папок
+// (вкладка «Заметки»), на десктопе — строка дерева.
+async function openAllNotes(page: Page) {
+  const notesTab = nav(page).getByRole("button", { name: "Заметки" });
+  if (await notesTab.isVisible()) {
+    await notesTab.click();
+    await page.waitForTimeout(400);
+    await page.getByRole("button", { name: /Все заметки/ }).first().click();
+    return;
+  }
+  await page.getByText("Все заметки").first().click();
 }
 
 for (const vp of [
@@ -109,21 +160,35 @@ test("все кнопки достижимы", async ({ page }) => {
   await expect(createBtn).toBeVisible();
   await shot("list");
 
-  await openSidebar(page);
-  await shot("sidebar");
+  await goHome(page);
+  await shot("home");
+
+  // Экран папок спейса и шторка «Спейсы» — только на телефоне.
+  const notesTab = nav(page).getByRole("button", { name: "Заметки" });
+  if (await notesTab.isVisible()) {
+    await notesTab.click();
+    await page.waitForTimeout(500);
+    await shot("folders");
+    await page.getByRole("button", { name: "Выбрать спейс" }).click();
+    await expect(page.getByRole("dialog", { name: "Спейсы" })).toBeVisible();
+    await page.waitForTimeout(400);
+    await shot("spaces");
+    await page.keyboard.press("Escape");
+    await goHome(page);
+  }
 
   for (const [label, screen] of [
     ["Ассистент", "assistant"],
     ["Активность", "activity"],
     ["Документы", "documents"],
   ] as const) {
-    await page.getByRole("button", { name: label, exact: true }).first().click();
+    await openSection(page, label);
     await page.waitForTimeout(600);
     await shot(screen);
-    await openSidebar(page);
+    await goHome(page);
   }
 
-  await page.getByText("Все заметки").click();
+  await openAllNotes(page);
   await expect(createBtn).toBeVisible();
   await create(page, "Новая заметка");
   const editor = page.locator(".ProseMirror");
@@ -149,7 +214,7 @@ test("все кнопки достижимы", async ({ page }) => {
     // После goto приложение может открыться на панели спейсов (помнит
     // последний экран), а переход между панелями анимирован.
     await expect(async () => {
-      const all = page.getByText("Все заметки");
+      const all = page.getByText("Все заметки").first();
       if (await all.isVisible()) await all.click();
       await create(page, title);
     }).toPass({ timeout: 15_000 });
@@ -166,6 +231,9 @@ test("панель форматирования прокручивается п�
   await page.goto("/");
   await create(page, "Новая заметка");
   await expect(page.locator(".ProseMirror")).toBeVisible();
+  // На телефоне полная панель спрятана за «+» нижней тёмной плашки
+  // (макет «Новая заметка», 22.10) — раскрываем её.
+  await page.getByRole("button", { name: "Ещё инструменты" }).click();
   const h1 = page.getByTitle("Заголовок 1");
   const bar = h1.locator("xpath=ancestor::*[contains(@class,'overflow-x-auto')][1]");
   // Панель должна уже быть шире экрана, иначе прокручивать нечего, а
@@ -196,6 +264,7 @@ test("у края панели форматирования видно, что �
   await page.goto("/");
   await create(page, "Новая заметка");
   await expect(page.locator(".ProseMirror")).toBeVisible();
+  await page.getByRole("button", { name: "Ещё инструменты" }).click();
   const right = page.getByTitle("Прокрутить панель вправо");
   await expect(right).toBeVisible();
   await expect(page.getByTitle("Прокрутить панель влево")).toHaveCount(0);
