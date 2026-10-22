@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import type { RefObject } from "react";
 import { createPortal } from "react-dom";
-import { ChevronDown, FileText, ListChecks, MessageSquareText, Pin, Plus, Table as TableIcon, Trash2 } from "lucide-react";
+import { Archive, ChevronDown, FileText, ListChecks, MessageSquareText, Pin, Plus, Table as TableIcon, Trash2 } from "lucide-react";
 import {
+  useArchiveItem,
   useCreateDialog,
   useCreateItem,
   useCreateList,
@@ -10,10 +11,12 @@ import {
   useDeleteItem,
   useItems,
   useScopedFolderDialogs,
+  useUpdateItem,
 } from "../api/hooks";
 import type { DialogSummary, Item } from "../api/types";
 import ConfirmDialog from "./ConfirmDialog";
 import Spinner from "./Spinner";
+import SwipeRow from "./SwipeRow";
 import { ListSkeleton } from "./Skeleton";
 import { startItemDrag } from "../lib/dragItem";
 import { NOTE_TEMPLATES, type NoteTemplate } from "../lib/noteTemplates";
@@ -214,6 +217,8 @@ function NoteRow({
   const preview = isList ? "" : previewText(item.content);
   const counts = isList ? listCounts(item.content) : null;
   const when = formatRelativeDay(item.updated_at, dateLocale);
+  const updateItem = useUpdateItem();
+  const archiveItem = useArchiveItem(item.space_id);
   return (
     // row-fade-in — на корне строки. Срабатывает только на новых узлах:
     // при стабильном key={item.id} React переиспользует уже отрисованные
@@ -222,7 +227,14 @@ function NoteRow({
     <li className="row-fade-in px-3 pb-2">
       {/* Карточка (макет «Заметки в папке», 21.10). Тянется мышкой на
           папку в сайдбаре (lib/dragItem.ts). Из сейфа нельзя: туда и
-          оттуда перенос идёт через шифрование, не через обычный move. */}
+          оттуда перенос идёт через шифрование, не через обычный move.
+          Пальцем — свайп влево: закрепить / в архив (замечание 22.10). */}
+      <SwipeRow
+        actions={[
+          { label: item.pinned ? "Открепить" : "Закрепить", tone: "lime", icon: <Pin size={16} />, onClick: () => updateItem.mutate({ id: item.id, pinned: !item.pinned }) },
+          { label: "В архив", tone: "dark", icon: <Archive size={16} />, onClick: () => archiveItem.mutate(item.id) },
+        ]}
+      >
       <button
         onClick={() => onSelect(item.id)}
         draggable={draggable}
@@ -273,6 +285,7 @@ function NoteRow({
           </div>
         </div>
       </button>
+      </SwipeRow>
     </li>
   );
 }

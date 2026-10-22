@@ -251,7 +251,18 @@ export function useVaultUnlockInfo(spaceId: string | undefined) {
 export function useUpdateSpace() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, name }: { id: string; name: string }) => api.patch<Space>(`/spaces/${id}`, { name }),
+    mutationFn: ({ id, ...payload }: { id: string; name?: string; icon?: string | null }) =>
+      api.patch<Space>(`/spaces/${id}`, payload),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["spaces"] }),
+  });
+}
+
+// Ручной порядок спейсов текущего пользователя (space_members.position):
+// список id в нужном порядке, сервер отдаёт /spaces уже отсортированными.
+export function useReorderSpaces() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (spaceIds: string[]) => api.put<void>("/spaces/order", { space_ids: spaceIds }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["spaces"] }),
   });
 }

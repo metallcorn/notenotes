@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Globe, KeyRound, Lock, LockOpen, MoreVertical, Pencil, Trash2, Users } from "lucide-react";
+import { Suspense, lazy, useState } from "react";
+import { Globe, KeyRound, Lock, LockOpen, MoreVertical, Pencil, Smile, Trash2, Users } from "lucide-react";
 import type { Space } from "../api/types";
 import { useDeleteSpace, useSpaceMembers, useUpdateSpace } from "../api/hooks";
 import { ApiError } from "../api/client";
@@ -9,6 +9,8 @@ import PromptDialog from "./PromptDialog";
 import SpaceMembersModal from "./SpaceMembersModal";
 import VaultChangePasswordModal from "./VaultChangePasswordModal";
 import VaultUnlockOverlay from "./VaultUnlockOverlay";
+
+const EmojiPickerPopover = lazy(() => import("./EmojiPickerPopover"));
 
 export default function SpaceSection({
   space,
@@ -38,6 +40,7 @@ export default function SpaceSection({
   const [needsForce, setNeedsForce] = useState(false);
   const [forceConfirmed, setForceConfirmed] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [iconPickerOpen, setIconPickerOpen] = useState(false);
   const unlocked = useVaultUnlocked(space.is_vault ? space.id : undefined);
   // Реальный запрос: хотел видеть сразу, что спейс шаренный, не открывая
   // «Участники спейса» — тот же приём, что уже есть у сейфа (Lock рядом с
@@ -93,6 +96,7 @@ export default function SpaceSection({
               <Globe size={12} />
             </span>
           )}
+          {space.icon && <span className="shrink-0 text-base leading-none">{space.icon}</span>}
           <span className="truncate">{space.name}</span>
         </button>
         {/* Раньше тут был ряд из до пяти отдельных кнопок подряд —
@@ -146,6 +150,15 @@ export default function SpaceSection({
                 </button>
                 <button
                   onClick={() => {
+                    setIconPickerOpen(true);
+                    setMenuOpen(false);
+                  }}
+                  className="flex min-h-10 w-full items-center gap-2.5 px-4 text-left text-sm font-semibold text-secondary hover:bg-muted"
+                >
+                  <Smile size={14} /> Значок спейса
+                </button>
+                <button
+                  onClick={() => {
                     setRenaming(true);
                     setMenuOpen(false);
                   }}
@@ -193,6 +206,19 @@ export default function SpaceSection({
           )}
         </div>
       </div>
+
+      {iconPickerOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="relative">
+            <Suspense fallback={null}>
+              <EmojiPickerPopover
+                onSelect={(emoji) => updateSpace.mutate({ id: space.id, icon: emoji })}
+                onClose={() => setIconPickerOpen(false)}
+              />
+            </Suspense>
+          </div>
+        </div>
+      )}
 
       {renaming && (
         <PromptDialog

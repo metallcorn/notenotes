@@ -255,6 +255,9 @@ class Space(Base):
     # существующего plaintext-контента — отдельная, более рискованная
     # задача, сознательно не в этой версии).
     is_vault: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    # Эмодзи-значок спейса (замечание 22.10 после редизайна); null —
+    # плитка с первой буквой названия.
+    icon: Mapped[str | None] = mapped_column(String(16), nullable=True)
     vault_salt: Mapped[str | None] = mapped_column(String(64), nullable=True)
     vault_verifier: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Публичные страницы — спейс-контейнер: заметку сначала кладут сюда,
@@ -275,6 +278,10 @@ class SpaceMember(Base):
         ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
     )
     joined_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    # Ручной порядок спейсов у ЭТОГО участника (владелец хочет сейф вниз —
+    # у жены порядок свой). null — не упорядочен, идёт после упорядоченных
+    # по дате создания спейса.
+    position: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
 
 class SpaceInvite(Base):

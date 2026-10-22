@@ -59,6 +59,8 @@ export interface Space {
   name: string;
   owner_id: string;
   created_at: string;
+  // Эмодзи-значок спейса; null — плитка с первой буквой названия.
+  icon: string | null;
   is_vault: boolean;
   is_public_pages: boolean;
 }

@@ -18,7 +18,15 @@ class SpaceCreate(BaseModel):
 
 
 class SpaceUpdate(BaseModel):
-    name: str = Field(min_length=1, max_length=255)
+    """Как FolderUpdate: поле трогается, только если присутствует в теле
+    (model_fields_set в роутере); icon=null — убрать значок."""
+
+    name: str | None = Field(default=None, min_length=1, max_length=255)
+    icon: str | None = Field(default=None, max_length=16)
+
+
+class SpaceOrderIn(BaseModel):
+    space_ids: list[uuid.UUID]
 
 
 class SpaceOut(BaseModel):
@@ -26,6 +34,7 @@ class SpaceOut(BaseModel):
 
     id: uuid.UUID
     name: str
+    icon: str | None = None
     owner_id: uuid.UUID
     created_at: datetime
     # Только для иконки замка в сайдбаре. salt/verifier сюда намеренно НЕ

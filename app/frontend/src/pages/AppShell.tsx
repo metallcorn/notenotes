@@ -769,7 +769,7 @@ export default function AppShell() {
               и Теги, у которых на телефоне нет своей кнопки. На десктопе
               все разделы — списком ниже. */}
           <div className="-mx-4 mb-3 flex gap-2 overflow-x-auto px-4 pb-0.5 lg:hidden" style={{ scrollbarWidth: "none" }}>
-            {[{ id: null as string | null, name: t("spaces.all"), is_vault: false }, ...(spaces ?? [])].map((s) => (
+            {[{ id: null as string | null, name: t("spaces.all"), is_vault: false, icon: null as string | null }, ...(spaces ?? [])].map((s) => (
               <button
                 key={s.id ?? "all"}
                 onClick={() => {
@@ -780,7 +780,7 @@ export default function AppShell() {
                   homeSpaceFilter === s.id ? "bg-accent text-on-accent" : "border border-default bg-surface text-primary"
                 }`}
               >
-                {s.is_vault && <Lock size={12} />}
+                {s.icon ? <span aria-hidden="true">{s.icon}</span> : s.is_vault ? <Lock size={12} /> : null}
                 {s.name}
               </button>
             ))}

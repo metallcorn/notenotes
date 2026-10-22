@@ -185,3 +185,41 @@ async def test_accept_expired_invite_rejected(auth_client, db_session, test_user
 
     r = await auth_client.post(f"/api/spaces/invites/{invite.token}/accept")
     assert r.status_code == 404
+
+
+async def test_space_icon_set_and_clear(auth_client):
+    r = await auth_client.post("/api/spaces", json={"name": "Дом"})
+    space_id = r.json()["id"]
+    assert r.json()["icon"] is None
+
+    r = await auth_client.patch(f"/api/spaces/{space_id}", json={"icon": "🏠"})
+    assert r.status_code == 200 and r.json()["icon"] == "🏠"
+
+    # Переименование без icon в теле значок не трогает.
+    r = await auth_client.patch(f"/api/spaces/{space_id}", json={"name": "Квартира"})
+    assert r.json() == {**r.json(), "name": "Квартира", "icon": "🏠"}
+
+    r = await auth_client.patch(f"/api/spaces/{space_id}", json={"icon": None})
+    assert r.status_code == 200 and r.json()["icon"] is None
+
+
+async def test_spaces_manual_order(auth_client):
+    ids = []
+    for name in ("Первый", "Второй", "Третий"):
+        r = await auth_client.post("/api/spaces", json={"name": name})
+        ids.append(r.json()["id"])
+
+    r = await auth_client.put("/api/spaces/order", json={"space_ids": [ids[2], ids[0]]})
+    assert r.status_code == 204
+
+    r = await auth_client.get("/api/spaces")
+    listed = [s["id"] for s in r.json() if s["id"] in ids]
+    # Упорядоченные впереди в заданном порядке, неупорядоченный — после.
+    assert listed == [ids[2], ids[0], ids[1]]
+
+    # Чужой id молча пропускается, порядок остальных применяется.
+    r = await auth_client.put("/api/spaces/order", json={"space_ids": ["00000000-0000-0000-0000-000000000001", ids[1]]})
+    assert r.status_code == 204
+    r = await auth_client.get("/api/spaces")
+    listed = [s["id"] for s in r.json() if s["id"] in ids]
+    assert listed[0] == ids[1]

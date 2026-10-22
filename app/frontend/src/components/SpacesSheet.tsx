@@ -1,9 +1,12 @@
-import { useEffect } from "react";
+import { Suspense, lazy, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { ChevronRight, FileStack, Lock, Tag as TagIcon, Trash2 } from "lucide-react";
+import { ChevronRight, FileStack, GripVertical, Lock, Tag as TagIcon, Trash2 } from "lucide-react";
 import type { Space } from "../api/types";
-import { useFolders, useSpaceMembers } from "../api/hooks";
+import { useFolders, useReorderSpaces, useSpaceMembers, useUpdateSpace } from "../api/hooks";
 import { useVaultUnlocked } from "../lib/vaultSession";
+import { useDragReorder } from "../lib/useDragReorder";
+
+const EmojiPickerPopover = lazy(() => import("./EmojiPickerPopover"));
 import CreateSpaceButton from "./CreateSpaceButton";
 import { t, tn } from "../i18n";
 
@@ -15,29 +18,70 @@ function SpaceRow({
   space,
   index,
   active,
+  dragging,
+  handle,
   onPick,
 }: {
   space: Space;
   index: number;
   active: boolean;
+  dragging: boolean;
+  handle: Record<string, unknown>;
   onPick: () => void;
 }) {
   const { data: folders } = useFolders(space.id);
   const { data: members } = useSpaceMembers(space.id);
+  const updateSpace = useUpdateSpace();
   const unlocked = useVaultUnlocked(space.is_vault ? space.id : undefined);
+  const [pickerOpen, setPickerOpen] = useState(false);
   const initial = (space.name.trim()[0] ?? "?").toUpperCase();
   const others = (members ?? []).slice(0, 3);
+  // Плитка — тап открывает пикер значка; «ручка» справа — перетаскивание.
+  const tile = (cls: string, content: React.ReactNode) => (
+    <span className="relative shrink-0">
+      <button
+        type="button"
+        aria-label={`Значок спейса «${space.name}»`}
+        onClick={(e) => {
+          e.stopPropagation();
+          setPickerOpen((v) => !v);
+        }}
+        className={`flex h-12 w-12 items-center justify-center rounded-2xl text-[22px] font-extrabold leading-none ${cls}`}
+      >
+        {space.icon ?? content}
+      </button>
+      {pickerOpen && (
+        <Suspense fallback={null}>
+          <EmojiPickerPopover
+            onSelect={(emoji) => updateSpace.mutate({ id: space.id, icon: emoji })}
+            onClose={() => setPickerOpen(false)}
+          />
+        </Suspense>
+      )}
+    </span>
+  );
+  const grip = (cls: string) => (
+    <span
+      {...handle}
+      aria-label="Перетащить"
+      role="button"
+      className={`flex h-12 w-9 shrink-0 cursor-grab touch-none items-center justify-center ${cls}`}
+    >
+      <GripVertical size={18} />
+    </span>
+  );
+  const rowCls = dragging ? "scale-[1.02] shadow-float" : "";
 
   if (space.is_vault) {
     return (
-      <button
-        type="button"
+      <div
+        role="button"
+        tabIndex={0}
         onClick={onPick}
-        className={`flex w-full items-center gap-3 rounded-2xl bg-nav p-3 text-left text-nav-text ${active ? "ring-2 ring-lime" : ""}`}
+        onKeyDown={(e) => e.key === "Enter" && onPick()}
+        className={`flex w-full items-center gap-3 rounded-2xl bg-nav p-3 pr-1 text-left text-nav-text transition-transform ${active ? "ring-2 ring-lime" : ""} ${rowCls}`}
       >
-        <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-white/10 text-lime">
-          <Lock size={22} strokeWidth={2.2} />
-        </span>
+        {tile("bg-white/10 text-lime", <Lock size={22} strokeWidth={2.2} />)}
         <span className="min-w-0 flex-1">
           <span className="block truncate text-base font-extrabold">{space.name}</span>
           <span className="block text-[13px] font-semibold text-nav-muted">
@@ -45,25 +89,22 @@ function SpaceRow({
           </span>
         </span>
         <ChevronRight size={18} className="shrink-0 text-nav-muted" />
-      </button>
+        {grip("text-nav-muted")}
+      </div>
     );
   }
 
   return (
-    <button
-      type="button"
+    <div
+      role="button"
+      tabIndex={0}
       onClick={onPick}
-      className={`flex w-full items-center gap-3 rounded-2xl p-3 text-left text-primary ${
+      onKeyDown={(e) => e.key === "Enter" && onPick()}
+      className={`flex w-full items-center gap-3 rounded-2xl p-3 pr-1 text-left text-primary transition-transform ${
         active ? "border-2 border-primary bg-surface" : "bg-muted hover:bg-muted-hover"
-      }`}
+      } ${rowCls}`}
     >
-      <span
-        className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl text-[22px] font-extrabold ${
-          active ? "bg-lime text-on-lime" : TILE_STYLES[index % TILE_STYLES.length]
-        }`}
-      >
-        {initial}
-      </span>
+      {tile(active ? "bg-lime text-on-lime" : TILE_STYLES[index % TILE_STYLES.length], initial)}
       <span className="min-w-0 flex-1">
         <span className="block truncate text-base font-extrabold">{space.name}</span>
         <span className="block text-[13px] font-semibold text-subtle">
@@ -85,7 +126,8 @@ function SpaceRow({
           ))}
         </span>
       )}
-    </button>
+      {grip("text-subtle")}
+    </div>
   );
 }
 
@@ -118,6 +160,9 @@ export default function SpacesSheet({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
+
+  const reorder = useReorderSpaces();
+  const drag = useDragReorder(spaces, (ids) => reorder.mutate(ids));
 
   const bottom = (label: string, Icon: typeof Trash2, onClick: () => void) => (
     <button
@@ -153,17 +198,21 @@ export default function SpacesSheet({
           />
         </div>
         <div className="min-h-0 flex-1 space-y-2 overflow-y-auto">
-          {spaces.map((space, i) => (
-            <SpaceRow
-              key={space.id}
-              space={space}
-              index={i}
-              active={space.id === activeSpaceId}
-              onPick={() => {
-                onPick(space);
-                onClose();
-              }}
-            />
+          {drag.items.map((space, i) => (
+            <div key={space.id} ref={drag.register(space.id)}>
+              <SpaceRow
+                space={space}
+                index={i}
+                active={space.id === activeSpaceId}
+                dragging={drag.draggingId === space.id}
+                handle={drag.handle(space.id)}
+                onPick={() => {
+                  if (drag.draggingId) return;
+                  onPick(space);
+                  onClose();
+                }}
+              />
+            </div>
           ))}
         </div>
         <div className="mt-3.5 flex shrink-0 gap-2">

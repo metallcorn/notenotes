@@ -31,6 +31,7 @@ import type { SnoozePreset } from "../api/hooks";
 import type { DetectedEvent, Notification } from "../api/types";
 import { repeatLabel } from "../lib/recurrence";
 import { ListSkeleton } from "./Skeleton";
+import SwipeRow from "./SwipeRow";
 import { dateLocale, t } from "../i18n";
 
 type Tab = "notifications" | "recent";
@@ -139,6 +140,7 @@ function NotificationRow({
   const unresolve = useUnresolveNotification();
   const markRead = useMarkNotificationRead();
   const del = useDeleteNotification();
+  const snooze = useSnoozeNotification();
   const spaceId = notification.payload.space_id as string | undefined;
   const itemId = notification.payload.item_id as string | undefined;
   const entryId = notification.payload.entry_id as string | undefined;
@@ -148,9 +150,21 @@ function NotificationRow({
   const repeat = repeatLabel(notification.repeat_rule);
   const findText = notification.payload.find as string | undefined;
 
+  // Свайп влево (макет «Активность»): «Завтра» и «Сделано» — те же
+  // кнопки, что приходят в Telegram и в сводке.
+  const swipeActions = resolved
+    ? []
+    : [
+        ...(notification.trigger_at
+          ? [{ label: "Завтра", tone: "lime" as const, icon: <AlarmClock size={16} />, onClick: () => snooze.mutate({ id: notification.id, preset: "tomorrow" }) }]
+          : []),
+        { label: "Сделано", tone: "dark" as const, icon: <Check size={16} />, onClick: () => resolve.mutate(notification.id) },
+      ];
+
   return (
+    <SwipeRow actions={swipeActions} className="row-fade-in mx-3 mb-2">
     <div
-      className={`row-fade-in mx-3 mb-2 flex items-start gap-2 rounded-2xl bg-surface px-3.5 py-3 shadow-card ${
+      className={`flex items-start gap-2 rounded-2xl bg-surface px-3.5 py-3 shadow-card ${
         !resolved && !notification.read_at ? "ring-1 ring-brand/40" : ""
       }`}
     >
@@ -216,6 +230,7 @@ function NotificationRow({
         <X size={14} />
       </button>
     </div>
+    </SwipeRow>
   );
 }
 

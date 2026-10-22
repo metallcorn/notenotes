@@ -163,7 +163,7 @@ export default function SpaceFoldersScreen({
               dark ? "bg-white/10 text-lime" : "bg-lime text-on-lime"
             }`}
           >
-            {initial}
+            {space.icon ?? initial}
           </span>
           <span className={`truncate text-[26px] font-extrabold tracking-tight ${dark ? "text-nav-text" : "text-primary"}`}>
             {space.name}

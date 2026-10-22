@@ -12,6 +12,8 @@ const hooks = vi.hoisted(() => ({
   useCreateDialog: vi.fn(),
   useScopedFolderDialogs: vi.fn(),
   useDeleteItem: vi.fn(),
+  useUpdateItem: vi.fn(() => ({ mutate: vi.fn(), isPending: false })),
+  useArchiveItem: vi.fn(() => ({ mutate: vi.fn(), isPending: false })),
 }));
 vi.mock("../api/hooks", () => hooks);
 

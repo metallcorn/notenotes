@@ -18,7 +18,7 @@ vi.mock("./VaultUnlockOverlay", () => ({ default: () => <div>замок</div> })
 
 import SpaceFoldersScreen from "./SpaceFoldersScreen";
 
-const space: Space = { id: "s1", name: "Семейный", owner_id: "u1", created_at: "", is_vault: false, is_public_pages: false };
+const space: Space = { id: "s1", name: "Семейный", owner_id: "u1", created_at: "", icon: null, is_vault: false, is_public_pages: false };
 const folder = (o: Partial<Folder>): Folder => ({ id: "f", space_id: "s1", parent_id: null, name: "Папка", icon: null, created_at: "", ...o });
 const item = (o: Partial<Item>): Item =>
   ({ id: "i", space_id: "s1", folder_id: null, material_type: "note", title: "", content: "", tags: [], icon: null, color: null, pinned: false, deleted_at: null, detected_addresses: [], created_at: "", updated_at: "", author_id: "u1", ...o }) as Item;

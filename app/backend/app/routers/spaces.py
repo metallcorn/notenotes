@@ -19,6 +19,7 @@ from app.schemas.space import (
     SpaceInviteOut,
     SpaceMemberAddIn,
     SpaceMemberOut,
+    SpaceOrderIn,
     SpaceOut,
     SpaceUpdate,
     VaultRotatePasswordIn,
@@ -39,10 +40,35 @@ _SPACE_INVITE_TTL_DAYS = 7
 
 @router.get("", response_model=list[SpaceOut])
 async def list_spaces(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)) -> list[Space]:
+    # Ручной порядок участника (space_members.position) впереди,
+    # неупорядоченные — после, по дате создания.
     result = await db.execute(
-        select(Space).join(SpaceMember, SpaceMember.space_id == Space.id).where(SpaceMember.user_id == user.id)
+        select(Space)
+        .join(SpaceMember, SpaceMember.space_id == Space.id)
+        .where(SpaceMember.user_id == user.id)
+        .order_by(SpaceMember.position.asc().nulls_last(), Space.created_at.asc())
     )
     return list(result.scalars().all())
+
+
+@router.put("/order", status_code=status.HTTP_204_NO_CONTENT)
+async def reorder_spaces(
+    payload: SpaceOrderIn, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+) -> None:
+    """Порядок спейсов для текущего пользователя: позиция по индексу в
+    списке; спейсы, которых в списке нет, остаются неупорядоченными. Чужие
+    id молча пропускаются — это не ошибка, а чужой спейс."""
+    memberships = (
+        await db.execute(select(SpaceMember).where(SpaceMember.user_id == user.id))
+    ).scalars().all()
+    by_space = {m.space_id: m for m in memberships}
+    for m in memberships:
+        m.position = None
+    for index, space_id in enumerate(payload.space_ids):
+        m = by_space.get(space_id)
+        if m is not None:
+            m.position = index
+    await db.commit()
 
 
 @router.post("", response_model=SpaceOut, status_code=201)
@@ -259,7 +285,11 @@ async def update_space(
         # spaces.id, так что раз ensure_space_access нашла членство, сам
         # спейс точно есть. Проверка только чтобы не возвращать Space | None.
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Спейс не найден")
-    space.name = payload.name
+    fields = payload.model_fields_set
+    if "name" in fields and payload.name is not None:
+        space.name = payload.name
+    if "icon" in fields:
+        space.icon = payload.icon or None
     await db.commit()
     await db.refresh(space)
     return space

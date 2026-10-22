@@ -29,6 +29,7 @@ function baseSpace(overrides: Partial<Space> = {}): Space {
     name: "Дом",
     owner_id: "u1",
     created_at: "2026-08-01T00:00:00Z",
+    icon: null,
     is_vault: false,
     is_public_pages: false,
     ...overrides,
