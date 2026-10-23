@@ -281,7 +281,7 @@ export default function TicketAttachmentCard({ node, editor, getPos }: NodeViewP
       {/* Макет «Заметка: чтение» (21.10): тёмная карточка билета — подпись и
           дата капителью, крупно откуда → куда со временем, лаймовая стрелка,
           действия чипами, «Предъявить билет» лаймовой кнопкой. */}
-      <div ref={cardRef} className="max-w-sm overflow-hidden rounded-3xl bg-nav p-4 text-nav-text shadow-nav">
+      <div ref={cardRef} className="w-full overflow-hidden rounded-3xl bg-nav p-4 text-nav-text shadow-nav md:max-w-lg">
         <button
           data-drag-handle
           draggable
