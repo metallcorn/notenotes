@@ -188,7 +188,7 @@ function FolderNode({ folder, all, selectedFolderId, onSelect, onAddChild, onRen
           e.stopPropagation();
           startFolderDrag(e, { id: folder.id, space_id: folder.space_id });
         }}
-        className={`flex min-h-10 items-center justify-between rounded-xl pl-3 pr-0.5 text-sm font-semibold transition-colors ${
+        className={`flex min-h-10 items-center justify-between rounded-xl pl-1.5 pr-0.5 text-sm font-semibold transition-colors ${
           drop.over
             ? "bg-brand/15 ring-1 ring-brand"
             : selectedFolderId === folder.id
@@ -197,7 +197,7 @@ function FolderNode({ folder, all, selectedFolderId, onSelect, onAddChild, onRen
         }`}
       >
         <button className="flex min-h-10 min-w-0 flex-1 items-center gap-2 text-left" onClick={() => onSelect(folder.id)}>
-          {folder.icon && <span className="shrink-0 text-base leading-none">{folder.icon}</span>}
+          <span aria-hidden="true" className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-muted text-sm leading-none">{folder.icon ?? "📁"}</span>
           <span className="truncate">{folder.name}</span>
         </button>
         {/* Раньше тут было три отдельные кнопки подряд — реальная жалоба:
@@ -229,7 +229,7 @@ function FolderNode({ folder, all, selectedFolderId, onSelect, onAddChild, onRen
         </div>
       </div>
       {children.length > 0 && (
-        <ul className="ml-4 border-l pl-1.5">
+        <ul className="ml-5 border-l-2 border-brand-soft pl-1.5">
           {children.map((child) => (
             <FolderNode
               key={child.id}
@@ -332,17 +332,18 @@ export default function FolderTree({
         <li>
           <button
             onClick={() => onSelect(null)}
-            className={`min-h-10 w-full rounded-xl px-3 text-left text-sm font-semibold transition-colors ${
+            className={`flex min-h-10 w-full items-center gap-2 rounded-xl px-1.5 text-left text-sm font-semibold transition-colors ${
               selectedFolderId === null ? "bg-brand-soft text-brand-text" : "text-secondary hover:bg-muted"
             }`}
           >
+            <span aria-hidden="true" className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-muted text-sm leading-none">🗂️</span>
             Все заметки
           </button>
         </li>
         <li {...rootDrop.props}>
           <button
             onClick={() => onSelect("root")}
-            className={`min-h-10 w-full rounded-xl px-3 text-left text-sm font-semibold transition-colors ${
+            className={`flex min-h-10 w-full items-center gap-2 rounded-xl px-1.5 text-left text-sm font-semibold transition-colors ${
               rootDrop.over
                 ? "bg-brand/15 ring-1 ring-brand"
                 : selectedFolderId === "root"
@@ -350,6 +351,7 @@ export default function FolderTree({
                   : "text-secondary hover:bg-muted"
             }`}
           >
+            <span aria-hidden="true" className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-muted text-sm leading-none">📄</span>
             Без папки
           </button>
         </li>

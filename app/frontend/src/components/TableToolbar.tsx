@@ -13,7 +13,7 @@ function Btn({ onClick, children }: { onClick: () => void; children: string }) {
 
 export default function TableToolbar({ editor }: { editor: Editor }) {
   return (
-    <div className="flex flex-wrap items-center gap-2 border-b bg-warning/10 px-3 py-1.5 text-xs">
+    <div className="mx-4 mb-1 flex flex-wrap items-center gap-2 rounded-2xl bg-brand-soft px-3 py-1.5 text-xs font-bold text-brand-text">
       <span className="text-subtle">Таблица:</span>
       <div className="flex gap-0.5">
         <Btn onClick={() => editor.chain().focus().addRowBefore().run()}>Строка выше</Btn>

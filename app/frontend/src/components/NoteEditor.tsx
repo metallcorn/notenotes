@@ -1664,12 +1664,12 @@ export default function NoteEditor({
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex flex-col border-b">
+      <div className="flex flex-col">
         {/* Ряд 1: заголовок — намеренно НЕ flex-wrap и без переменной по
             длине компании (теги раньше стояли прямо тут и при их количестве
             заголовок сжимался/переносился — жалоба в отзыве). Только
             фиксированные по ширине элементы делят с ним строку. */}
-        <div className="flex items-center gap-2 p-3 pb-2">
+        <div className="flex flex-wrap items-center gap-2 p-3 pb-2">
           <button
             onClick={onBack}
             aria-label="Назад"
@@ -1739,40 +1739,28 @@ export default function NoteEditor({
             </>
           ) : (
             <>
-          <div className="relative shrink-0">
-            <button
-              onClick={() => setShowEmojiPicker((v) => !v)}
-              title="Иконка заметки"
-              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-muted text-[22px] leading-none hover:bg-muted-hover"
-            >
-              {item.icon || "🙂"}
-            </button>
-            {showEmojiPicker && (
-              <Suspense
-                fallback={
-                  <div className="absolute z-20 mt-1 flex h-24 w-24 items-center justify-center rounded border bg-surface shadow-lg">
-                    <Spinner size={20} />
-                  </div>
-                }
+              {/* Десктоп в том же языке, что телефон (замечание 23.10 — «на
+                  компе осталось по-старому»): путь «спейс › папка» пилюлей
+                  (тап — «Куда положить»), статус, режим сегментом, действия
+                  иконками в одной плашке. Крупный заголовок — блоком ниже. */}
+              <button
+                type="button"
+                onClick={() => !isVaultNote && setShowMoveModal(true)}
+                disabled={isVaultNote}
+                title="Переместить в другой спейс или папку"
+                className="flex h-9 min-w-0 max-w-[45%] shrink items-center gap-1.5 rounded-full bg-surface px-3.5 text-[13px] font-bold text-secondary shadow-card hover:bg-muted disabled:cursor-default"
               >
-                <EmojiPickerPopover
-                  onSelect={(emoji) => updateItem.mutate({ id: item.id, icon: emoji })}
-                  onClose={() => setShowEmojiPicker(false)}
-                />
-              </Suspense>
-            )}
-          </div>
-          <input
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            placeholder="Без названия"
-            style={item.color ? { color: item.color } : undefined}
-            className="min-w-0 flex-1 bg-transparent text-xl font-extrabold tracking-tight outline-none placeholder:text-subtle"
-          />
+                <span className="truncate">
+                  {currentSpace?.name ?? ""}
+                  {currentFolder ? ` › ${currentFolder.name}` : ` › ${t("folders.root")}`}
+                </span>
+                {!isVaultNote && <ChevronDown size={14} strokeWidth={2.4} className="shrink-0" />}
+              </button>
+              <span className="min-w-0 flex-1" />
             </>
           )}
-          <div className="hidden shrink-0 items-center gap-1 md:flex">
-            <span className="mr-1 flex items-center gap-1 whitespace-nowrap text-xs text-subtle">
+          <div className="hidden shrink-0 items-center gap-1.5 md:flex">
+            <span className="mr-1 flex items-center gap-1 whitespace-nowrap text-xs font-bold text-subtle">
               {(collabStatus === "connecting" || collabStatus === "stale") && (
                 <>
                   <Spinner size={12} /> {collabStatus === "stale" ? "Обновляем…" : "Подключение…"}
@@ -1799,26 +1787,32 @@ export default function NoteEditor({
                 </>
               )}
             </span>
-            <div className="flex overflow-hidden rounded border">
+            <div role="radiogroup" aria-label="Режим" className="flex gap-0.5 rounded-xl bg-muted p-0.5">
               {(["view", "wysiwyg", "raw"] as const).map((m) => {
                 const ModeIcon = MODE_ICON[m];
                 return (
                   <button
                     key={m}
+                    role="radio"
+                    aria-checked={mode === m}
                     onClick={() => switchMode(m)}
                     title={MODE_LABEL[m]}
-                    className={`flex h-8 w-8 items-center justify-center ${mode === m ? "bg-accent text-on-accent" : "text-subtle hover:bg-muted-hover"}`}
+                    className={`flex h-8 items-center gap-1.5 rounded-[10px] px-2.5 text-xs font-bold transition-colors ${
+                      mode === m ? "bg-surface text-primary shadow-card" : "text-subtle hover:text-secondary"
+                    }`}
                   >
-                    <ModeIcon size={16} />
+                    <ModeIcon size={14} />
+                    <span className="hidden xl:inline">{MODE_LABEL_SHEET[m]}</span>
                   </button>
                 );
               })}
             </div>
+            <div className="ml-1 flex items-center gap-0.5 rounded-xl bg-surface p-0.5 shadow-card">
             <div className="relative">
               <button
                 onClick={() => setShowColorPicker((v) => !v)}
                 title="Цвет заголовка"
-                className="flex h-8 w-8 items-center justify-center rounded border text-secondary hover:bg-muted-hover"
+                className="flex h-8 w-8 items-center justify-center rounded-[10px] text-secondary hover:bg-muted"
               >
                 <Palette size={16} />
               </button>
@@ -1851,7 +1845,7 @@ export default function NoteEditor({
             <button
               onClick={() => updateItem.mutate({ id: item.id, pinned: !item.pinned })}
               title={item.pinned ? "Открепить" : "Закрепить как важное"}
-              className={`flex h-8 w-8 items-center justify-center rounded border ${item.pinned ? "bg-accent text-on-accent" : "text-secondary hover:bg-muted-hover"}`}
+              className={`flex h-8 w-8 items-center justify-center rounded-[10px] ${item.pinned ? "bg-lime text-on-lime" : "text-secondary hover:bg-muted"}`}
             >
               {item.pinned ? <PinOff size={16} /> : <Pin size={16} />}
             </button>
@@ -1859,7 +1853,7 @@ export default function NoteEditor({
               <button
                 onClick={() => setShowShareModal(true)}
                 title="Публичная ссылка"
-                className="flex h-8 w-8 items-center justify-center rounded border text-secondary hover:bg-muted-hover"
+                className="flex h-8 w-8 items-center justify-center rounded-[10px] text-secondary hover:bg-muted"
               >
                 <Globe size={16} />
               </button>
@@ -1867,7 +1861,7 @@ export default function NoteEditor({
             <button
               onClick={() => setShowHistory((v) => !v)}
               title="История версий"
-              className="flex h-8 w-8 items-center justify-center rounded border text-secondary hover:bg-muted-hover"
+              className="flex h-8 w-8 items-center justify-center rounded-[10px] text-secondary hover:bg-muted"
             >
               <History size={16} />
             </button>
@@ -1876,7 +1870,7 @@ export default function NoteEditor({
               onClick={() => archiveItem.mutate(item.id)}
               disabled={archiveItem.isPending}
               title="В архив — убрать с глаз, не удаляя"
-              className="flex h-8 w-8 items-center justify-center rounded border text-secondary hover:bg-muted-hover disabled:opacity-50"
+              className="flex h-8 w-8 items-center justify-center rounded-[10px] text-secondary hover:bg-muted disabled:opacity-50"
             >
               {archiveItem.isPending ? <Spinner size={16} /> : <Archive size={16} />}
             </button>
@@ -1884,10 +1878,11 @@ export default function NoteEditor({
               onClick={() => setConfirmingDelete(true)}
               disabled={deleteItem.isPending}
               title="Удалить заметку"
-              className="flex h-8 w-8 items-center justify-center rounded border text-danger hover:bg-danger/10 disabled:opacity-50"
+              className="flex h-8 w-8 items-center justify-center rounded-[10px] text-danger hover:bg-danger-soft disabled:opacity-50"
             >
               {deleteItem.isPending ? <Spinner size={16} /> : <Trash2 size={16} />}
             </button>
+            </div>
           </div>
           <button
             ref={mobileActionsButtonRef}
@@ -1931,61 +1926,81 @@ export default function NoteEditor({
             (как папка — <select>), а не показаны все чипами сразу — та же
             причина. */}
         {!isPhone && (
-        <div className="flex flex-wrap items-center gap-2 px-3 pb-3">
-          <select
-            value={item.folder_id ?? ""}
-            onChange={(e) => updateItem.mutate({ id: item.id, folder_id: e.target.value || null })}
-            className="h-8 rounded-full border-0 bg-muted px-3 text-xs font-bold text-primary"
-          >
-            <option value="">Без папки</option>
-            {(folders ?? []).map((folder) => (
-              <option key={folder.id} value={folder.id}>
-                {folder.name}
-              </option>
-            ))}
-          </select>
-
-          {/* Перенос ИЗ сейфа обычным move не поддерживается (нужна расшифровка
-              на клиенте перед сохранением plaintext — вне скоупа) — кнопку
-              для сейфовой заметки прячем целиком. Перенос В сейф — поддержан
-              (migrateItemToVault ниже, шифрует перед move), но только для
-              заметок (не списков/билетов) и только в УЖЕ разблокированный
-              сейф — просить пароль сейфа посреди переноса не делаем, сейф
-              нужно открыть заранее в сайдбаре. */}
-          {!isVaultNote && (
-            <button
-              onClick={() => setShowMoveModal(true)}
-              title="Переместить в другой спейс или папку"
-              className="h-8 rounded-full bg-muted px-3 text-xs font-bold text-primary hover:bg-muted-hover"
-            >
-              Переместить…
-            </button>
-          )}
-
-          <div className="relative">
-            <button
-              onClick={() => {
-                setShowTagPicker((v) => !v);
-                setTagQuery("");
-              }}
-              className="flex h-8 items-center gap-1 rounded-full border border-dashed border-strong px-3 text-xs font-bold text-subtle hover:text-secondary"
-            >
-              <TagIcon size={12} />
-              {item.tags.length > 0 ? `Теги (${item.tags.length})` : "+ тег"}
-            </button>
-            {showTagPicker && tagPickerDropdown}
+          <div className="flex items-start gap-3.5 px-5 pb-4 pt-1">
+            <div className="relative shrink-0">
+              <button
+                onClick={() => setShowEmojiPicker((v) => !v)}
+                title="Иконка заметки"
+                className="flex h-14 w-14 items-center justify-center rounded-2xl bg-muted text-[32px] leading-none hover:bg-muted-hover"
+              >
+                {item.icon || "🙂"}
+              </button>
+              {showEmojiPicker && (
+                <Suspense
+                  fallback={
+                    <div className="absolute z-20 mt-1 flex h-24 w-24 items-center justify-center rounded-2xl border bg-surface shadow-lg">
+                      <Spinner size={20} />
+                    </div>
+                  }
+                >
+                  <EmojiPickerPopover
+                    onSelect={(emoji) => updateItem.mutate({ id: item.id, icon: emoji })}
+                    onClose={() => setShowEmojiPicker(false)}
+                  />
+                </Suspense>
+              )}
+            </div>
+            <div className="min-w-0 flex-1">
+              <input
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                placeholder="Без названия"
+                style={item.color ? { color: item.color } : undefined}
+                className="w-full bg-transparent text-[30px] font-extrabold leading-[1.1] tracking-tight outline-none placeholder:text-subtle"
+              />
+              <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                <span className="mr-1 text-[13px] font-semibold text-subtle">
+                  {t("note.changed", { when: formatRelativeDay(item.updated_at, dateLocale) })}
+                </span>
+                {item.tags.map((tag) => (
+                  <span
+                    key={tag.id}
+                    title={tag.auto ? "Автоматически предложенный тег" : undefined}
+                    className={`flex h-7 items-center gap-1 rounded-full px-2.5 text-xs font-bold ${
+                      tag.auto ? "border border-dashed border-brand/40 bg-brand/10 text-brand-text" : "bg-brand-soft text-brand-text"
+                    }`}
+                  >
+                    {tag.auto && <Sparkles size={10} />}
+                    #{tag.name}
+                    <button onClick={() => removeTag.mutate(tag.id)} aria-label={`Убрать тег ${tag.name}`} className="ml-0.5 text-brand-text/70 hover:text-danger">
+                      ×
+                    </button>
+                  </span>
+                ))}
+                <div className="relative">
+                  <button
+                    onClick={() => {
+                      setShowTagPicker((v) => !v);
+                      setTagQuery("");
+                    }}
+                    className="flex h-7 items-center gap-1 rounded-full border-[1.5px] border-dashed border-strong px-2.5 text-xs font-bold text-subtle hover:text-secondary"
+                  >
+                    <TagIcon size={11} /> {t("note.addTag")}
+                  </button>
+                  {showTagPicker && tagPickerDropdown}
+                </div>
+                <button
+                  onClick={() => suggestTags.mutate()}
+                  disabled={suggestTags.isPending}
+                  title="Предложить теги по содержимому заметки"
+                  className="flex h-7 items-center gap-1 rounded-full px-2.5 text-xs font-bold text-brand-text hover:bg-brand-soft disabled:opacity-50"
+                >
+                  {suggestTags.isPending ? <Spinner size={12} /> : <Sparkles size={12} />}
+                  Предложить теги
+                </button>
+              </div>
+            </div>
           </div>
-
-          <button
-            onClick={() => suggestTags.mutate()}
-            disabled={suggestTags.isPending}
-            title="Предложить теги по содержимому заметки"
-            className="flex items-center gap-1 rounded-full border border-dashed px-2 py-0.5 text-xs text-brand hover:text-brand disabled:opacity-50"
-          >
-            {suggestTags.isPending ? <Spinner size={12} /> : <Sparkles size={12} />}
-            Предложить теги
-          </button>
-        </div>
         )}
 
         {/* Бэклинки (ТЗ §7) — заметки, ссылающиеся НА эту через [[название.

@@ -74,18 +74,19 @@ export default function SpaceSection({
       <div className="flex items-center gap-0.5">
         <button
           onClick={onToggleCollapse}
-          className={`flex min-h-10 min-w-0 flex-1 items-center gap-1.5 rounded-xl px-2 text-left text-[15px] font-extrabold tracking-tight ${
+          className={`flex min-h-11 min-w-0 flex-1 items-center gap-2.5 rounded-xl px-1.5 text-left text-[15px] font-extrabold tracking-tight ${
             space.is_vault ? "text-nav-text hover:bg-white/10" : "text-primary hover:bg-muted"
           }`}
         >
+          {/* Плитка спейса — значок или первая буква, как в шторке «Спейсы»
+              на телефоне; раскрытие показывает шеврон справа. */}
           <span
-            className={`inline-block w-3 shrink-0 text-subtle transition-transform ${collapsed ? "" : "rotate-90"}`}
+            className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-xl text-base font-extrabold leading-none ${
+              space.is_vault ? "bg-white/10 text-lime" : isActive ? "bg-lime text-on-lime" : "bg-brand-soft text-brand-text"
+            }`}
           >
-            &#9656;
+            {space.icon ?? (space.is_vault ? <Lock size={14} className={unlocked ? "text-lime" : "text-nav-muted"} /> : (space.name.trim()[0] ?? "?").toUpperCase())}
           </span>
-          {space.is_vault && (
-            <Lock size={14} className={`shrink-0 ${unlocked ? "text-lime" : "text-nav-muted"}`} />
-          )}
           {isShared && (
             <span title="Общий спейс — несколько участников" className="flex shrink-0 items-center text-subtle">
               <Users size={12} />
@@ -96,8 +97,10 @@ export default function SpaceSection({
               <Globe size={12} />
             </span>
           )}
-          {space.icon && <span className="shrink-0 text-base leading-none">{space.icon}</span>}
           <span className="truncate">{space.name}</span>
+          <span className={`ml-auto inline-block shrink-0 pr-1 text-subtle transition-transform ${collapsed ? "" : "rotate-90"}`}>
+            &#9656;
+          </span>
         </button>
         {/* Раньше тут был ряд из до пяти отдельных кнопок подряд —
             реальная жалоба: занимало слишком много места на строку

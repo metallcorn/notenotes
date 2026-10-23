@@ -22,7 +22,7 @@ export default function CodeBlockToolbar({ editor }: { editor: Editor }) {
   const language = (editor.getAttributes("codeBlock") as { language?: string | null }).language ?? "plaintext";
 
   return (
-    <div className="flex items-center gap-2 border-b bg-muted px-3 py-1.5 text-xs">
+    <div className="mx-4 mb-1 flex items-center gap-2 rounded-2xl bg-muted px-3 py-1.5 text-xs font-bold">
       <span className="text-subtle">Язык кода:</span>
       <select
         value={language}

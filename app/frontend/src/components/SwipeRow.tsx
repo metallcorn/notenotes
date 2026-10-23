@@ -54,7 +54,7 @@ export default function SwipeRow({
 
   return (
     <div data-swipe-row="" className={`relative overflow-hidden rounded-2xl ${className}`}>
-      <div className="absolute inset-y-0 right-0 flex" style={{ width }} aria-hidden={offset === 0}>
+      <div className="absolute inset-y-0 right-0 flex" style={{ width, visibility: offset === 0 && !dragging ? "hidden" : "visible" }} aria-hidden={offset === 0}>
         {actions.map((a) => (
           <button
             key={a.label}

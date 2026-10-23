@@ -18,7 +18,8 @@ test("заметку и папку можно перетащить мышкой 
 
   await page.goto("/");
   const row = page.getByRole("button", { name: /Перетаскиваемая/ });
-  const targetRow = page.getByRole("button", { name: "Куда класть", exact: true });
+  // Внутри боковой колонки: та же папка есть пилюлей над списком заметок.
+  const targetRow = page.locator("aside").getByRole("button", { name: "Куда класть", exact: true });
   await expect(row).toBeVisible();
   await row.dragTo(targetRow);
 
@@ -27,7 +28,7 @@ test("заметку и папку можно перетащить мышкой 
     .toBe(target);
 
   // Папка в папку — и обратно в корень через «Без папки».
-  await page.getByRole("button", { name: "Бродячая папка", exact: true }).dragTo(targetRow);
+  await page.locator("aside").getByRole("button", { name: "Бродячая папка", exact: true }).dragTo(targetRow);
   const parentOf = async () =>
     ((await (await page.request.get(`/api/folders?space_id=${spaceId}`)).json()) as { id: string; parent_id: string | null }[])
       .find((f) => f.id === loose)?.parent_id;
@@ -35,7 +36,7 @@ test("заметку и папку можно перетащить мышкой 
 
   // Обратный бросок: родительскую папку — в её же подпапку. Должно
   // молча ничего не произойти, а не устроить цикл.
-  await targetRow.dragTo(page.getByRole("button", { name: "Бродячая папка", exact: true }));
+  await targetRow.dragTo(page.locator("aside").getByRole("button", { name: "Бродячая папка", exact: true }));
   await page.waitForTimeout(500);
   await expect.poll(parentOf).toBe(target);
 });

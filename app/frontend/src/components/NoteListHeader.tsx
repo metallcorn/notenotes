@@ -66,8 +66,10 @@ export default function NoteListHeader({
     }`;
 
   return (
-    <div className="lg:hidden">
-      <div className="flex items-center gap-2 px-3 pt-3">
+    <div>
+      {/* Строка «назад · путь · поиск» — только телефон: на десктопе путь
+          виден в дереве слева, а поиск всегда раскрыт. */}
+      <div className="flex items-center gap-2 px-3 pt-3 lg:hidden">
         <button
           onClick={onBack}
           aria-label={t("nav.back")}

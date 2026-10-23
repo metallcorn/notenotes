@@ -16,7 +16,7 @@ export default function VideoToolbar({ editor }: { editor: Editor }) {
   }
 
   return (
-    <div className="flex flex-wrap items-center gap-3 border-b bg-warning/10 px-3 py-1.5 text-xs">
+    <div className="mx-4 mb-1 flex flex-wrap items-center gap-2 rounded-2xl bg-brand-soft px-3 py-1.5 text-xs font-bold text-brand-text">
       <span className="text-subtle">Видео:</span>
       <div className="flex gap-0.5">
         {WIDTHS.map((w) => (

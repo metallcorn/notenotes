@@ -758,7 +758,7 @@ export default function AppShell() {
           fixed-бэкдропом. Косметика ширины не стоила этой цены — убрано. */}
       <div className="flex min-h-0 flex-1" onPointerDown={onSwipePointerDown} onPointerUp={onSwipePointerUp}>
       <aside
-        className={`${mobileView === "sidebar" ? "flex" : "hidden"} w-full shrink-0 flex-col bg-app lg:flex lg:border-r lg:bg-muted`}
+        className={`${mobileView === "sidebar" ? "flex" : "hidden"} w-full shrink-0 flex-col bg-app lg:flex`}
         style={
           isDesktop
             ? { width: sidebarCollapsed ? 0 : sidebarWidth, transition: "width 180ms ease-out" }
@@ -798,7 +798,11 @@ export default function AppShell() {
             обрезает всплывающие окна UserMenu/NotificationBell, у которых
             containing block лежит внутри скролл-контейнера (классический
             CSS-баг с overflow, который "перекрывает интерфейсом" попапы). */}
-        <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4 pt-2 lg:p-3">
+        <div className="hidden items-center gap-2 px-4 pb-1 pt-4 lg:flex">
+          <UserMenu />
+          <NotificationBell updateAvailable={updateAvailable} onOpenReminder={openReminder} placement="down" />
+        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4 pt-2 lg:px-4 lg:pt-2">
           <DueReminderCard onOpen={openReminder} onMore={switchToActivity} />
           {/* Пилюли спейсов (макет «Главная», 21.10): фильтр «Недавних» и
               заодно выбор активного спейса для вкладки «Заметки». Последняя
@@ -832,7 +836,9 @@ export default function AppShell() {
             <UpcomingCard onOpen={openReminder} onOpenItem={openRecentItem} onAll={switchToActivity} />
             <RecentGrid spaceId={homeSpaceFilter} openedIds={uiStorage.getRecentlyOpened()} onOpen={openRecentItem} onAll={openNotesTab} />
           </div>
-          <div className="mb-3 hidden space-y-0.5 lg:block">
+          {/* Разделы на десктопе — карточка со строками 44px и плитками
+              иконок, как в шторке «Спейсы» на телефоне. */}
+          <div className="mb-3 hidden rounded-2xl bg-surface p-1.5 shadow-card lg:block">
             {(
               [
                 [switchToAssistant, "assistant", t("nav.assistant"), Sparkles],
@@ -844,13 +850,20 @@ export default function AppShell() {
               <button
                 key={mode}
                 onClick={onClick}
-                className={`flex min-h-9 w-full items-center gap-2 rounded-xl px-2.5 text-sm font-semibold transition-colors ${
-                  viewMode === mode ? "bg-surface text-primary shadow-card" : "text-secondary hover:bg-muted-hover"
+                className={`flex min-h-11 w-full items-center gap-3 rounded-xl px-2 text-[15px] font-extrabold transition-colors ${
+                  viewMode === mode ? "bg-brand-soft text-brand-text" : "text-primary hover:bg-muted"
                 }`}
               >
-                <Icon size={16} /> {label}
+                <span
+                  className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-xl ${
+                    viewMode === mode ? "bg-brand text-white" : "bg-muted text-secondary"
+                  }`}
+                >
+                  <Icon size={16} strokeWidth={2.2} />
+                </span>
+                {label}
                 {mode === "activity" && unreadCount > 0 && (
-                  <span className="ml-auto rounded-full bg-lime px-1.5 text-[11px] font-extrabold text-on-lime">{unreadCount}</span>
+                  <span className="ml-auto rounded-full bg-lime px-2 py-0.5 text-[11px] font-extrabold text-on-lime">{unreadCount}</span>
                 )}
               </button>
             ))}
@@ -858,8 +871,8 @@ export default function AppShell() {
           {/* Дерево спейсов и папок — только на десктопе: на телефоне у
               спейса свой экран (SpaceFoldersScreen). */}
           <div className="hidden lg:block">
-            <div className="mb-2 flex items-center justify-between px-1">
-              <span className="text-[11px] font-extrabold uppercase tracking-wider text-subtle">{t("home.spaces")}</span>
+            <div className="mb-2 flex items-center justify-between px-1 pt-1">
+              <span className="text-lg font-extrabold tracking-tight text-primary">{t("home.spaces")}</span>
               <CreateSpaceButton onCreated={(id) => selectFolder(id, null)} />
             </div>
             {(spaces ?? []).map((space) => (
@@ -875,10 +888,6 @@ export default function AppShell() {
             ))}
             <TagList selectedTagId={tagId} onSelect={selectTag} />
           </div>
-        </div>
-        <div className="hidden shrink-0 items-center gap-1 border-t p-3 lg:flex">
-          <UserMenu />
-          <NotificationBell updateAvailable={updateAvailable} onOpenReminder={openReminder} />
         </div>
       </aside>
 
@@ -919,7 +928,7 @@ export default function AppShell() {
         <div
           {...sidebarHandle}
           title="Потяните, чтобы изменить ширину панели"
-          className="absolute inset-0 cursor-col-resize touch-none border-r bg-muted hover:bg-muted-active"
+          className="absolute inset-0 cursor-col-resize touch-none hover:bg-muted-active"
         />
         <button
           onClick={toggleSidebar}
@@ -947,7 +956,7 @@ export default function AppShell() {
             {/* overflow-x-hidden убран тут же и по той же причине, что у
                 aside выше — этот блок держит NoteTemplateMenu. */}
             <div
-              className={`${mobileView === "list" ? "flex" : "hidden"} w-full shrink-0 flex-col border-r lg:flex`}
+              className={`${mobileView === "list" ? "flex" : "hidden"} w-full shrink-0 flex-col lg:flex`}
               style={
                 isDesktop
                   ? { width: listCollapsed ? 0 : listPanelWidth, transition: "width 180ms ease-out" }
@@ -971,7 +980,7 @@ export default function AppShell() {
                     onSelectFolder={(folderId) => activeSpace && selectFolder(activeSpace.id, folderId)}
                     onSelectTag={selectTag}
                   />
-                  <div className={`${listSearchOpen || query.trim() ? "flex" : "hidden"} items-center gap-2 p-3 lg:flex lg:border-b`}>
+                  <div className={`${listSearchOpen || query.trim() ? "flex" : "hidden"} items-center gap-2 p-3 lg:flex lg:pb-1`}>
                     <div className="min-w-0 flex-1">
                       <SearchBar value={query} onChange={setQuery} autoFocus={listSearchOpen} />
                     </div>
@@ -1019,7 +1028,7 @@ export default function AppShell() {
               <div
                 {...listHandle}
                 title="Потяните, чтобы изменить ширину списка"
-                className="absolute inset-0 cursor-col-resize touch-none border-r bg-surface hover:bg-muted-hover"
+                className="absolute inset-0 cursor-col-resize touch-none hover:bg-muted-active"
               />
               <button
                 onClick={toggleList}

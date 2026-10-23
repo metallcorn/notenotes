@@ -61,12 +61,12 @@ export default function ImageToolbar({ editor }: { editor: Editor }) {
 
   return (
     <>
-      <div className="flex flex-wrap items-center gap-3 border-b bg-warning/10 px-3 py-1.5 text-xs">
-        <span className="text-subtle">Картинка:</span>
+      <div className="mx-4 mb-1 flex flex-wrap items-center gap-2 rounded-2xl bg-brand-soft px-3 py-1.5 text-xs font-bold text-brand-text">
+        <span>Картинка:</span>
         <button
           onClick={() => setLightbox(true)}
           title="Открыть в полный размер"
-          className="flex items-center gap-1 rounded bg-surface px-1.5 py-0.5 text-secondary hover:bg-muted-hover"
+          className="flex h-7 items-center gap-1 rounded-full bg-surface px-2.5 text-secondary hover:bg-muted"
         >
           <Expand size={14} />
           Открыть
@@ -74,7 +74,7 @@ export default function ImageToolbar({ editor }: { editor: Editor }) {
         <button
           onClick={rotate}
           title="Повернуть на 90°"
-          className="flex items-center gap-1 rounded bg-surface px-1.5 py-0.5 text-secondary hover:bg-muted-hover"
+          className="flex h-7 items-center gap-1 rounded-full bg-surface px-2.5 text-secondary hover:bg-muted"
         >
           <RotateCw size={14} />
           Повернуть

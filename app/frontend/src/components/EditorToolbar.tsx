@@ -148,7 +148,7 @@ export default function EditorToolbar({
   const sep = dark ? "bg-white/15" : "bg-default";
 
   return (
-    <div className={`relative ${dark ? "bg-nav" : "border-b bg-muted"} ${readOnly && !dark ? "hidden md:block" : ""}`}>
+    <div className={`relative ${dark ? "bg-nav" : "mx-4 mb-1 rounded-2xl bg-surface shadow-card"} ${readOnly && !dark ? "hidden md:block" : ""}`}>
     {edges.left && (
       <button
         type="button"

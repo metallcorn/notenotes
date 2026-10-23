@@ -86,7 +86,7 @@ export default function CreateSpaceButton({
         {t("spaces.new")}
       </button>
     ) : (
-      <button onClick={() => setAdding(true)} className="text-xs font-bold text-subtle hover:text-secondary">
+      <button onClick={() => setAdding(true)} className="h-8 rounded-full bg-surface px-3 text-xs font-extrabold text-primary shadow-card hover:bg-muted">
         + спейс
       </button>
     );

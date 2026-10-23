@@ -391,12 +391,12 @@ export default function NoteList({
           действие) — Список и Таблица теперь компактные квадратные иконки
           рядом, не растягиваются на всю ширину и не зависят от длины
           перевода слова "Таблица". */}
-      <div className="hidden gap-2 p-3 md:flex">
-        <div className="flex min-w-0 flex-1 overflow-hidden rounded-xl">
+      <div className="hidden gap-2 px-3 pb-2 pt-1 md:flex">
+        <div className="flex min-w-0 flex-1 overflow-hidden rounded-2xl">
           <button
             onClick={() => createNote()}
             disabled={createItem.isPending}
-            className="flex h-10 min-w-0 flex-1 items-center justify-center gap-2 bg-accent px-3 text-sm font-bold text-on-accent disabled:opacity-50"
+            className="flex h-11 min-w-0 flex-1 items-center justify-center gap-2 bg-accent px-3 text-sm font-extrabold text-on-accent disabled:opacity-50"
           >
             {createItem.isPending && <Spinner />}
             <span className="truncate">{createItem.isPending ? "Создаём…" : "+ Заметка"}</span>
@@ -408,9 +408,9 @@ export default function NoteList({
             onClick={createNewList}
             disabled={createList.isPending}
             title="Новый список"
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-surface text-primary shadow-card hover:bg-muted disabled:opacity-50"
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-surface text-primary shadow-card hover:bg-muted disabled:opacity-50"
           >
-            {createList.isPending ? <Spinner size={16} /> : <ListChecks size={16} />}
+            {createList.isPending ? <Spinner size={16} /> : <ListChecks size={18} />}
           </button>
         )}
         {!isVault && (
@@ -418,9 +418,9 @@ export default function NoteList({
             onClick={createNewTable}
             disabled={createTable.isPending}
             title="Новая таблица"
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-surface text-primary shadow-card hover:bg-muted disabled:opacity-50"
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-surface text-primary shadow-card hover:bg-muted disabled:opacity-50"
           >
-            {createTable.isPending ? <Spinner size={16} /> : <TableIcon size={16} />}
+            {createTable.isPending ? <Spinner size={16} /> : <TableIcon size={18} />}
           </button>
         )}
       </div>

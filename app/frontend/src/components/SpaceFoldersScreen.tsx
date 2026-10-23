@@ -53,6 +53,7 @@ function FolderRow({
           className="flex min-h-[52px] min-w-0 flex-1 select-none items-center gap-3 pl-2.5 text-left"
         >
           <span
+            aria-hidden="true"
             className={`flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-xl text-base leading-none ${
               selected ? "bg-brand text-white" : dark ? "bg-white/10" : "bg-muted"
             }`}
