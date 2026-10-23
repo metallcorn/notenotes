@@ -2,6 +2,7 @@ import { ChevronLeft, Search, X } from "lucide-react";
 import type { Space } from "../api/types";
 import { useFolders, useItems, useTags } from "../api/hooks";
 import { t, tn } from "../i18n";
+import { tagColor } from "../lib/tagColor";
 
 // Шапка списка заметок на телефоне (макет «Список заметок», 21.10): назад,
 // путь (спейс › родительская папка), поиск; ниже — плитка папки с эмодзи,
@@ -116,7 +117,7 @@ export default function NoteListHeader({
             </button>
           ))}
           {topTags.map(([id, x]) => (
-            <button key={id} onClick={() => onSelectTag(id)} className={pill(false)}>
+            <button key={id} onClick={() => onSelectTag(id)} className={`${pill(false)} ${tagColor(x.name).chip}`}>
               #{x.name}
             </button>
           ))}

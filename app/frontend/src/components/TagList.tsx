@@ -5,6 +5,7 @@ import { useCreateTag, useDeleteTag, useMergeTag, useRenameTag, useTags } from "
 import Spinner from "./Spinner";
 import PromptDialog from "./PromptDialog";
 import ConfirmDialog from "./ConfirmDialog";
+import { tagColor } from "../lib/tagColor";
 
 export default function TagList({
   selectedTagId,
@@ -50,9 +51,10 @@ export default function TagList({
           >
             <button
               onClick={() => onSelect(selectedTagId === tag.id ? null : tag.id)}
-              className="min-h-9 flex-1 truncate text-left hover:text-primary"
+              className="flex min-h-9 min-w-0 flex-1 items-center gap-2 text-left hover:text-primary"
             >
-              #{tag.name}
+              <span aria-hidden="true" className={`h-2.5 w-2.5 shrink-0 rounded-full ${tagColor(tag.name).dot}`} />
+              <span className="truncate">#{tag.name}</span>
             </button>
             <span className="flex shrink-0 gap-0.5">
               <button

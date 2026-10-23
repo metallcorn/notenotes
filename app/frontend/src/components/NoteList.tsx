@@ -17,6 +17,7 @@ import type { DialogSummary, Item } from "../api/types";
 import ConfirmDialog from "./ConfirmDialog";
 import Spinner from "./Spinner";
 import SwipeRow from "./SwipeRow";
+import { tagColor } from "../lib/tagColor";
 import { ListSkeleton } from "./Skeleton";
 import { startItemDrag } from "../lib/dragItem";
 import { NOTE_TEMPLATES, type NoteTemplate } from "../lib/noteTemplates";
@@ -279,7 +280,7 @@ function NoteRow({
             {counts && <span>{counts.total === 0 ? "Пусто" : `${counts.done} из ${counts.total}`} · </span>}
             <span>{when}</span>
             {item.tags.slice(0, 3).map((t) => (
-              <span key={t.id} className="rounded-full bg-brand-soft px-2 py-0.5 text-[11px] font-bold text-brand-text">
+              <span key={t.id} className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${tagColor(t.name).chip}`}>
                 #{t.name}
               </span>
             ))}

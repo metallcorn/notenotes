@@ -20,6 +20,7 @@ import type { Item } from "../api/types";
 import { dateLocale, t } from "../i18n";
 import { formatRelativeDay } from "../lib/format";
 import { NOTE_COLORS } from "../lib/noteColors";
+import { tagColor } from "../lib/tagColor";
 import { PHONE_QUERY, useMediaQuery } from "../lib/useMediaQuery";
 import { takePendingNoteAction } from "../lib/pendingNoteAction";
 import { uiStorage, type ContentWidth } from "../lib/storage";
@@ -1602,8 +1603,8 @@ export default function NoteEditor({
             <span
               key={tag.id}
               title={tag.auto ? "Автоматически предложенный тег" : undefined}
-              className={`flex items-center gap-1 rounded-full px-2 py-0.5 text-xs ${
-                tag.auto ? "border border-dashed border-brand/40 bg-brand/10 text-brand" : "bg-muted-hover text-secondary"
+              className={`flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-bold ${tagColor(tag.name).chip} ${
+                tag.auto ? "border border-dashed border-current/40" : ""
               }`}
             >
               {tag.auto && <Sparkles size={10} />}
@@ -1633,8 +1634,9 @@ export default function NoteEditor({
               addTag.mutate(tag.id);
               setShowTagPicker(false);
             }}
-            className="block min-h-9 w-full rounded-xl px-2.5 text-left text-sm font-semibold hover:bg-muted-hover"
+            className="flex min-h-9 w-full items-center gap-2 rounded-xl px-2.5 text-left text-sm font-semibold hover:bg-muted-hover"
           >
+            <span aria-hidden="true" className={`h-2.5 w-2.5 shrink-0 rounded-full ${tagColor(tag.name).dot}`} />
             #{tag.name}
           </button>
         ))}
@@ -1966,13 +1968,13 @@ export default function NoteEditor({
                   <span
                     key={tag.id}
                     title={tag.auto ? "Автоматически предложенный тег" : undefined}
-                    className={`flex h-7 items-center gap-1 rounded-full px-2.5 text-xs font-bold ${
-                      tag.auto ? "border border-dashed border-brand/40 bg-brand/10 text-brand-text" : "bg-brand-soft text-brand-text"
+                    className={`flex h-7 items-center gap-1 rounded-full px-2.5 text-xs font-bold ${tagColor(tag.name).chip} ${
+                      tag.auto ? "border border-dashed border-current/40" : ""
                     }`}
                   >
                     {tag.auto && <Sparkles size={10} />}
                     #{tag.name}
-                    <button onClick={() => removeTag.mutate(tag.id)} aria-label={`Убрать тег ${tag.name}`} className="ml-0.5 text-brand-text/70 hover:text-danger">
+                    <button onClick={() => removeTag.mutate(tag.id)} aria-label={`Убрать тег ${tag.name}`} className="ml-0.5 opacity-60 hover:opacity-100">
                       ×
                     </button>
                   </span>
@@ -2145,13 +2147,13 @@ export default function NoteEditor({
                 <span
                   key={tag.id}
                   title={tag.auto ? "Автоматически предложенный тег" : undefined}
-                  className={`flex h-8 items-center gap-1 rounded-full px-3 text-xs font-bold ${
-                    tag.auto ? "border border-dashed border-brand/40 bg-brand/10 text-brand-text" : "bg-brand-soft text-brand-text"
+                  className={`flex h-8 items-center gap-1 rounded-full px-3 text-xs font-bold ${tagColor(tag.name).chip} ${
+                    tag.auto ? "border border-dashed border-current/40" : ""
                   }`}
                 >
                   {tag.auto && <Sparkles size={10} />}
                   #{tag.name}
-                  <button onClick={() => removeTag.mutate(tag.id)} aria-label={`Убрать тег ${tag.name}`} className="ml-0.5 text-brand-text/70">
+                  <button onClick={() => removeTag.mutate(tag.id)} aria-label={`Убрать тег ${tag.name}`} className="ml-0.5 opacity-60">
                     ×
                   </button>
                 </span>
