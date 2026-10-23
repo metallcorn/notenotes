@@ -1,5 +1,7 @@
 import { useRef, useState } from "react";
 import { NodeViewWrapper } from "@tiptap/react";
+import type { CSSProperties } from "react";
+import { nodeBefore, useEditorTick } from "../lib/nodeSiblings";
 import type { NodeViewProps } from "@tiptap/react";
 import { ChevronDown, ChevronUp, Pencil, RotateCw } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -20,7 +22,7 @@ import Spinner from "./Spinner";
 // эндпоинт /reprocess не умеет чистое аудио, поэтому canReprocess=false для
 // голосовых записей и видео-аудио-расшифровок), и ручная правка текста —
 // та работает для ЛЮБого источника этой карточки одинаково.
-export default function ImageOcrResultCard({ node, updateAttributes }: NodeViewProps) {
+export default function ImageOcrResultCard({ node, updateAttributes, editor, getPos }: NodeViewProps) {
   const { text: inlineText, uploadId, canReprocess } = node.attrs as {
     text: string;
     uploadId: string | null;
@@ -36,6 +38,24 @@ export default function ImageOcrResultCard({ node, updateAttributes }: NodeViewP
   const cardRef = useRef<HTMLDivElement>(null);
   const reprocess = useReprocessUpload();
   const updateTranscript = useUpdateUploadTranscript();
+  // Картинка прямо перед карточкой — карточка становится её «подвалом»:
+  // та же ширина и выравнивание, скругление только снизу.
+  useEditorTick(editor);
+  const image = nodeBefore(editor, getPos);
+  const attached = image?.type.name === "image";
+  const imageWidth = attached ? ((image!.attrs.width as string | null) ?? null) : null;
+  const imageAlign = attached ? ((image!.attrs.align as string | null) ?? null) : null;
+  const wrapperStyle: CSSProperties = {};
+  if (attached) {
+    wrapperStyle.display = "block";
+    wrapperStyle.width = imageWidth ?? (imageAlign === "left" || imageAlign === "right" ? undefined : "100%");
+    if (imageAlign === "left") wrapperStyle.marginRight = "auto";
+    else if (imageAlign === "right") wrapperStyle.marginLeft = "auto";
+    else {
+      wrapperStyle.marginLeft = "auto";
+      wrapperStyle.marginRight = "auto";
+    }
+  }
 
   if (!text) return null;
 
@@ -72,8 +92,8 @@ export default function ImageOcrResultCard({ node, updateAttributes }: NodeViewP
     // не только в data-drag-handle — ГЛАВНОЕ, что сам HTML-атрибут
     // draggable=true на NodeViewWrapper браузер распознаёт независимо от
     // data-drag-handle. draggable теперь ТОЛЬКО на строке с кнопкой ниже.
-    <NodeViewWrapper as="div" className="my-1 inline-block max-w-full">
-      <div ref={cardRef} className="max-w-full rounded border bg-muted">
+    <NodeViewWrapper as="div" className={attached ? "mb-2 max-w-full" : "my-1 inline-block max-w-full"} style={wrapperStyle}>
+      <div ref={cardRef} className={`max-w-full bg-muted ${attached ? "rounded-b-2xl" : "rounded-2xl border"}`}>
         <div data-drag-handle draggable className="flex items-center">
           <button
             onClick={() => setExpanded((v) => !v)}

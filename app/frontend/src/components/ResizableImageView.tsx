@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { NodeViewWrapper } from "@tiptap/react";
 import type { NodeViewProps } from "@tiptap/react";
 import Spinner from "./Spinner";
+import { nodeAfter, useEditorTick } from "../lib/nodeSiblings";
 
 const UPLOAD_ID_RE = /\/api\/uploads\/([0-9a-f-]{36})/i;
 
@@ -16,7 +17,7 @@ const UPLOAD_ID_RE = /\/api\/uploads\/([0-9a-f-]{36})/i;
 // (см. extensions/HideImageProcessingPlaceholder.ts), не удалён: если
 // убрать текст из документа целиком, backend'у нечего будет найти для
 // замены на готовый результат.
-export default function ResizableImageView({ node, editor }: NodeViewProps) {
+export default function ResizableImageView({ node, editor, getPos }: NodeViewProps) {
   const { src, alt, width, align, rotation } = node.attrs as {
     src: string;
     alt?: string | null;
@@ -79,10 +80,18 @@ export default function ResizableImageView({ node, editor }: NodeViewProps) {
     return () => ro.disconnect();
   }, [isSideways]);
 
+  // Карточка распознанного текста сразу за картинкой — одно целое с ней:
+  // низ картинки без скругления, карточка подхватывает ширину (см.
+  // ImageOcrResultCard).
+  useEditorTick(editor);
+  const attachedBelow = nodeAfter(editor, getPos, node)?.type.name === "imageOcrResult";
+
   const wrapperStyle: CSSProperties = {};
   if (width) wrapperStyle.width = width;
   else if (align !== "left" && align !== "right") wrapperStyle.width = "100%";
-  if (align === "center") {
+  // Без явного выравнивания картинка по центру (замечание 23.10: «они
+  // слева, некрасиво»), как и при align=center.
+  if (align === "center" || !align) {
     wrapperStyle.display = "block";
     wrapperStyle.marginLeft = "auto";
     wrapperStyle.marginRight = "auto";
@@ -95,7 +104,8 @@ export default function ResizableImageView({ node, editor }: NodeViewProps) {
   }
 
   let imgStyle: CSSProperties = rotation ? { transform: `rotate(${rotation}deg)` } : {};
-  let imgClassName = "block w-full rounded";
+  const radius = attachedBelow ? "rounded-t-2xl" : "rounded-2xl";
+  let imgClassName = `block w-full ${radius}`;
   if (isSideways && containerWidth && natural) {
     const postW = containerWidth;
     const postH = (postW * natural.w) / natural.h;
@@ -110,17 +120,17 @@ export default function ResizableImageView({ node, editor }: NodeViewProps) {
       height: postW,
       transform: `translate(-50%, -50%) rotate(${rotation}deg)`,
     };
-    imgClassName = "rounded";
+    imgClassName = radius;
   } else if (isSideways) {
     // Ещё не знаем натуральные пиксели (картинка/измерение в процессе) —
     // временный фолбэк без обрезки, чтобы не мигать нулевым размером;
     // как только onLoad/ResizeObserver отработают, точный расчёт выше
     // возьмёт верх сам (не блокирует width/align — те уже применены выше).
-    imgClassName = "block max-h-[70vh] w-auto max-w-full rounded";
+    imgClassName = `block max-h-[70vh] w-auto max-w-full ${radius}`;
   }
 
   return (
-    <NodeViewWrapper as="div" data-drag-handle draggable className="my-1 max-w-full">
+    <NodeViewWrapper as="div" data-drag-handle draggable className={`max-w-full ${attachedBelow ? "mt-1 mb-0" : "my-1"}`}>
       <div ref={wrapperRef} className="relative inline-block max-w-full" style={wrapperStyle}>
         <img
           src={src}
