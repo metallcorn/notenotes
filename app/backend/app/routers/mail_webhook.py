@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import get_settings
 from app.db import get_db
 from app.mail_forward import first_other_recipient, is_own_address, parse_forwarded_sender
+from app.mail_clean import clean_forwarded_text, clean_subject
 from app.models import EmailInbox, Folder, Item, Upload, User
 from app.pdf_processing import AUTO_OCR_MAX_PDF_BYTES
 from app.pdf_processing import enqueue_ocr as enqueue_pdf_ocr
@@ -229,8 +230,13 @@ async def webhook(request: Request, db: AsyncSession = Depends(get_db)) -> dict:
         # Адрес когда-то удалён/невалиден — не ретраить, но и не создавать.
         return {"ok": True}
 
-    title = str(form.get("subject", "")).strip() or "Письмо без темы"
-    content = str(form.get("stripped-text", "") or form.get("body-plain", "")).strip()
+    raw_subject = str(form.get("subject", "")).strip()
+    title = clean_subject(raw_subject) if raw_subject else "Письмо без темы"
+    # Сырой текст нужен определению папки ниже (заголовки From/To там и
+    # ищутся); в заметку идёт очищенный — без «Forwarded message», блоков
+    # заголовков и трекинговых ссылок (mail_clean.py).
+    raw_content = str(form.get("stripped-text", "") or form.get("body-plain", "")).strip()
+    content = clean_forwarded_text(raw_content)
 
     # Регистр поля не документирован (как и у To/Cc ниже) — пробуем оба.
     message_id = str(form.get("Message-Id", "") or form.get("message-id", "")).strip()
@@ -250,7 +256,7 @@ async def webhook(request: Request, db: AsyncSession = Depends(get_db)) -> dict:
     folder_name = _sender_folder_name(
         str(form.get("from", "")),
         str(form.get("sender", "")),
-        content=content,
+        content=raw_content,
         to_header=to_header,
         cc_header=cc_header,
         own_addresses=inbox.own_addresses,
