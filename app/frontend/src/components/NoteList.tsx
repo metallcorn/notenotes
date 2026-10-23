@@ -230,6 +230,9 @@ function NoteRow({
           оттуда перенос идёт через шифрование, не через обычный move.
           Пальцем — свайп влево: закрепить / в архив (замечание 22.10). */}
       <SwipeRow
+        className={`transition-[box-shadow,transform] active:scale-[0.99] ${
+          selected ? "ring-2 ring-brand" : item.pinned ? "ring-2 ring-lime" : "shadow-card hover:shadow-float"
+        }`}
         actions={[
           { label: item.pinned ? "Открепить" : "Закрепить", tone: "lime", icon: <Pin size={16} />, onClick: () => updateItem.mutate({ id: item.id, pinned: !item.pinned }) },
           { label: "В архив", tone: "dark", icon: <Archive size={16} />, onClick: () => archiveItem.mutate(item.id) },
@@ -242,9 +245,7 @@ function NoteRow({
           startItemDrag(e, { id: item.id, space_id: item.space_id, folder_id: item.folder_id ?? null })
         }
         title={new Date(item.updated_at).toLocaleString(dateLocale)}
-        className={`flex w-full gap-3 rounded-2xl bg-surface p-3.5 text-left shadow-card transition-[box-shadow,transform] active:scale-[0.99] ${
-          selected ? "ring-2 ring-brand" : item.pinned ? "ring-2 ring-lime" : "hover:shadow-float"
-        }`}
+        className="flex w-full gap-3 rounded-2xl bg-surface p-3.5 text-left"
       >
         <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-muted text-[22px] leading-none">
           {isList ? (

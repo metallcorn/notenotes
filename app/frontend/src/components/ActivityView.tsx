@@ -162,12 +162,11 @@ function NotificationRow({
       ];
 
   return (
-    <SwipeRow actions={swipeActions} className="row-fade-in mx-3 mb-2">
-    <div
-      className={`flex items-start gap-2 rounded-2xl bg-surface px-3.5 py-3 shadow-card ${
-        !resolved && !notification.read_at ? "ring-1 ring-brand/40" : ""
-      }`}
+    <SwipeRow
+      actions={swipeActions}
+      className={`row-fade-in mx-3 mb-2 shadow-card ${!resolved && !notification.read_at ? "ring-1 ring-brand/40" : ""}`}
     >
+    <div className="flex items-start gap-2 rounded-2xl bg-surface px-3.5 py-3">
       <button
         title={resolved ? "Вернуть в активные" : "Отметить выполненным"}
         onClick={() => (resolved ? unresolve.mutate(notification.id) : resolve.mutate(notification.id))}
