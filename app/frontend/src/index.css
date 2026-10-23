@@ -333,22 +333,44 @@ body {
   border-top-color: #cbd5e1;
 }
 
+/* Таблицы внутри заметки (замечание 23.10: «таблицы внутри некрасиво») —
+   карточка со скруглением вместо серой сетки: строки разделены тонкими
+   линиями, столбцы — едва заметными, шапка на мягкой подложке. Цвета —
+   из токенов, тёмная тема получает их сама. */
 .tiptap table {
-  border-collapse: collapse;
-  margin: 0.75em 0;
+  border-collapse: separate;
+  border-spacing: 0;
+  margin: 1em 0;
   width: 100%;
   table-layout: fixed;
+  overflow: hidden;
+  border-radius: 16px;
+  background: rgb(var(--color-bg-surface));
+  box-shadow: 0 0 0 1px rgb(var(--color-border-default));
 }
 .tiptap th,
 .tiptap td {
-  border: 1px solid #cbd5e1;
-  padding: 0.4em 0.6em;
+  border: 0;
+  border-bottom: 1px solid rgb(var(--color-border-default));
+  border-left: 1px solid rgb(var(--color-border-default) / 0.55);
+  padding: 0.55em 0.8em;
   vertical-align: top;
   position: relative;
 }
+.tiptap th:first-child,
+.tiptap td:first-child {
+  border-left: 0;
+}
+.tiptap tr:last-child td,
+.tiptap tr:last-child th {
+  border-bottom: 0;
+}
 .tiptap th {
-  background: #f1f5f9;
-  font-weight: 600;
+  background: rgb(var(--color-bg-muted));
+  font-weight: 800;
+  font-size: 0.8em;
+  letter-spacing: 0.02em;
+  color: rgb(var(--color-text-secondary));
   text-align: left;
 }
 .tiptap td p,
@@ -356,7 +378,7 @@ body {
   margin: 0;
 }
 .tiptap .selectedCell {
-  background: #dbeafe;
+  background: rgb(var(--color-brand-soft));
 }
 
 .tiptap a {
@@ -489,16 +511,6 @@ body {
 .dark .tiptap .note-spacer:hover::after,
 .dark .tiptap .note-spacer.ProseMirror-selectednode::after {
   border-top-color: #565b61;
-}
-.dark .tiptap table th {
-  background: #26292c;
-}
-.dark .tiptap th,
-.dark .tiptap td {
-  border-color: #3a3e42;
-}
-.dark .tiptap .selectedCell {
-  background: rgba(61, 174, 233, 0.25);
 }
 .dark .tiptap a {
   color: #1d99f3;
