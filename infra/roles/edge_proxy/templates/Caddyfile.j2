@@ -7,6 +7,11 @@
 {% if notenotes_tls_mode == 'acme' %}
 {
 	email {{ notenotes_acme_email }}
+	# A certificate fetched on the first visit for sites that ask for it (tls { on_demand }), only for names the
+	# app says are real: GroveScribe team addresses (/api/caddy/ask answers yes only for existing teams).
+	on_demand_tls {
+		ask http://meetscribe-backend:8000/api/caddy/ask
+	}
 }
 {% else %}
 {
