@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app import collab, realtime
+from app import collab, realtime, routines
 from app.autotag import enqueue_autotag, suggest_tags_now
 from app.embeddings import INDEXABLE_TYPES, enqueue_embedding
 from app.db import get_db
@@ -180,7 +180,7 @@ async def list_items(
     if space_id is not None:
         await ensure_space_access(db, space_id, user.id)
         query = select(Item).where(
-            Item.space_id == space_id, Item.material_type.in_(("note", "list", "ticket", "table")), Item.deleted_at.is_(None)
+            Item.space_id == space_id, Item.material_type.in_(("note", "list", "ticket", "table", "routine")), Item.deleted_at.is_(None)
         )
     elif tag_id is not None:
         # Тег — сущность пользователя (Tag.user_id), не спейса: заметки под
@@ -195,7 +195,7 @@ async def list_items(
             .join(Space, Space.id == Item.space_id)
             .where(
                 SpaceMember.user_id == user.id,
-                Item.material_type.in_(("note", "list", "ticket", "table")),
+                Item.material_type.in_(("note", "list", "ticket", "table", "routine")),
                 Item.deleted_at.is_(None),
                 # Кросс-спейсовый список (по тегу, не по конкретному спейсу)
                 # — та же логика, что в search.py/list_all_items: сейф не
@@ -259,7 +259,7 @@ async def list_recent_items(
         .join(Space, Space.id == Item.space_id)
         .where(
             SpaceMember.user_id == user.id,
-            Item.material_type.in_(("note", "list", "ticket", "table")),
+            Item.material_type.in_(("note", "list", "ticket", "table", "routine")),
             Item.deleted_at.is_(None),
             # Тот же принцип, что у поиска и list_all_items — сейф не
             # должен светиться в кросс-спейсовой ленте.
@@ -374,7 +374,7 @@ async def search_item_titles(
         .join(Space, Space.id == Item.space_id)
         .where(
             SpaceMember.user_id == user.id,
-            Item.material_type.in_(("note", "list", "ticket", "table")),
+            Item.material_type.in_(("note", "list", "ticket", "table", "routine")),
             Item.deleted_at.is_(None),
             # Сейф не должен засветиться в автокомплите — тот же принцип,
             # что у кросс-спейсового списка по тегу выше: title/content там
@@ -500,7 +500,7 @@ async def move_item_space(
     участникам целевого спейса, нужно уведомить оба спейса по WS), которые
     было бы менее явно размазывать по общему PATCH."""
     item = await _get_accessible_item(db, user, item_id)
-    if item.material_type not in ("note", "list", "ticket", "table"):
+    if item.material_type not in ("note", "list", "ticket", "table", "routine"):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Перенос доступен только для заметок, списков, билетов и таблиц")
 
     if payload.space_id == item.space_id:
@@ -660,7 +660,7 @@ async def archive_item(
     использовании) — альтернатива удалению для заметок, которые не нужны
     прямо сейчас, но жалко терять насовсем."""
     item = await _get_accessible_item(db, user, item_id)
-    if item.material_type not in ("note", "list", "ticket", "table"):
+    if item.material_type not in ("note", "list", "ticket", "table", "routine"):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "В архив можно переносить только заметки, списки, билеты и таблицы")
 
     folder = (
@@ -693,6 +693,9 @@ async def delete_item(
     # обратимой. Настоящее удаление — только через /permanent из корзины.
     item = await _get_accessible_item(db, user, item_id)
     item.deleted_at = datetime.now(timezone.utc)
+    if item.material_type == routines.MATERIAL_TYPE:
+        # Открытый приём удалённой рутины не должен продолжать пинговать.
+        await routines.close_open(db, item, user_id=user.id)
     await db.commit()
     await realtime.notify_space(item.space_id, "items")
 

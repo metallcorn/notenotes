@@ -56,7 +56,7 @@ _EMBED_RETRY_DELAY_SECONDS = 2.0
 # разговоры с ассистентом это не контент базы, они длинные, их много (102
 # против 206 заметок), и семантические попадания в них зашумляли бы выдачу
 # ровно тем, что пользователь уже видел в чате.
-INDEXABLE_TYPES = ("note", "ticket", "list", "table")
+INDEXABLE_TYPES = ("note", "ticket", "list", "table", "routine")
 
 _queue: "asyncio.Queue[uuid.UUID]" = asyncio.Queue()
 

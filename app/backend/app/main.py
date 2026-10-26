@@ -17,6 +17,7 @@ from app.document_expiry import run_worker as run_expiry_worker
 from app.self_check import run_worker as run_self_check_worker
 from app.note_recording import resume_pending as resume_note_recording, run_worker as run_note_recording_worker
 from app.notification_dispatch import run_dispatch_worker as run_notification_dispatch_worker
+from app.routines import run_worker as run_routine_worker
 from app.pdf_processing import resume_pending as resume_pdf_ocr, run_worker as run_pdf_worker
 from app.telegram_bot import register_webhook as register_telegram_webhook, run_worker as run_telegram_worker
 from app.tickets import run_worker as run_ticket_worker
@@ -37,6 +38,7 @@ from app.routers import (
     delivery_widgets,
     lists,
     mail,
+    routines as routines_router,
     mail_webhook,
     mcp,
     memories,
@@ -136,6 +138,7 @@ async def lifespan(app: FastAPI):
     pdf_task = asyncio.create_task(_supervised("pdf_ocr", run_pdf_worker))
     ticket_task = asyncio.create_task(_supervised("tickets", run_ticket_worker))
     notification_dispatch_task = asyncio.create_task(_supervised("notification_dispatch", run_notification_dispatch_worker))
+    routine_task = asyncio.create_task(_supervised("routines", run_routine_worker))
     note_recording_task = asyncio.create_task(_supervised("note_recording", run_note_recording_worker))
     digest_task = asyncio.create_task(_supervised("daily_digest", run_digest_worker))
     expiry_task = asyncio.create_task(_supervised("document_expiry", run_expiry_worker))
@@ -165,6 +168,7 @@ async def lifespan(app: FastAPI):
         pdf_task.cancel()
         ticket_task.cancel()
         notification_dispatch_task.cancel()
+        routine_task.cancel()
         note_recording_task.cancel()
         digest_task.cancel()
         expiry_task.cancel()
@@ -207,6 +211,7 @@ app.include_router(mcp.router)
 app.include_router(oauth.router)
 app.include_router(voice.router)
 app.include_router(lists.router)
+app.include_router(routines_router.router)
 app.include_router(tables.router)
 app.include_router(memories.router)
 app.include_router(skills.router)

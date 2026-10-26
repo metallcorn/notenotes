@@ -142,7 +142,7 @@ async def _also_in_user_base(ctx: ToolContext, query: str) -> dict[str, Any] | N
 
     try:
         items = await search_items(
-            ctx.db, ctx.user_id, query, material_types=("note", "list", "ticket", "table"), limit=_OWN_HITS
+            ctx.db, ctx.user_id, query, material_types=("note", "list", "ticket", "table", "routine"), limit=_OWN_HITS
         )
     except Exception:
         # Подсказка не стоит того, чтобы ронять из-за неё веб-поиск.

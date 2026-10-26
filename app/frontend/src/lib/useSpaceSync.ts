@@ -28,6 +28,9 @@ export function useSpaceSync(spaceId: string | undefined) {
           // тем же самым устаревшим текстом затирал готовый результат
           // обратно на сервере.
           qc.invalidateQueries({ queryKey: ["item"] });
+          // Рутина: отметка приёма с другого телефона или из Telegram
+          // приходит тем же сигналом «items» (app/routines.py).
+          qc.invalidateQueries({ queryKey: ["routine"] });
           // Распознанный текст файла живёт в загрузке, а не в заметке
           // (lib/attachmentText.ts): готовое распознавание или ручная
           // правка на другом устройстве меняют только его.

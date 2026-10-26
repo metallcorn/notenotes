@@ -25,6 +25,7 @@ from app.models import Notification, User
 
 # Порядок — порядок кнопок в вебе.
 PRESETS: dict[str, str] = {
+    "30m": "через полчаса",
     "1h": "через час",
     "3h": "через 3 часа",
     "tomorrow": "завтра утром",
@@ -54,6 +55,8 @@ def snooze_until(preset: str, user: User, now: datetime | None = None) -> dateti
     if preset not in PRESETS:
         raise ValueError(preset)
     now = now or datetime.now(timezone.utc)
+    if preset == "30m":
+        return now + timedelta(minutes=30)
     if preset == "1h":
         return now + timedelta(hours=1)
     if preset == "3h":

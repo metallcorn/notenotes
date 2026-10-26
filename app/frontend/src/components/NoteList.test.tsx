@@ -14,6 +14,8 @@ const hooks = vi.hoisted(() => ({
   useDeleteItem: vi.fn(),
   useUpdateItem: vi.fn(() => ({ mutate: vi.fn(), isPending: false })),
   useArchiveItem: vi.fn(() => ({ mutate: vi.fn(), isPending: false })),
+  // Кнопка «Новая рутина» в шапке списка ищет текущий спейс (26.10).
+  useSpaces: vi.fn(() => ({ data: [] })),
 }));
 vi.mock("../api/hooks", () => hooks);
 

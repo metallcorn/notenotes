@@ -346,7 +346,7 @@ async def _scan_once() -> int:
                     # не документ: срок у него не истекает, и вести
                     # человека из напоминания в середину переписки
                     # вместо самой книжки — бессмысленно.
-                    Item.material_type.in_(("note", "list", "ticket", "table")),
+                    Item.material_type.in_(("note", "list", "ticket", "table", "routine")),
                 )
             )
         ).all()

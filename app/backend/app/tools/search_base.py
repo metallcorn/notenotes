@@ -48,7 +48,7 @@ async def handle(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
     query = str(args.get("query", "")).strip()
     if not query:
         return {"results": []}
-    types = ("note", "list", "ticket", "table")
+    types = ("note", "list", "ticket", "table", "routine")
     items = await search_items(ctx.db, ctx.user_id, query, material_types=types, limit=20)
 
     def _serialize(item: Any) -> dict[str, Any]:

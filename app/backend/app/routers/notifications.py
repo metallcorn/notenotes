@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, WebSocket, WebSoc
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app import realtime, reminder_actions
+from app import realtime, reminder_actions, routines
 from app.core.config import get_settings
 from app.db import get_db
 from app.deps import ensure_space_access, get_current_user, space_member_ids
@@ -135,11 +135,33 @@ async def resolve_notification(
     notification = await db.get(Notification, notification_id)
     if notification is None or notification.user_id != user.id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Уведомление не найдено")
+    if notification.type == routines.NOTIFICATION_TYPE:
+        # Пинг приёма: «сделано» — это «дал», и закрывается приём целиком,
+        # у всех участников (app/routines.py), а не одна эта строка.
+        await _routine_action(db, notification, user, lambda item, dose_id: routines.mark_done(db, item, dose_id, user=user))
+        await db.refresh(notification)
+        return notification
     if notification.resolved_at is None:
         notification.resolved_at = datetime.now(timezone.utc)
         await db.commit()
         await db.refresh(notification)
     return notification
+
+
+async def _routine_action(db: AsyncSession, notification: Notification, user: User, action) -> None:
+    payload = notification.payload or {}
+    try:
+        item = await routines.lock_item(db, uuid.UUID(str(payload.get("item_id"))))
+    except ValueError:
+        item = None
+    if item is None or item.deleted_at is not None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Рутина не найдена")
+    await ensure_space_access(db, item.space_id, user.id)
+    try:
+        await action(item, str(payload.get("dose_id")))
+    except routines.RoutineError as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from None
+    await db.commit()
 
 
 @router.post("/{notification_id}/snooze", response_model=NotificationOut)
@@ -160,7 +182,13 @@ async def snooze_notification(
             status.HTTP_400_BAD_REQUEST,
             f"Неизвестный вариант: {body.preset}. Допустимы: {', '.join(reminder_actions.PRESETS)}",
         )
-    reminder_actions.snooze(db, notification, reminder_actions.snooze_until(body.preset, user))
+    until = reminder_actions.snooze_until(body.preset, user)
+    if notification.type == routines.NOTIFICATION_TYPE:
+        # Отложить приём — общее действие: замолкает у всех участников.
+        await _routine_action(db, notification, user, lambda item, dose_id: routines.snooze(db, item, dose_id, user=user, until=until))
+        await db.refresh(notification)
+        return notification
+    reminder_actions.snooze(db, notification, until)
     await db.commit()
     await db.refresh(notification)
     return notification

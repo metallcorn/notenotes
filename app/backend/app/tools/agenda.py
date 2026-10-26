@@ -151,7 +151,9 @@ async def collect_agenda(
         entries.append({
             "at": n.trigger_at.isoformat(),
             "title": n.title,
-            "kind": "срок документа" if expires_on else "напоминание",
+            # Приём рутины (app/routines.py) — не «напоминание»: ассистент
+            # должен говорить «приём таблетки в 20:00», а не «напоминание».
+            "kind": "срок документа" if expires_on else ("приём" if payload.get("dose_id") else "напоминание"),
             # id нужен, чтобы можно было закрыть через resolve_reminder,
             # не разыскивая его отдельным вызовом.
             "reminder_id": str(n.id),

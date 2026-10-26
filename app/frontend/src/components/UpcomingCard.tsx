@@ -1,4 +1,4 @@
-import { AlarmClock, CalendarDays, ChevronRight } from "lucide-react";
+import { AlarmClock, CalendarDays, ChevronRight, Pill } from "lucide-react";
 import { useAllNotifications, useDetectedEvents } from "../api/hooks";
 import { dateLocale, t } from "../i18n";
 
@@ -7,7 +7,7 @@ import { dateLocale, t } from "../i18n";
 // что у «Активности»: ещё не наступившие напоминания и найденные в
 // заметках события, ближайшие четыре. Тап — открыть заметку, «Вся
 // активность» — на вкладку.
-type Entry = { key: string; at: Date; title: string; sub: string; kind: "reminder" | "event"; spaceId?: string; itemId?: string; entryId?: string; notificationId?: string };
+type Entry = { key: string; at: Date; title: string; sub: string; kind: "reminder" | "event" | "dose"; spaceId?: string; itemId?: string; entryId?: string; notificationId?: string };
 
 export default function UpcomingCard({
   onOpen,
@@ -29,8 +29,8 @@ export default function UpcomingCard({
         key: `n-${n.id}`,
         at: new Date(n.trigger_at!),
         title: n.title,
-        sub: "напоминание",
-        kind: "reminder",
+        sub: n.type === "routine_dose" ? `${t("routine.doseShort")}${n.body ? ` · ${n.body}` : ""}` : "напоминание",
+        kind: n.type === "routine_dose" ? "dose" : "reminder",
         spaceId: n.payload.space_id as string | undefined,
         itemId: n.payload.item_id as string | undefined,
         entryId: n.payload.entry_id as string | undefined,
@@ -89,10 +89,10 @@ export default function UpcomingCard({
             >
               <span
                 className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${
-                  e.kind === "reminder" ? "bg-brand-soft text-brand-text" : "bg-lime/60 text-on-lime"
+                  e.kind === "event" ? "bg-lime/60 text-on-lime" : "bg-brand-soft text-brand-text"
                 }`}
               >
-                {e.kind === "reminder" ? <AlarmClock size={16} strokeWidth={2.2} /> : <CalendarDays size={16} strokeWidth={2.2} />}
+                {e.kind === "reminder" ? <AlarmClock size={16} strokeWidth={2.2} /> : e.kind === "dose" ? <Pill size={16} strokeWidth={2.2} /> : <CalendarDays size={16} strokeWidth={2.2} />}
               </span>
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-[15px] font-extrabold text-primary">{e.title}</span>

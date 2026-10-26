@@ -42,6 +42,8 @@ import type {
   VaultUnlockInfo,
   SemanticHit,
   DocumentsOverview,
+  Routine,
+  RoutineInput,
 } from "./types";
 
 // --- auth --------------------------------------------------------------
@@ -1581,7 +1583,7 @@ export function useResolveNotification() {
 // «Отложить» — сработает заново позже. Пресеты считает бэкенд в поясе
 // человека (reminder_actions.py): «завтра утром» значит то же, что
 // кнопка в Telegram.
-export type SnoozePreset = "1h" | "3h" | "tomorrow" | "week";
+export type SnoozePreset = "30m" | "1h" | "3h" | "tomorrow" | "week";
 
 export function useSnoozeNotification() {
   const qc = useQueryClient();
@@ -1654,5 +1656,71 @@ export function useLinkPreview(url: string | undefined, skip = false) {
     enabled: !!url && !skip,
     staleTime: Infinity,
     retry: false,
+  });
+}
+
+// --- Рутины (app/routines.py) --------------------------------------------
+// Запрос рутины обновляется и по WS «items» спейса (useSpaceSync), и раз в
+// минуту сам: пинг может сработать, пока вкладка открыта на экране рутины.
+export function useRoutine(id: string | undefined) {
+  return useQuery<Routine>({
+    queryKey: ["routine", id],
+    queryFn: () => api.get<Routine>(`/routines/${id}`),
+    enabled: !!id,
+    refetchInterval: 60_000,
+  });
+}
+
+export function useCreateRoutine() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: RoutineInput & { space_id: string; folder_id?: string | null }) =>
+      api.post<Routine>("/routines", payload),
+    onSuccess: (routine) => {
+      qc.setQueryData(["routine", routine.id], routine);
+      qc.invalidateQueries({ queryKey: ["items", routine.space_id] });
+      qc.invalidateQueries({ queryKey: ["notifications"] });
+    },
+  });
+}
+
+export function useUpdateRoutine(id: string | undefined) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: Partial<RoutineInput> & { paused?: boolean }) => api.patch<Routine>(`/routines/${id}`, payload),
+    onSuccess: (routine) => {
+      qc.setQueryData(["routine", routine.id], routine);
+      qc.invalidateQueries({ queryKey: ["item", routine.id] });
+      qc.invalidateQueries({ queryKey: ["items", routine.space_id] });
+      qc.invalidateQueries({ queryKey: ["notifications"] });
+    },
+  });
+}
+
+export type RoutineDoseAction = "done" | "skip" | "defer" | "snooze" | "reopen";
+
+// Действие с приёмом: «дал» (с временем и за кого), «пропустить», «делает
+// не я», «отложить», «вернуть». Общее для экрана рутины, «Активности» и
+// карточки на Главной — там id рутины и приёма берутся из payload пинга.
+export function useRoutineDoseAction() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      routineId,
+      doseId,
+      action,
+      body,
+    }: {
+      routineId: string;
+      doseId: string;
+      action: RoutineDoseAction;
+      body?: { at?: string; by?: string; minutes?: number };
+    }) => api.post<Routine>(`/routines/${routineId}/doses/${doseId}/${action}`, body ?? {}),
+    onSuccess: (routine) => {
+      qc.setQueryData(["routine", routine.id], routine);
+      qc.invalidateQueries({ queryKey: ["item", routine.id] });
+      qc.invalidateQueries({ queryKey: ["items", routine.space_id] });
+      qc.invalidateQueries({ queryKey: ["notifications"] });
+    },
   });
 }

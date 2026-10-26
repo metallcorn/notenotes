@@ -1,4 +1,4 @@
-import { FileText, ListChecks, Table as TableIcon } from "lucide-react";
+import { FileText, ListChecks, Pill, Table as TableIcon } from "lucide-react";
 import { useItem, useRecentItems } from "../api/hooks";
 import type { Item } from "../api/types";
 import { listCounts, previewText } from "./NoteList";
@@ -26,6 +26,8 @@ function Tile({ item, onOpen }: { item: Item; onOpen: (spaceId: string, itemId: 
           <ListChecks size={16} className="shrink-0" />
         ) : isTable ? (
           <TableIcon size={16} className="shrink-0" />
+        ) : item.material_type === "routine" ? (
+          <Pill size={16} className="shrink-0 text-brand-text" />
         ) : item.icon ? (
           <span className="text-lg leading-none">{item.icon}</span>
         ) : (

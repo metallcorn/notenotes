@@ -8,7 +8,7 @@ from urllib.parse import quote
 from sqlalchemy import delete, select
 
 from app.telegram_bot import open_button
-from app import realtime, reminder_actions, telegram_bot
+from app import realtime, reminder_actions, routines, telegram_bot
 from app.core.config import get_settings
 from app.db import async_session
 from app.models import Notification, PushSubscription, TelegramLink
@@ -38,10 +38,20 @@ async def _dispatch_one(notification: Notification, db) -> None:
     link = (
         await db.execute(select(TelegramLink.chat_id).where(TelegramLink.user_id == notification.user_id))
     ).scalar_one_or_none()
+    push_title, push_body = notification.title, notification.body
+    if notification.type == routines.NOTIFICATION_TYPE:
+        # Пинг приёма рутины: свой текст (сколько ждёт, кто передал) и
+        # свои кнопки; в Telegram — одно живое сообщение на приём.
+        delivered = await routines.deliver(db, notification, link, datetime.now(timezone.utc))
+        if delivered is None:
+            # Приём закрыли, пока пинг ждал очереди, — слать нечего.
+            notification.dispatched_at = datetime.now(timezone.utc)
+            return
+        push_title, push_body = delivered
     # Утренняя сводка в Telegram уходит отдельно и с кнопками
     # (daily_digest.py); здесь она только для push и колокольчика — иначе
     # человек получал бы её дважды, второй раз без кнопок.
-    if link is not None and notification.type != "digest":
+    elif link is not None and notification.type != "digest":
         # Та же кнопка "Открыть", что веб рисует у себя в центре уведомлений
         # (клик — чисто клиентская навигация, AppShell.tsx::openReminder) —
         # тут ссылка холодная (?item=), без подсветки конкретного пункта
@@ -72,7 +82,7 @@ async def _dispatch_one(notification: Notification, db) -> None:
         await db.execute(select(PushSubscription).where(PushSubscription.user_id == notification.user_id))
     ).scalars().all()
     for subscription in subscriptions:
-        alive = await send_push(subscription, notification.title, notification.body)
+        alive = await send_push(subscription, push_title, push_body)
         if not alive:
             # 404/410 от push-сервиса — браузер отозвал подписку (снял
             # разрешение, деинсталлировал), больше слать сюда нельзя.
@@ -119,6 +129,10 @@ async def _dispatch_due() -> None:
                 _schedule_next(notification, db)
             except Exception:
                 logger.exception("Не удалось завести повтор для %s", notification.id)
+            # Пинг приёма: та же строка взводится заново через nag_minutes,
+            # пока приём не отметят или не истечёт его окно.
+            if notification.type == routines.NOTIFICATION_TYPE and notification.resolved_at is None:
+                routines.after_dispatch(notification, datetime.now(timezone.utc))
         if due:
             await db.commit()
 

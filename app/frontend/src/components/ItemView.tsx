@@ -4,6 +4,7 @@ import type { Item } from "../api/types";
 import NoteEditor from "./NoteEditor";
 import ListEditor from "./ListEditor";
 import TableEditor from "./TableEditor";
+import RoutineEditor from "./RoutineEditor";
 import NoteSkeleton from "./NoteSkeleton";
 
 export default function ItemView({
@@ -55,6 +56,9 @@ export default function ItemView({
   }
   if (stableItem.material_type === "table") {
     return <TableEditor itemId={itemId} onDeleted={onDeleted} onBack={onBack} />;
+  }
+  if (stableItem.material_type === "routine") {
+    return <RoutineEditor itemId={itemId} onDeleted={onDeleted} onBack={onBack} />;
   }
   return (
     <NoteEditor

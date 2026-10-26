@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { RefObject } from "react";
 import { createPortal } from "react-dom";
-import { Archive, ChevronDown, FileText, ListChecks, MessageSquareText, Pin, Plus, Table as TableIcon, Trash2 } from "lucide-react";
+import { Archive, ChevronDown, FileText, ListChecks, MessageSquareText, Pill, Pin, Plus, Table as TableIcon, Trash2 } from "lucide-react";
 import {
   useArchiveItem,
   useCreateDialog,
@@ -11,10 +11,12 @@ import {
   useDeleteItem,
   useItems,
   useScopedFolderDialogs,
+  useSpaces,
   useUpdateItem,
 } from "../api/hooks";
 import type { DialogSummary, Item } from "../api/types";
 import ConfirmDialog from "./ConfirmDialog";
+import RoutineSheet from "./RoutineSheet";
 import Spinner from "./Spinner";
 import SwipeRow from "./SwipeRow";
 import { tagColor } from "../lib/tagColor";
@@ -215,6 +217,7 @@ function NoteRow({
 }) {
   const isList = item.material_type === "list";
   const isTable = item.material_type === "table";
+  const isRoutine = item.material_type === "routine";
   const preview = isList ? "" : previewText(item.content);
   const counts = isList ? listCounts(item.content) : null;
   const when = formatRelativeDay(item.updated_at, dateLocale);
@@ -253,6 +256,8 @@ function NoteRow({
             <ListChecks size={20} className="text-primary" />
           ) : isTable ? (
             <TableIcon size={20} className="text-primary" />
+          ) : isRoutine ? (
+            <Pill size={20} className="text-brand-text" />
           ) : (
             item.icon || <FileText size={20} className="text-subtle" />
           )}
@@ -331,6 +336,12 @@ export default function NoteList({
   const createDialog = useCreateDialog();
   const scopedFolderDialogs = useScopedFolderDialogs();
   const [folderDialogPicker, setFolderDialogPicker] = useState<DialogSummary[] | null>(null);
+  // Рутина (26.10) создаётся шторкой с расписанием, а не одним кликом;
+  // на телефоне она в шторке «+», здесь — кнопка рядом со списком и
+  // таблицей, иначе на десктопе её было бы негде завести.
+  const [routineOpen, setRoutineOpen] = useState(false);
+  const { data: spaces } = useSpaces();
+  const currentSpace = spaces?.find((s) => s.id === spaceId);
   const assistantRowRef = useRef<HTMLButtonElement>(null);
   // "root" — служебное значение "Без папки" (см. FolderTree.tsx), не
   // настоящая папка: обсуждать с ассистентом "все заметки без папки" не
@@ -425,7 +436,27 @@ export default function NoteList({
             {createTable.isPending ? <Spinner size={16} /> : <TableIcon size={18} />}
           </button>
         )}
+        {!isVault && (
+          <button
+            onClick={() => setRoutineOpen(true)}
+            title={t("routine.new")}
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-surface text-primary shadow-card hover:bg-muted"
+          >
+            <Pill size={18} />
+          </button>
+        )}
       </div>
+      {routineOpen && currentSpace && (
+        <RoutineSheet
+          space={currentSpace}
+          folderId={effectiveFolderId === "root" ? null : effectiveFolderId}
+          onSaved={(routine) => {
+            setRoutineOpen(false);
+            onSelect(routine.id);
+          }}
+          onClose={() => setRoutineOpen(false)}
+        />
+      )}
       <ul className="min-h-0 flex-1 overflow-y-auto pt-1">
         {isRealFolder && (
           <li className="px-3 pb-2">

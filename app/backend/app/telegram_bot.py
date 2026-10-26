@@ -14,7 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import realtime
-from app import daily_digest, reminder_actions
+from app import daily_digest, reminder_actions, routines
 from app.asr.factory import asr_available, get_asr_client
 from app.core.config import get_settings
 from app.db import async_session
@@ -237,10 +237,13 @@ def _log_api_error(resp: httpx.Response, method: str, chat_id: int) -> None:
     )
 
 
-async def send_message(chat_id: int, text: str, reply_markup: dict | None = None) -> None:
+async def send_message(chat_id: int, text: str, reply_markup: dict | None = None) -> int | None:
+    """Отправить сообщение. Возвращает его message_id (или None, если не
+    ушло) — рутинам (app/routines.py) он нужен, чтобы на повторном пинге
+    удалить старое сообщение и держать в чате одно."""
     settings = get_settings()
     if not settings.telegram_bot_token:
-        return
+        return None
     payload: dict = {"chat_id": chat_id, "text": text}
     if reply_markup:
         payload["reply_markup"] = reply_markup
@@ -249,8 +252,14 @@ async def send_message(chat_id: int, text: str, reply_markup: dict | None = None
             resp = await client.post(_api_url("sendMessage"), json=payload)
         except Exception:
             logger.exception("Не удалось отправить сообщение в Telegram chat_id=%s", chat_id)
-            return
+            return None
         _log_api_error(resp, "sendMessage", chat_id)
+        if not resp.is_success:
+            return None
+        try:
+            return int(resp.json()["result"]["message_id"])
+        except (ValueError, KeyError, TypeError):
+            return None
 
 
 async def edit_message(chat_id: int, message_id: int, text: str, reply_markup: dict | None = None) -> None:
@@ -1093,6 +1102,32 @@ async def _handle_callback_query(callback: dict) -> None:
     await answer_callback_query(callback["id"])
 
     data = callback.get("data", "")
+
+    # Кнопки под пингом приёма рутины (app/routines.py): «дал», «делает не
+    # я», «+30 мин», «пропустить». Сообщение перерисовывается целиком —
+    # состояние приёма общее на всех участников, и у остальных их сообщения
+    # перерисует сама логика рутины.
+    if data.startswith(routines.CALLBACK_PREFIX):
+        message = callback.get("message") or {}
+        chat_id = (message.get("chat") or {}).get("id")
+        message_id = message.get("message_id")
+        if chat_id is None:
+            return
+        async with async_session() as db:
+            link = (await db.execute(select(TelegramLink).where(TelegramLink.chat_id == chat_id))).scalar_one_or_none()
+            if link is None:
+                return
+            result = await routines.handle_callback(db, link.user_id, data)
+            if result is not None:
+                await realtime.notify_user(link.user_id)
+        if result is None:
+            return
+        text, keyboard = result
+        if message_id is None:
+            await send_message(chat_id, text)
+        else:
+            await edit_message(chat_id, message_id, text, {"inline_keyboard": keyboard} if keyboard else None)
+        return
 
     # Кнопки под самим напоминанием («сделано» / «отложить»). Сообщение не
     # удаляем и не перерисовываем целиком: дописываем, что с ним сделали, и

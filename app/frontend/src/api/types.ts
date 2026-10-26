@@ -366,3 +366,63 @@ export interface DocumentsOverview {
   series: DocumentSeries[];
   documents: DocumentEntry[];
 }
+
+// Рутина — регулярные приёмы с подтверждением (app/routines.py): таблетки
+// коту и себе. Расписание и журнал приёмов живут в properties записи
+// material_type="routine"; API отдаёт их развёрнуто (routers/routines.py).
+export interface RoutineSchedule {
+  mode: "times" | "interval";
+  times: string[];
+  every_minutes: number | null;
+  min_gap_minutes: number;
+  first_at: string | null;
+}
+
+export interface RoutineDose {
+  id: string;
+  planned_at: string;
+  status: "pending" | "done" | "skipped" | "missed";
+  done_at: string | null;
+  done_by: string | null;
+  done_by_name: string | null;
+  deferred_by: { id: string; name: string }[];
+  snoozed_until: string | null;
+  nag_until: string | null;
+  late: boolean;
+}
+
+export interface Routine {
+  id: string;
+  space_id: string;
+  folder_id: string | null;
+  author_id: string;
+  title: string;
+  subject: string;
+  dose: string;
+  schedule: RoutineSchedule;
+  schedule_text: string;
+  starts_on: string | null;
+  ends_on: string | null;
+  notify: "space" | "self";
+  nag_minutes: number;
+  timezone: string;
+  paused: boolean;
+  status: "active" | "finished";
+  doses: RoutineDose[];
+  next_at: string | null;
+  stats: { done: number; late: number; missed: number; skipped: number };
+  created_at: string;
+  updated_at: string;
+}
+
+export interface RoutineInput {
+  title: string;
+  subject: string;
+  dose: string;
+  schedule: RoutineSchedule;
+  starts_on: string | null;
+  ends_on: string | null;
+  notify: "space" | "self";
+  nag_minutes: number;
+  timezone?: string;
+}

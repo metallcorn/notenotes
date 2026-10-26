@@ -2171,7 +2171,7 @@ async def _run_dialog_turn_locked(
                     .where(
                         Item.folder_id == folder.id,
                         Item.deleted_at.is_(None),
-                        Item.material_type.in_(("note", "list", "ticket", "table")),
+                        Item.material_type.in_(("note", "list", "ticket", "table", "routine")),
                     )
                     .order_by(Item.updated_at.desc())
                 )

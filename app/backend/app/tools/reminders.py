@@ -6,9 +6,10 @@ from typing import Any
 
 from sqlalchemy import select
 
+from app import routines
 from app.deps import space_member_ids
 from app.llm.base import ToolDefinition
-from app.models import Notification
+from app.models import Notification, User
 from app.tools.notes import _get_item_cross_space
 from app.recurrence import HUMAN, RULES
 from app.tools.registry import ToolContext, ToolError
@@ -249,6 +250,21 @@ async def resolve_reminder(ctx: ToolContext, args: dict[str, Any]) -> dict[str, 
     notification = await ctx.db.get(Notification, notification_id)
     if notification is None or notification.user_id != ctx.user_id:
         raise ToolError("Напоминание не найдено — вызови list_reminders, чтобы увидеть реальные напоминания и их id")
+
+    if notification.type == routines.NOTIFICATION_TYPE:
+        # Пинг приёма рутины: «сделано» = «дал», закрывает приём у всех
+        # участников и заводит следующий (app/routines.py).
+        payload = notification.payload or {}
+        item = await routines.lock_item(ctx.db, uuid.UUID(str(payload.get("item_id"))))
+        user = await ctx.db.get(User, ctx.user_id)
+        if item is None or item.deleted_at is not None or user is None:
+            raise ToolError("Рутина этого приёма не найдена — пинг устарел, рутину удалили; вызови list_reminders, чтобы увидеть актуальные")
+        try:
+            await routines.mark_done(ctx.db, item, str(payload.get("dose_id")), user=user)
+        except routines.RoutineError as exc:
+            raise ToolError(str(exc)) from None
+        await ctx.db.commit()
+        return {"id": str(notification.id), "title": notification.title, "resolved": True, "routine": True}
 
     if notification.resolved_at is None:
         notification.resolved_at = datetime.now(timezone.utc)

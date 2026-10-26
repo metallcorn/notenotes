@@ -13,6 +13,7 @@ import {
   Sparkles,
   StickyNote,
   X,
+  Pill,
 } from "lucide-react";
 import {
   useAllNotifications,
@@ -28,6 +29,8 @@ import {
   useUnresolveNotification,
 } from "../api/hooks";
 import type { SnoozePreset } from "../api/hooks";
+import { useMe, useRoutineDoseAction } from "../api/hooks";
+import { humanMinutes } from "../lib/routineFormat";
 import type { DetectedEvent, Notification } from "../api/types";
 import { repeatLabel } from "../lib/recurrence";
 import { ListSkeleton } from "./Skeleton";
@@ -84,6 +87,7 @@ function formatWhen(value: string): string {
 // их указал при создании (create_reminder, tools/reminders.py); работает
 // и для уже выполненных — вернуться посмотреть, к чему было напоминание.
 const SNOOZE_OPTIONS: { preset: SnoozePreset; label: string }[] = [
+  { preset: "30m", label: "Через полчаса" },
   { preset: "1h", label: "Через час" },
   { preset: "3h", label: "Через 3 часа" },
   { preset: "tomorrow", label: "Завтра утром" },
@@ -129,6 +133,100 @@ function SnoozeButton({ notificationId }: { notificationId: string }) {
   );
 }
 
+// Пинг приёма рутины (app/routines.py, макет «Активность с рутиной»,
+// 26.10): та же карточка, что у напоминания, но с таймером ожидания и
+// кнопками «Дал», «+30 мин», «Делает не я». Отметка закрывает приём у
+// всех участников, не только эту строку.
+function RoutineDoseRow({
+  notification,
+  onOpen,
+}: {
+  notification: Notification;
+  onOpen: (spaceId: string, itemId: string, entryId?: string, notificationId?: string, findText?: string) => void;
+}) {
+  const act = useRoutineDoseAction();
+  const markRead = useMarkNotificationRead();
+  const del = useDeleteNotification();
+  const { data: me } = useMe();
+  const spaceId = notification.payload.space_id as string | undefined;
+  const itemId = notification.payload.item_id as string | undefined;
+  const doseId = notification.payload.dose_id as string | undefined;
+  const resolved = !!notification.resolved_at;
+  const deferred = notification.payload.deferred === true;
+  const plannedAt = notification.trigger_at ? new Date(notification.trigger_at) : null;
+  const waiting = plannedAt ? Math.max(0, Math.round((Date.now() - plannedAt.getTime()) / 60_000)) : 0;
+  const nagCount = Number(notification.payload.nag_count ?? 0);
+  const run = (action: "done" | "defer" | "snooze", minutes?: number) => {
+    if (!itemId || !doseId) return;
+    act.mutate({ routineId: itemId, doseId, action, body: minutes ? { minutes } : undefined });
+  };
+  const status = resolved
+    ? deferred
+      ? t("routine.youDeferred")
+      : `выполнено ${formatWhen(notification.resolved_at!)}`
+    : waiting > 0
+      ? `${t("routine.waiting", { n: humanMinutes(waiting, dateLocale) })}${nagCount > 1 ? ` · ${nagCount}` : ""}`
+      : plannedAt
+        ? `сработает ${formatWhen(notification.trigger_at!)}`
+        : formatWhen(notification.created_at);
+  const busy = act.isPending;
+  const swipeActions = resolved
+    ? []
+    : [
+        { label: t("routine.plus30"), tone: "lime" as const, icon: <AlarmClock size={16} />, onClick: () => run("snooze", 30) },
+        { label: t("routine.given"), tone: "dark" as const, icon: <Check size={16} />, onClick: () => run("done") },
+      ];
+
+  return (
+    <SwipeRow
+      actions={swipeActions}
+      className={`row-fade-in mx-3 mb-2 shadow-card ${!resolved && waiting > 0 ? "ring-2 ring-warning/70" : !resolved && !notification.read_at ? "ring-1 ring-brand/40" : ""}`}
+    >
+      <div className="rounded-2xl bg-surface px-3.5 py-3">
+        <div className="flex items-start gap-2.5">
+          <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand-soft text-brand-text">
+            <Pill size={18} strokeWidth={2.2} />
+          </span>
+          <button
+            onClick={() => {
+              if (!notification.read_at) markRead.mutate(notification.id);
+              if (spaceId && itemId) onOpen(spaceId, itemId, undefined, notification.id);
+            }}
+            disabled={!spaceId || !itemId}
+            className="min-w-0 flex-1 text-left"
+          >
+            <div className={`truncate text-[15px] font-bold ${resolved ? "text-subtle line-through" : "text-primary"}`}>
+              {notification.title}
+              {plannedAt && <span className="font-extrabold"> · {plannedAt.toLocaleTimeString(dateLocale, { hour: "2-digit", minute: "2-digit" })}</span>}
+            </div>
+            {notification.body && <div className="mt-0.5 truncate text-xs text-subtle">{notification.body}</div>}
+            <div className={`mt-0.5 text-xs font-semibold ${!resolved && waiting > 0 ? "text-warning" : "text-subtle"}`}>{status}</div>
+          </button>
+          {!resolved && (
+            <button onClick={() => run("done")} disabled={busy} className="h-10 shrink-0 rounded-full bg-nav px-4 text-sm font-extrabold text-lime disabled:opacity-60">
+              {t("routine.given")}
+            </button>
+          )}
+          {resolved && (
+            <button title="Удалить" onClick={() => del.mutate(notification.id)} disabled={del.isPending} className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-subtle hover:bg-danger/10 hover:text-danger disabled:opacity-50">
+              <X size={14} />
+            </button>
+          )}
+        </div>
+        {!resolved && (
+          <div className="mt-2.5 flex flex-wrap gap-2 pl-[46px]">
+            <button onClick={() => run("snooze", 30)} disabled={busy} className="h-8 rounded-full bg-muted px-3 text-xs font-bold text-primary disabled:opacity-60">{t("routine.plus30")}</button>
+            <button onClick={() => run("snooze", 60)} disabled={busy} className="h-8 rounded-full bg-muted px-3 text-xs font-bold text-primary disabled:opacity-60">{t("routine.plus60")}</button>
+            {me && !deferred && (
+              <button onClick={() => run("defer")} disabled={busy} className="h-8 rounded-full bg-muted px-3 text-xs font-bold text-primary disabled:opacity-60">{t("routine.notMe")}</button>
+            )}
+          </div>
+        )}
+      </div>
+    </SwipeRow>
+  );
+}
+
 function NotificationRow({
   notification,
   onOpen,
@@ -141,6 +239,7 @@ function NotificationRow({
   const markRead = useMarkNotificationRead();
   const del = useDeleteNotification();
   const snooze = useSnoozeNotification();
+  if (notification.type === "routine_dose") return <RoutineDoseRow notification={notification} onOpen={onOpen} />;
   const spaceId = notification.payload.space_id as string | undefined;
   const itemId = notification.payload.item_id as string | undefined;
   const entryId = notification.payload.entry_id as string | undefined;

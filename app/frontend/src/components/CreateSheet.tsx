@@ -10,6 +10,7 @@ import {
   Link as LinkIcon,
   ListChecks,
   Mic,
+  Pill,
   Sparkles,
   Table as TableIcon,
   Users,
@@ -20,6 +21,7 @@ import { NOTE_TEMPLATES, type NoteTemplate } from "../lib/noteTemplates";
 import { setPendingNoteAction, type PendingNoteAction } from "../lib/pendingNoteAction";
 import PromptDialog from "./PromptDialog";
 import ReminderModal from "./ReminderModal";
+import RoutineSheet from "./RoutineSheet";
 import Spinner from "./Spinner";
 import { t } from "../i18n";
 
@@ -52,6 +54,7 @@ export default function CreateSheet({
   const [folderPickerOpen, setFolderPickerOpen] = useState(false);
   const [linkPrompt, setLinkPrompt] = useState(false);
   const [reminderOpen, setReminderOpen] = useState(false);
+  const [routineOpen, setRoutineOpen] = useState(false);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -206,6 +209,7 @@ export default function CreateSheet({
             {tile("photo", t("create.photo"), "Скан или фото", Camera, () => noteWith("photo"))}
             {tile("file", t("create.file"), "Заметка с файлом", FileUp, () => noteWith("file"))}
             {tile("reminder", t("create.reminder"), "Напоминание", AlarmClock, () => setReminderOpen(true))}
+            {tile("routine", t("create.routine"), t("routine.new"), Pill, () => setRoutineOpen(true), { hidden: vault })}
             {tile("link", t("create.link"), "Заметка из ссылки", LinkIcon, () => setLinkPrompt(true))}
             {tile("ask", t("create.askShort"), t("create.ask"), Sparkles, ask, { tone: "brand" })}
           </div>
@@ -240,6 +244,18 @@ export default function CreateSheet({
             if (url.trim()) void link(url);
           }}
           onCancel={() => setLinkPrompt(false)}
+        />
+      )}
+      {routineOpen && space && (
+        <RoutineSheet
+          space={space}
+          folderId={targetFolderId}
+          onSaved={(routine) => {
+            setRoutineOpen(false);
+            onClose();
+            onCreated(routine.id);
+          }}
+          onClose={() => setRoutineOpen(false)}
         />
       )}
       {reminderOpen && (
