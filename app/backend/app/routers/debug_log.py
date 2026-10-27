@@ -80,7 +80,7 @@ async def create_debug_log(
     if _rate_limited(ip):
         raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Слишком много запросов")
     if len(json.dumps(payload.data, ensure_ascii=False)) > MAX_DATA_BYTES:
-        raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, f"data больше {MAX_DATA_BYTES} байт")
+        raise HTTPException(status.HTTP_413_CONTENT_TOO_LARGE, f"data больше {MAX_DATA_BYTES} байт")
 
     user = await _optional_user(request, db)
     log = DebugLog(user_id=user.id if user else None, event=payload.event[:MAX_EVENT_LEN], data=payload.data)
