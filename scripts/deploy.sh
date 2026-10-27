@@ -55,13 +55,15 @@ echo "==> Разворачиваем"
 docker buildx prune -af >/dev/null 2>&1 || true
 docker image prune -f >/dev/null 2>&1 || true
 
-# Транзиентный 502 сразу после up -d — норма (contain er swap), не сразу
+# Транзиентный 502 сразу после up -d — норма (container swap), не сразу
 # считаем провалом (см. reference_deploy_workflow в памяти сессий).
-sleep 3
-code=$(curl -s -o /dev/null -w "%{http_code}" https://notenotes.metallcorn.online/api/health || echo "000")
-if [ "$code" != "200" ]; then
+# 27.10: бэкенд поднимался 16 с, а ждали 3+3 — деплой отчитался «502»
+# при полностью живом приложении. Опрашиваем до минуты.
+code="000"
+for _ in $(seq 1 20); do
   sleep 3
   code=$(curl -s -o /dev/null -w "%{http_code}" https://notenotes.metallcorn.online/api/health || echo "000")
-fi
+  [ "$code" = "200" ] && break
+done
 echo "==> health: $code"
 [ "$code" = "200" ]
