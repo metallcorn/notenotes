@@ -133,7 +133,7 @@ def _schedule_from_args(args: dict[str, Any], *, current: dict | None = None) ->
     try:
         return ScheduleIn(**base)
     except ValidationError as exc:
-        raise ToolError("Расписание не принято: " + _validation_text(exc)) from None
+        raise ToolError(f"Расписание не принято — {_validation_text(exc)}; поправь и вызови снова") from None
 
 
 def _validation_text(exc: ValidationError) -> str:
@@ -213,7 +213,7 @@ async def create_routine(ctx: ToolContext, args: dict[str, Any]) -> dict[str, An
         raise ToolError("В сейфе рутины не поддерживаются — выбери обычный спейс")
     user = await ctx.db.get(User, ctx.user_id)
     if user is None:
-        raise ToolError("Пользователь не найден")
+        raise ToolError("Пользователь не найден — сессия устарела, пусть человек войдёт заново")
     try:
         payload = RoutineCreate(
             space_id=space_id,
@@ -229,7 +229,7 @@ async def create_routine(ctx: ToolContext, args: dict[str, Any]) -> dict[str, An
             timezone=ctx.client_timezone,
         )
     except ValidationError as exc:
-        raise ToolError("Параметры не приняты: " + _validation_text(exc)) from None
+        raise ToolError(f"Параметры не приняты — {_validation_text(exc)}; поправь и вызови снова") from None
 
     props = {
         "subject": payload.subject,
@@ -444,7 +444,7 @@ async def update_routine(ctx: ToolContext, args: dict[str, Any]) -> dict[str, An
     try:
         payload = RoutineUpdate(**fields)
     except ValidationError as exc:
-        raise ToolError("Параметры не приняты: " + _validation_text(exc)) from None
+        raise ToolError(f"Параметры не приняты — {_validation_text(exc)}; поправь и вызови снова") from None
     try:
         await routines.apply_update(ctx.db, item, payload, user=user)
     except routines.RoutineError as exc:

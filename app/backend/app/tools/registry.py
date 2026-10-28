@@ -62,6 +62,8 @@ SKILL_CATALOG: dict[str, dict[str, Any]] = {
     "get_list": {"label": "Чтение списков", "description": "Читает реальные пункты списка", "toggleable": False},
     "add_list_entry": {"label": "Добавление пунктов списка", "description": "Добавляет новый пункт в список", "toggleable": False},
     "toggle_list_entry": {"label": "Отметка пунктов списка", "description": "Отмечает пункт выполненным/невыполненным", "toggleable": False},
+    "update_list_entry": {"label": "Правка пунктов списка", "description": "Меняет текст пункта", "toggleable": False},
+    "delete_list_entry": {"label": "Удаление пунктов списка", "description": "Убирает пункт из списка", "toggleable": False},
     "tables": {
         "label": "Таблицы",
         "description": "Создаёт и редактирует таблицы со столбцами и строками (create_table/get_table/add_table_row и т.п.)",
@@ -85,6 +87,16 @@ SKILL_CATALOG: dict[str, dict[str, Any]] = {
     "self_check": {"label": "Самопроверка", "description": "Отвечает на «что у нас не так» — где ассистент за неделю спотыкался", "toggleable": True},
     "resolve_reminder": {"label": "Отметка напоминаний", "description": "Отмечает напоминание выполненным", "toggleable": False},
     "snooze_reminder": {"label": "Перенос напоминаний", "description": "Откладывает напоминание — оно сработает заново позже", "toggleable": False},
+    "structure": {
+        "label": "Папки и теги: правка",
+        "description": "Переименовывает, переносит и удаляет пустые папки; снимает, переименовывает, сливает и удаляет теги",
+        "toggleable": True,
+    },
+    "history": {
+        "label": "История, корзина, архив",
+        "description": "Смотрит версии заметки и откатывает, возвращает из корзины, убирает в архив",
+        "toggleable": True,
+    },
     "routines": {
         "label": "Рутины",
         "description": "Заводит приёмы лекарств с подтверждением, отмечает «дал», ставит на паузу (create_routine/list_routines/mark_dose/update_routine)",
@@ -127,6 +139,8 @@ TOOL_GROUPS: dict[str, tuple[str, ...]] = {
     "track_delivery": ("track_delivery", "insert_delivery_block"),
     # Один тумблер «Рутины» на все четыре инструмента — как у таблиц.
     "routines": ("create_routine", "list_routines", "mark_dose", "update_routine"),
+    "structure": ("update_folder", "delete_folder", "remove_tag", "rename_tag", "merge_tag", "delete_tag"),
+    "history": ("list_versions", "revert_version", "list_trash", "restore_note", "archive_note"),
 }
 
 
@@ -140,7 +154,7 @@ def _expand_disabled(disabled: set[str]) -> set[str]:
 
 def _build_registry() -> dict[str, tuple[ToolDefinition, ToolHandler]]:
     from app import self_check
-    from app.tools import agenda, calendar_event, files as files_tool, dialog_history, lists, maps, memory, notes, python_sandbox, read_website, reminders, routines as routines_tool, search_base, tables, track_delivery, ui, url_check, web_search
+    from app.tools import agenda, calendar_event, files as files_tool, dialog_history, history, lists, maps, memory, notes, python_sandbox, read_website, reminders, routines as routines_tool, search_base, structure, tables, track_delivery, ui, url_check, web_search
 
     registry: dict[str, tuple[ToolDefinition, ToolHandler]] = {
         search_base.DEFINITION.name: (search_base.DEFINITION, search_base.handle),
@@ -189,6 +203,19 @@ def _build_registry() -> dict[str, tuple[ToolDefinition, ToolHandler]]:
         lists.GET_LIST.name: (lists.GET_LIST, lists.get_list),
         lists.ADD_LIST_ENTRY.name: (lists.ADD_LIST_ENTRY, lists.add_list_entry),
         lists.TOGGLE_LIST_ENTRY.name: (lists.TOGGLE_LIST_ENTRY, lists.toggle_list_entry),
+        lists.UPDATE_LIST_ENTRY.name: (lists.UPDATE_LIST_ENTRY, lists.update_list_entry),
+        lists.DELETE_LIST_ENTRY.name: (lists.DELETE_LIST_ENTRY, lists.delete_list_entry),
+        structure.UPDATE_FOLDER.name: (structure.UPDATE_FOLDER, structure.update_folder),
+        structure.DELETE_FOLDER.name: (structure.DELETE_FOLDER, structure.delete_folder),
+        structure.REMOVE_TAG.name: (structure.REMOVE_TAG, structure.remove_tag),
+        structure.RENAME_TAG.name: (structure.RENAME_TAG, structure.rename_tag),
+        structure.MERGE_TAG.name: (structure.MERGE_TAG, structure.merge_tag),
+        structure.DELETE_TAG.name: (structure.DELETE_TAG, structure.delete_tag),
+        history.LIST_VERSIONS.name: (history.LIST_VERSIONS, history.list_versions),
+        history.REVERT_VERSION.name: (history.REVERT_VERSION, history.revert_version),
+        history.LIST_TRASH.name: (history.LIST_TRASH, history.list_trash),
+        history.RESTORE_NOTE.name: (history.RESTORE_NOTE, history.restore_note),
+        history.ARCHIVE_NOTE.name: (history.ARCHIVE_NOTE, history.archive_note),
         tables.CREATE_TABLE.name: (tables.CREATE_TABLE, tables.create_table),
         tables.GET_TABLE.name: (tables.GET_TABLE, tables.get_table),
         tables.ADD_TABLE_ROW.name: (tables.ADD_TABLE_ROW, tables.add_table_row),

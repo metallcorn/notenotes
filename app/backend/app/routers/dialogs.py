@@ -79,7 +79,7 @@ _CORE_TOOL_NAMES = {
     "search_base", "get_note", "create_note", "update_note", "append_to_note", "delete_note",
     "suggest_replies", "list_folders", "list_all_items", "remember_fact",
     "list_memories", "add_tag", "list_tags", "create_list", "get_list",
-    "add_list_entry", "toggle_list_entry", "create_table", "get_table",
+    "add_list_entry", "toggle_list_entry", "update_list_entry", "delete_list_entry", "create_table", "get_table",
     "add_table_row", "update_table_row", "delete_table_row", "add_table_column",
     # Реальный найденный случай: "Какие у меня дела на сегодня?" не задело
     # НИ ОДНО ключевое слово категории calendar_reminders ("напомни",
@@ -136,8 +136,16 @@ _SCOPED_TOOL_NAMES = {
 }
 _TOOL_CATEGORIES: dict[str, set[str]] = {
     "web": {"web_search", "read_website", "create_maps_link", "test_url_request", "insert_url_check_block"},
-    "structure": {"create_folder", "list_items_by_tag", "list_items_in_folder"},
+    "structure": {
+        "create_folder", "list_items_by_tag", "list_items_in_folder",
+        "update_folder", "delete_folder", "remove_tag", "rename_tag", "merge_tag", "delete_tag",
+    },
     "forget": {"forget_fact"},
+    # История/корзина/архив и рутины — 28.10. Без категории новый тул
+    # попадал бы в КАЖДЫЙ ход (см. _relevant_tool_names), а их девять;
+    # ключевые слова, как везде, с запасом в сторону «включить».
+    "history": {"list_versions", "revert_version", "list_trash", "restore_note", "archive_note"},
+    "routines": {"create_routine", "list_routines", "mark_dose", "update_routine"},
 }
 _CATEGORY_KEYWORDS: dict[str, tuple[str, ...]] = {
     "web": (
@@ -146,8 +154,10 @@ _CATEGORY_KEYWORDS: dict[str, tuple[str, ...]] = {
         "закрыва", "открыт", "работает ли", "акци", "скидк", "магазин",
         "allegro", "amazon", "zalando", "curl", "статус", "отслежива", "проверя",
     ),
-    "structure": ("папк", "тег", "по тегу"),
+    "structure": ("папк", "тег", "по тегу", "переимен", "слей", "объедини"),
     "forget": ("забудь", "сотри факт", "удали из памяти", "не запоминай"),
+    "history": ("верси", "верни", "вернуть", "откат", "восстанов", "корзин", "удалил", "удалён", "удалена", "архив", "как было", "кто менял", "кто поменял"),
+    "routines": ("рутин", "таблет", "лекарств", "капл", "приём", "прием", "укол", "витамин", "курс", "дал ", "дала ", "дали", "выпил", "пропуст", "пауз"),
 }
 
 

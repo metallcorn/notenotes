@@ -73,7 +73,10 @@ def test_hints_name_real_tools():
     referenced: set[str] = set()
     known_params = {"folder_id", "list_id", "table_id", "item_id", "dialog_id",
                     "memory_id", "notification_id", "trigger_at", "snapshot_id",
-                    "parent_id", "tag_name", "material_type"}
+                    "parent_id", "tag_name", "material_type",
+                    # 28.10: рутины, пункты списков, версии.
+                    "routine_id", "version_id", "entry_id", "text_match", "new_name",
+                    "every_minutes", "ends_on", "starts_on", "first_at", "min_gap_minutes"}
     for _, msg in _tool_error_messages():
         hint = msg.split("—", 1)[1] if "—" in msg else ""
         for word in candidate_re.findall(hint):
