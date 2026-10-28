@@ -171,6 +171,7 @@ async def _get_item_cross_space(ctx: ToolContext, item_id_raw: Any) -> Item:
 _MATERIAL_TYPE_HINTS = {
     "list": "это список — используй get_list/add_list_entry/toggle_list_entry",
     "table": "это таблица — используй get_table/add_table_row/update_table_row",
+    "routine": "это рутина (приёмы с подтверждением) — используй list_routines/mark_dose/update_routine",
 }
 
 

@@ -18,7 +18,7 @@ from app.models import Folder, Item, User
 from app.routers.items import create_item_row
 from app.routine_schedule import STATUS_DONE, STATUS_MISSED, STATUS_PENDING, STATUS_SKIPPED, describe
 from app.schemas.routine import DoseDoneIn, DoseOut, DoseSnoozeIn, RoutineCreate, RoutineOut, RoutineStats, RoutineUpdate
-from app.user_timezone import DEFAULT_TZ_NAME, resolve_timezone
+from app.user_timezone import DEFAULT_TZ_NAME
 
 router = APIRouter(prefix="/api/routines", tags=["routines"])
 
@@ -71,13 +71,6 @@ async def _get_routine(db: AsyncSession, user: User, routine_id: uuid.UUID, *, l
     return item
 
 
-def _tz_name(value: str | None, user: User) -> str:
-    candidate = value or user.timezone or DEFAULT_TZ_NAME
-    # resolve_timezone молча откатывается на дефолт при кривом имени —
-    # сохраняем то, что реально будет использоваться.
-    return str(resolve_timezone(candidate).key)
-
-
 @router.post("", response_model=RoutineOut, status_code=status.HTTP_201_CREATED)
 async def create_routine(
     payload: RoutineCreate, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
@@ -100,7 +93,7 @@ async def create_routine(
         "ends_on": payload.ends_on.isoformat() if payload.ends_on else None,
         "notify": payload.notify,
         "nag_minutes": payload.nag_minutes,
-        "timezone": _tz_name(payload.timezone, user),
+        "timezone": routines.tz_name_for(payload.timezone, user),
         "paused": False,
         "status": "active",
         "doses": [],
@@ -137,38 +130,10 @@ async def update_routine(
     db: AsyncSession = Depends(get_db),
 ) -> RoutineOut:
     item = await _get_routine(db, user, routine_id, lock=True)
-    fields = payload.model_fields_set
-    props = routines.props_of(item)
-    reschedule = False
-    if "title" in fields and payload.title is not None:
-        item.title = payload.title.strip() or item.title
-    for key in ("subject", "dose", "notify", "nag_minutes", "timezone"):
-        if key in fields and getattr(payload, key) is not None:
-            value = getattr(payload, key)
-            props[key] = _tz_name(value, user) if key == "timezone" else (value.strip() if isinstance(value, str) else value)
-            reschedule = reschedule or key in ("timezone", "notify")
-    if "schedule" in fields and payload.schedule is not None:
-        props["schedule"] = payload.schedule.model_dump()
-        reschedule = True
-    for key in ("starts_on", "ends_on"):
-        if key in fields:
-            value = getattr(payload, key)
-            props[key] = value.isoformat() if value else None
-            reschedule = True
-    if props.get("starts_on") and props.get("ends_on") and props["ends_on"] < props["starts_on"]:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Конец курса раньше начала")
-    if "paused" in fields and payload.paused is not None:
-        props["paused"] = payload.paused
-        reschedule = True
-    routines.set_props(item, props)
-    if reschedule:
-        # Открытый приём считался по старому расписанию — закрываем без
-        # следа и заводим заново (если рутина не на паузе).
-        await routines.close_open(db, item, user_id=user.id)
-        props = routines.props_of(item)
-        props["status"] = "active"
-        routines.set_props(item, props)
-        await routines.ensure_open_dose(db, item)
+    try:
+        await routines.apply_update(db, item, payload, user=user)
+    except routines.RoutineError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from None
     await db.commit()
     await db.refresh(item)
     await realtime.notify_space(item.space_id, "items")

@@ -85,6 +85,11 @@ SKILL_CATALOG: dict[str, dict[str, Any]] = {
     "self_check": {"label": "Самопроверка", "description": "Отвечает на «что у нас не так» — где ассистент за неделю спотыкался", "toggleable": True},
     "resolve_reminder": {"label": "Отметка напоминаний", "description": "Отмечает напоминание выполненным", "toggleable": False},
     "snooze_reminder": {"label": "Перенос напоминаний", "description": "Откладывает напоминание — оно сработает заново позже", "toggleable": False},
+    "routines": {
+        "label": "Рутины",
+        "description": "Заводит приёмы лекарств с подтверждением, отмечает «дал», ставит на паузу (create_routine/list_routines/mark_dose/update_routine)",
+        "toggleable": True,
+    },
     "run_python": {"label": "Python-вычисления", "description": "Точные вычисления в изолированной песочнице", "toggleable": True},
     "read_website": {"label": "Чтение сайтов по ссылке", "description": "Скачивает и читает содержимое страницы по присланной ссылке", "toggleable": True},
     "track_delivery": {"label": "Отслеживание доставки", "description": "Статус посылки по трек-номеру или ссылке (InPost, Poczta, Orlen Paczka, DPD, Allegro Delivery)", "toggleable": True},
@@ -120,6 +125,8 @@ TOOL_GROUPS: dict[str, tuple[str, ...]] = {
     # Один тумблер «Отслеживание доставки» управляет обоими тулами скилла:
     # track_delivery (статус в чат) и insert_delivery_block (виджет в заметку).
     "track_delivery": ("track_delivery", "insert_delivery_block"),
+    # Один тумблер «Рутины» на все четыре инструмента — как у таблиц.
+    "routines": ("create_routine", "list_routines", "mark_dose", "update_routine"),
 }
 
 
@@ -133,7 +140,7 @@ def _expand_disabled(disabled: set[str]) -> set[str]:
 
 def _build_registry() -> dict[str, tuple[ToolDefinition, ToolHandler]]:
     from app import self_check
-    from app.tools import agenda, calendar_event, files as files_tool, dialog_history, lists, maps, memory, notes, python_sandbox, read_website, reminders, search_base, tables, track_delivery, ui, url_check, web_search
+    from app.tools import agenda, calendar_event, files as files_tool, dialog_history, lists, maps, memory, notes, python_sandbox, read_website, reminders, routines as routines_tool, search_base, tables, track_delivery, ui, url_check, web_search
 
     registry: dict[str, tuple[ToolDefinition, ToolHandler]] = {
         search_base.DEFINITION.name: (search_base.DEFINITION, search_base.handle),
@@ -162,6 +169,10 @@ def _build_registry() -> dict[str, tuple[ToolDefinition, ToolHandler]]:
         files_tool.UPLOAD_FILE.name: (files_tool.UPLOAD_FILE, files_tool.upload_file),
         reminders.RESOLVE_REMINDER.name: (reminders.RESOLVE_REMINDER, reminders.resolve_reminder),
         reminders.SNOOZE_REMINDER.name: (reminders.SNOOZE_REMINDER, reminders.snooze_reminder),
+        routines_tool.CREATE_ROUTINE.name: (routines_tool.CREATE_ROUTINE, routines_tool.create_routine),
+        routines_tool.LIST_ROUTINES.name: (routines_tool.LIST_ROUTINES, routines_tool.list_routines),
+        routines_tool.MARK_DOSE.name: (routines_tool.MARK_DOSE, routines_tool.mark_dose),
+        routines_tool.UPDATE_ROUTINE.name: (routines_tool.UPDATE_ROUTINE, routines_tool.update_routine),
         notes.CREATE_NOTE.name: (notes.CREATE_NOTE, notes.create_note),
         notes.CREATE_FOLDER.name: (notes.CREATE_FOLDER, notes.create_folder),
         notes.GET_NOTE.name: (notes.GET_NOTE, notes.get_note),

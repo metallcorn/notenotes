@@ -52,6 +52,7 @@ from app import realtime
 from app.core.config import get_settings
 from app.deps import space_member_ids
 from app.models import Item, ItemVersion, Notification, TelegramLink, User
+from app.schemas.routine import RoutineUpdate
 from app.routine_schedule import (
     STATUS_DONE,
     STATUS_MISSED,
@@ -61,7 +62,7 @@ from app.routine_schedule import (
     nag_until,
     next_planned,
 )
-from app.user_timezone import resolve_timezone
+from app.user_timezone import DEFAULT_TZ_NAME, resolve_timezone
 
 logger = logging.getLogger(__name__)
 
@@ -202,6 +203,52 @@ async def lock_item(db: AsyncSession, item_id: uuid.UUID) -> Item | None:
     return (
         await db.execute(select(Item).where(Item.id == item_id, Item.material_type == MATERIAL_TYPE).with_for_update())
     ).scalar_one_or_none()
+
+
+def tz_name_for(value: str | None, user: User) -> str:
+    """Пояс расписания: явный, иначе домашний пояс автора, иначе дефолт.
+    resolve_timezone молча откатывается на дефолт при кривом имени —
+    сохраняем то, что реально будет использоваться."""
+    candidate = value or user.timezone or DEFAULT_TZ_NAME
+    return str(resolve_timezone(candidate).key)
+
+
+async def apply_update(db: AsyncSession, item: Item, payload: RoutineUpdate, *, user: User) -> None:
+    """Правка рутины — общая для REST (routers/routines.py) и инструмента
+    ассистента (tools/routines.py). Поля применяются, только если явно
+    переданы (как ItemUpdate). Смена расписания, курса, пояса, получателей
+    или паузы пересчитывает открытый приём: он считался по старым
+    правилам — закрываем без следа и заводим заново."""
+    fields = payload.model_fields_set
+    props = props_of(item)
+    reschedule = False
+    if "title" in fields and payload.title is not None:
+        item.title = payload.title.strip() or item.title
+    for key in ("subject", "dose", "notify", "nag_minutes", "timezone"):
+        if key in fields and getattr(payload, key) is not None:
+            value = getattr(payload, key)
+            props[key] = tz_name_for(value, user) if key == "timezone" else (value.strip() if isinstance(value, str) else value)
+            reschedule = reschedule or key in ("timezone", "notify")
+    if "schedule" in fields and payload.schedule is not None:
+        props["schedule"] = payload.schedule.model_dump()
+        reschedule = True
+    for key in ("starts_on", "ends_on"):
+        if key in fields:
+            value = getattr(payload, key)
+            props[key] = value.isoformat() if value else None
+            reschedule = True
+    if props.get("starts_on") and props.get("ends_on") and props["ends_on"] < props["starts_on"]:
+        raise RoutineError("Конец курса раньше начала")
+    if "paused" in fields and payload.paused is not None:
+        props["paused"] = payload.paused
+        reschedule = True
+    set_props(item, props)
+    if reschedule:
+        await close_open(db, item, user_id=user.id)
+        props = props_of(item)
+        props["status"] = "active"
+        set_props(item, props)
+        await ensure_open_dose(db, item)
 
 
 # --- жизненный цикл приёма -----------------------------------------------

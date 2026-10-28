@@ -157,6 +157,9 @@ async def collect_agenda(
             # id нужен, чтобы можно было закрыть через resolve_reminder,
             # не разыскивая его отдельным вызовом.
             "reminder_id": str(n.id),
+            # Приём — ещё и routine_id: отметить можно через mark_dose,
+            # посмотреть журнал — list_routines.
+            **({"routine_id": payload.get("item_id")} if payload.get("dose_id") else {}),
             **({"срок_истекает": expires_on, "напомнить": n.trigger_at.date().isoformat()} if expires_on else {}),
             **({"url": item_url(source_item)} if source_item else {}),
             **({"details": n.body} if n.body else {}),
