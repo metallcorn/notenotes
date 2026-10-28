@@ -93,6 +93,7 @@ import { TableEmbed } from "../extensions/TableEmbed";
 import InsertTableModal from "./InsertTableModal";
 import { CollabProvider, type CollabStatus } from "../lib/collabProvider";
 import { attachCollab, detachCollab } from "../lib/collabState";
+import { clickIntoText, settleOnText } from "../lib/editorSelection";
 import { enqueueEdit } from "../lib/offlineQueue";
 
 // Детерминированный цвет курсора участника из его id — тот же человек
@@ -562,6 +563,8 @@ export default function NoteEditor({
   // инлайновый объект каждый рендер новый.
   const editorProps = useMemo(
     () => ({
+      // «Курсор в конец строки — не печатает» — см. lib/editorSelection.ts.
+      handleClick: (view: EditorView, pos: number, event: MouseEvent) => clickIntoText(view, pos, event),
       // Прямой editorProps.handlePaste, а не addPasteRules() у самого узла:
       // у tiptap-markdown включён transformPastedText, который перехватывает
       // вставку текста своим собственным handlePaste ДО обычного механизма
@@ -788,6 +791,7 @@ export default function NoteEditor({
       if (!collabEligible) {
         if (!hasUnseenLocalEdit) {
           editor.commands.setContent(item.content || "");
+          settleOnText(editor);
           // Реальный найденный баг: просто ОТКРЫЛ заметку, ничего не менял —
           // она подскакивала в топ списка, создавалась лишняя версия.
           // TrailingParagraph (extensions/TrailingParagraph.ts) молча
@@ -1078,6 +1082,7 @@ export default function NoteEditor({
     setContent(item.content);
     savedRef.current = { ...savedRef.current, content: item.content };
     editor?.commands.setContent(item.content || "");
+    if (editor) settleOnText(editor);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [item?.content, uploadBatch]);
 
@@ -1144,6 +1149,7 @@ export default function NoteEditor({
       // трогать не нужно — это один и тот же смонтированный документ,
       // разница только в editable (см. эффект ниже).
       editor.commands.setContent(content || "");
+      settleOnText(editor);
     }
     setMode(next);
     // На телефоне режим не запоминается: каждая заметка открывается в

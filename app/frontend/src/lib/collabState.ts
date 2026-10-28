@@ -14,6 +14,7 @@ import {
   prosemirrorToYXmlFragment,
 } from "y-prosemirror";
 import type { CollabProvider } from "./collabProvider";
+import { settleOnText } from "./editorSelection";
 
 // Единственный стабильный экземпляр редактора переиспользуется для ВСЕХ
 // заметок (NoteEditor.tsx, useMemo([]) — есть отдельный, задокументированный
@@ -172,6 +173,10 @@ export async function attachCollab(
   // те же appendTransaction-плагины немедленно, тем же способом, каким это
   // и так неявно происходит при обычной загрузке через setContent.
   editor.view.dispatch(editor.state.tr);
+  // EditorState.create выше берёт Selection.atStart — для заметки,
+  // начинающейся с линии/картинки, это невидимое выделение узла, из-за
+  // которого в Chrome не печатается в конце строки (lib/editorSelection.ts).
+  settleOnText(editor);
   provider.awareness.setLocalStateField("user", user);
 }
 
