@@ -453,3 +453,59 @@ async def update_routine(ctx: ToolContext, args: dict[str, Any]) -> dict[str, An
     await ctx.db.refresh(item)
     await realtime.notify_space(item.space_id, "items")
     return _summary(item, ctx)
+
+
+# Две кнопки из веба, которых не хватало инструментам: «отметил по ошибке»
+# и «делает не я».
+
+REOPEN_DOSE = ToolDefinition(
+    name="reopen_dose",
+    description=(
+        "Отменить последнюю отметку приёма («я ошибся, не давал») — последний закрытый приём снова "
+        "становится открытым, пинги возвращаются участникам. Только последний: более ранние не "
+        "трогаются. routine_id — из list_routines."
+    ),
+    parameters={"type": "object", "properties": {"routine_id": {"type": "string"}}, "required": ["routine_id"]},
+)
+
+
+async def reopen_dose(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
+    from app.routers.routines import dose_reopen
+
+    item = await _get_routine(ctx, args.get("routine_id"))
+    user = await ctx.db.get(User, ctx.user_id)
+    closed = [d for d in (item.properties or {}).get("doses") or [] if d.get("status") != STATUS_PENDING]
+    if not closed:
+        raise ToolError("У этой рутины ещё нет закрытых приёмов — отменять нечего, см. list_routines")
+    try:
+        await dose_reopen(item.id, closed[-1]["id"], user=user, db=ctx.db)
+    except HTTPException as exc:
+        raise ToolError(f"{exc.detail} — см. list_routines") from None
+    await ctx.db.refresh(item)
+    summary = _summary(item, ctx)
+    return {"id": str(item.id), "title": item.title, "reopened": True, "next_at": summary["next_at"], "status": summary["status"]}
+
+
+DEFER_DOSE = ToolDefinition(
+    name="defer_dose",
+    description=(
+        "«Делает не я»: приём остаётся открытым для других участников, но пинги ЭТОМУ пользователю "
+        "по нему прекращаются. Используй на «это даст жена», «меня не дёргай». Для «дал» — "
+        "mark_dose, для «отложи всем на полчаса» — snooze_reminder по пингу из list_reminders."
+    ),
+    parameters={"type": "object", "properties": {"routine_id": {"type": "string"}}, "required": ["routine_id"]},
+)
+
+
+async def defer_dose(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
+    item = await _get_routine(ctx, args.get("routine_id"))
+    user = await ctx.db.get(User, ctx.user_id)
+    pending = routines.pending_dose(item.properties or {})
+    if pending is None:
+        raise ToolError(f"У этой рутины сейчас нет открытого приёма (она {_status_word(item.properties or {})}) — передавать нечего")
+    try:
+        await routines.defer(ctx.db, item, pending["id"], user=user)
+    except routines.RoutineError as exc:
+        raise ToolError(f"{exc} — см. list_routines") from None
+    await ctx.db.commit()
+    return {"id": str(item.id), "title": item.title, "deferred": True, "planned_at": _local(pending["planned_at"], (item.properties or {}).get("timezone"))}

@@ -446,3 +446,110 @@ async def upload_file(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
         result["added_to_note"] = item.title or "Без названия"
 
     return result
+
+
+# --- управление файлами (28.10) --------------------------------------------
+# Паритет с routers/uploads.py: удалить, распознать заново, поправить
+# распознанный текст. Обработчики REST переиспользуются как функции — там
+# очереди воркеров, версии транскрипта и переиндексация.
+
+
+async def _own_upload(ctx: ToolContext, raw: Any) -> Upload:
+    try:
+        upload = await ctx.db.get(Upload, uuid.UUID(str(raw or "")))
+    except ValueError:
+        raise ToolError("Некорректный id файла — это UUID из результата list_files, а не имя файла") from None
+    if upload is None or not await _accessible(ctx, upload):
+        raise ToolError("Файл не найден — сначала посмотри список через list_files")
+    return upload
+
+
+async def _notes_referencing(ctx: ToolContext, upload: Upload) -> list[Item]:
+    return list(
+        (
+            await ctx.db.execute(
+                select(Item).where(Item.deleted_at.is_(None), Item.content.like(f"%{upload.id}%")).order_by(Item.updated_at.desc())
+            )
+        ).scalars().all()
+    )
+
+
+DELETE_FILE = ToolDefinition(
+    name="delete_file",
+    description=(
+        "Удалить файл с диска насовсем (необратимо). Если на файл ссылается живая заметка — "
+        "откажет и назовёт её: сначала убери вложение из заметки (update_note), потом удаляй. "
+        "Подтверди с пользователем перед вызовом."
+    ),
+    parameters={"type": "object", "properties": {"file_id": {"type": "string"}}, "required": ["file_id"]},
+)
+
+
+async def delete_file(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
+    from app.routers.uploads import delete_upload
+
+    from app.models import User
+
+    upload = await _own_upload(ctx, args.get("file_id"))
+    holders = await _notes_referencing(ctx, upload)
+    if holders:
+        names = ", ".join(f"«{i.title or 'Без названия'}» ({i.id})" for i in holders[:5])
+        raise ToolError(f"Файл вложен в заметку: {names} — сначала убери его оттуда через update_note, потом удаляй")
+    user = await ctx.db.get(User, ctx.user_id)
+    filename = upload.filename
+    await delete_upload(upload.id, user=user, db=ctx.db)
+    return {"deleted": filename, "file_id": str(upload.id)}
+
+
+REPROCESS_FILE = ToolDefinition(
+    name="reprocess_file",
+    description=(
+        "Запустить распознавание файла заново: OCR картинки или PDF, расшифровка видео. Нужно, "
+        "когда у файла нет текста (get_file без text) или распознано плохо. Работает в фоне — "
+        "результат появится в get_file через минуту-другую, скажи об этом пользователю."
+    ),
+    parameters={"type": "object", "properties": {"file_id": {"type": "string"}}, "required": ["file_id"]},
+)
+
+
+async def reprocess_file(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
+    from fastapi import HTTPException
+
+    from app.models import User
+    from app.routers.uploads import reprocess_upload
+
+    upload = await _own_upload(ctx, args.get("file_id"))
+    user = await ctx.db.get(User, ctx.user_id)
+    try:
+        await reprocess_upload(upload.id, user=user, db=ctx.db)
+    except HTTPException as exc:
+        raise ToolError(f"{exc.detail} — для других типов файлов распознавания нет, текст можно задать update_file_text") from None
+    return {"file_id": str(upload.id), "filename": upload.filename, "status": "pending", "note": "Распознаётся в фоне, результат — в get_file через минуту-другую"}
+
+
+UPDATE_FILE_TEXT = ToolDefinition(
+    name="update_file_text",
+    description=(
+        "Заменить распознанный текст файла (OCR/расшифровку) на исправленный — когда распознавание "
+        "ошиблось в цифре или слове. Текст передаётся ЦЕЛИКОМ (прежний уходит в историю). Сначала "
+        "прочитай текущий через get_file и правь только то, о чём просил пользователь."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {"file_id": {"type": "string"}, "text": {"type": "string", "description": "Новый текст целиком"}},
+        "required": ["file_id", "text"],
+    },
+)
+
+
+async def update_file_text(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
+    from app.models import User
+    from app.routers.uploads import UpdateTranscriptIn, update_upload_transcript
+
+    upload = await _own_upload(ctx, args.get("file_id"))
+    text = str(args.get("text") or "").strip()
+    if not text:
+        raise ToolError("Пустой text — передай исправленный текст целиком; текущий даёт get_file")
+    user = await ctx.db.get(User, ctx.user_id)
+    await update_upload_transcript(upload.id, UpdateTranscriptIn(text=text), user=user, db=ctx.db)
+    return {"file_id": str(upload.id), "filename": upload.filename, "length": len(text)}

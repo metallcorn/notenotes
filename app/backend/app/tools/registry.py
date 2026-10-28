@@ -97,6 +97,19 @@ SKILL_CATALOG: dict[str, dict[str, Any]] = {
         "description": "Смотрит версии заметки и откатывает, возвращает из корзины, убирает в архив",
         "toggleable": True,
     },
+    "sharing": {
+        "label": "Публичные ссылки",
+        "description": "Публикует заметку по ссылке и снимает с публикации (только спейс «Публичные страницы»)",
+        "toggleable": True,
+    },
+    "file_management": {
+        "label": "Управление файлами",
+        "description": "Удаляет файл, запускает распознавание заново, правит распознанный текст",
+        "toggleable": True,
+    },
+    "list_backlinks": {"label": "Обратные ссылки", "description": "Смотрит, какие заметки ссылаются на эту", "toggleable": False},
+    "list_recent": {"label": "Недавнее", "description": "Смотрит, что правили последним", "toggleable": False},
+    "list_documents": {"label": "Документы", "description": "Все документы одним списком, с сериями ежемесячных", "toggleable": False},
     "routines": {
         "label": "Рутины",
         "description": "Заводит приёмы лекарств с подтверждением, отмечает «дал», ставит на паузу (create_routine/list_routines/mark_dose/update_routine)",
@@ -133,14 +146,16 @@ PROMPT_ONLY_SKILLS = {"show_note_images"}
 # бессмысленно включать вразнобой). Здесь — единственное место, где имя
 # из SKILL_CATALOG разворачивается в реальные имена тулов для фильтрации.
 TOOL_GROUPS: dict[str, tuple[str, ...]] = {
-    "tables": ("create_table", "get_table", "add_table_row", "update_table_row", "delete_table_row", "add_table_column"),
+    "tables": ("create_table", "get_table", "add_table_row", "update_table_row", "delete_table_row", "add_table_column", "update_table_column", "delete_table_column"),
     # Один тумблер «Отслеживание доставки» управляет обоими тулами скилла:
     # track_delivery (статус в чат) и insert_delivery_block (виджет в заметку).
     "track_delivery": ("track_delivery", "insert_delivery_block"),
     # Один тумблер «Рутины» на все четыре инструмента — как у таблиц.
-    "routines": ("create_routine", "list_routines", "mark_dose", "update_routine"),
+    "routines": ("create_routine", "list_routines", "mark_dose", "update_routine", "reopen_dose", "defer_dose"),
     "structure": ("update_folder", "delete_folder", "remove_tag", "rename_tag", "merge_tag", "delete_tag"),
     "history": ("list_versions", "revert_version", "list_trash", "restore_note", "archive_note"),
+    "sharing": ("share_note", "unshare_note"),
+    "file_management": ("delete_file", "reprocess_file", "update_file_text"),
 }
 
 
@@ -154,7 +169,7 @@ def _expand_disabled(disabled: set[str]) -> set[str]:
 
 def _build_registry() -> dict[str, tuple[ToolDefinition, ToolHandler]]:
     from app import self_check
-    from app.tools import agenda, calendar_event, files as files_tool, dialog_history, history, lists, maps, memory, notes, python_sandbox, read_website, reminders, routines as routines_tool, search_base, structure, tables, track_delivery, ui, url_check, web_search
+    from app.tools import agenda, calendar_event, files as files_tool, dialog_history, history, lists, maps, memory, notes, overview, python_sandbox, read_website, reminders, routines as routines_tool, search_base, sharing, structure, tables, track_delivery, ui, url_check, web_search
 
     registry: dict[str, tuple[ToolDefinition, ToolHandler]] = {
         search_base.DEFINITION.name: (search_base.DEFINITION, search_base.handle),
@@ -216,6 +231,18 @@ def _build_registry() -> dict[str, tuple[ToolDefinition, ToolHandler]]:
         history.LIST_TRASH.name: (history.LIST_TRASH, history.list_trash),
         history.RESTORE_NOTE.name: (history.RESTORE_NOTE, history.restore_note),
         history.ARCHIVE_NOTE.name: (history.ARCHIVE_NOTE, history.archive_note),
+        sharing.SHARE_NOTE.name: (sharing.SHARE_NOTE, sharing.share_note),
+        sharing.UNSHARE_NOTE.name: (sharing.UNSHARE_NOTE, sharing.unshare_note),
+        overview.LIST_BACKLINKS.name: (overview.LIST_BACKLINKS, overview.list_backlinks),
+        overview.LIST_RECENT.name: (overview.LIST_RECENT, overview.list_recent),
+        overview.LIST_DOCUMENTS.name: (overview.LIST_DOCUMENTS, overview.list_documents),
+        files_tool.DELETE_FILE.name: (files_tool.DELETE_FILE, files_tool.delete_file),
+        files_tool.REPROCESS_FILE.name: (files_tool.REPROCESS_FILE, files_tool.reprocess_file),
+        files_tool.UPDATE_FILE_TEXT.name: (files_tool.UPDATE_FILE_TEXT, files_tool.update_file_text),
+        tables.UPDATE_TABLE_COLUMN.name: (tables.UPDATE_TABLE_COLUMN, tables.update_table_column),
+        tables.DELETE_TABLE_COLUMN.name: (tables.DELETE_TABLE_COLUMN, tables.delete_table_column),
+        routines_tool.REOPEN_DOSE.name: (routines_tool.REOPEN_DOSE, routines_tool.reopen_dose),
+        routines_tool.DEFER_DOSE.name: (routines_tool.DEFER_DOSE, routines_tool.defer_dose),
         tables.CREATE_TABLE.name: (tables.CREATE_TABLE, tables.create_table),
         tables.GET_TABLE.name: (tables.GET_TABLE, tables.get_table),
         tables.ADD_TABLE_ROW.name: (tables.ADD_TABLE_ROW, tables.add_table_row),

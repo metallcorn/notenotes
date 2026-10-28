@@ -80,7 +80,7 @@ _CORE_TOOL_NAMES = {
     "suggest_replies", "list_folders", "list_all_items", "remember_fact",
     "list_memories", "add_tag", "list_tags", "create_list", "get_list",
     "add_list_entry", "toggle_list_entry", "update_list_entry", "delete_list_entry", "create_table", "get_table",
-    "add_table_row", "update_table_row", "delete_table_row", "add_table_column",
+    "add_table_row", "update_table_row", "delete_table_row", "add_table_column", "update_table_column", "delete_table_column",
     # Реальный найденный случай: "Какие у меня дела на сегодня?" не задело
     # НИ ОДНО ключевое слово категории calendar_reminders ("напомни",
     # "встреч", "дедлайн" и т.п.) — list_reminders не попал в набор тулов
@@ -144,8 +144,11 @@ _TOOL_CATEGORIES: dict[str, set[str]] = {
     # История/корзина/архив и рутины — 28.10. Без категории новый тул
     # попадал бы в КАЖДЫЙ ход (см. _relevant_tool_names), а их девять;
     # ключевые слова, как везде, с запасом в сторону «включить».
-    "history": {"list_versions", "revert_version", "list_trash", "restore_note", "archive_note"},
-    "routines": {"create_routine", "list_routines", "mark_dose", "update_routine"},
+    "history": {"list_versions", "revert_version", "list_trash", "restore_note", "archive_note", "list_recent"},
+    "routines": {"create_routine", "list_routines", "mark_dose", "update_routine", "reopen_dose", "defer_dose"},
+    "sharing": {"share_note", "unshare_note"},
+    "files": {"delete_file", "reprocess_file", "update_file_text", "list_documents"},
+    "links": {"list_backlinks"},
 }
 _CATEGORY_KEYWORDS: dict[str, tuple[str, ...]] = {
     "web": (
@@ -156,7 +159,10 @@ _CATEGORY_KEYWORDS: dict[str, tuple[str, ...]] = {
     ),
     "structure": ("папк", "тег", "по тегу", "переимен", "слей", "объедини"),
     "forget": ("забудь", "сотри факт", "удали из памяти", "не запоминай"),
-    "history": ("верси", "верни", "вернуть", "откат", "восстанов", "корзин", "удалил", "удалён", "удалена", "архив", "как было", "кто менял", "кто поменял"),
+    "history": ("верси", "верни", "вернуть", "откат", "восстанов", "корзин", "удалил", "удалён", "удалена", "архив", "как было", "кто менял", "кто поменял", "недавн", "последн", "на неделе", "сегодня дел"),
+    "sharing": ("поделись", "поделить", "опублик", "публичн", "ссылку на заметку", "снять с публикации", "расшар"),
+    "files": ("файл", "документ", "скан", "pdf", "распозна", "ocr", "расшифров", "транскри", "счёт", "счет", "выписк", "серии", "за месяц"),
+    "links": ("ссылается", "ссылаются", "обратн", "связан"),
     "routines": ("рутин", "таблет", "лекарств", "капл", "приём", "прием", "укол", "витамин", "курс", "дал ", "дала ", "дали", "выпил", "пропуст", "пауз"),
 }
 

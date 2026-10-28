@@ -392,3 +392,83 @@ async def add_table_column(ctx: ToolContext, args: dict[str, Any]) -> dict[str, 
 
     await _safe_broadcast(item)
     return {"id": str(item.id), "title": item.title, "table_id": str(item.id), "columns": [c["name"] for c in columns]}
+
+
+# Столбцы: переименовать и удалить — паритет с routers/tables.py (28.10).
+# Столбец — по id из get_table или по названию без учёта регистра.
+
+
+def _find_column(item: Item, column_id: Any, column_name: Any) -> dict:
+    columns = item.properties.get("columns", [])
+    if column_id:
+        found = next((c for c in columns if c["id"] == str(column_id)), None)
+    else:
+        name = str(column_name or "").strip().lower()
+        found = next((c for c in columns if c["name"].strip().lower() == name), None) if name else None
+    if found is None:
+        names = ", ".join(f"«{c['name']}»" for c in columns)
+        raise ToolError(f"Столбец не найден — есть столбцы: {names}; id столбцов даёт get_table")
+    return found
+
+
+UPDATE_TABLE_COLUMN = ToolDefinition(
+    name="update_table_column",
+    description="Переименовать столбец таблицы. Столбец — по column_id из get_table или по текущему названию column_name.",
+    parameters={
+        "type": "object",
+        "properties": {
+            "table_id": {"type": "string"},
+            "column_id": {"type": "string"},
+            "column_name": {"type": "string", "description": "Текущее название, если id неизвестен"},
+            "name": {"type": "string", "description": "Новое название"},
+        },
+        "required": ["table_id", "name"],
+    },
+)
+
+
+async def update_table_column(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
+    name = str(args.get("name") or "").strip()
+    if not name:
+        raise ToolError("Пустое новое название — передай непустое name; текущие столбцы видны в результате get_table")
+    item = await _get_table_item(ctx, args.get("table_id"))
+    target = _find_column(item, args.get("column_id"), args.get("column_name"))
+    columns = [{**c, "name": name} if c["id"] == target["id"] else c for c in item.properties.get("columns", [])]
+    item.properties = {**item.properties, "columns": columns}
+    item.content = _flatten_table(columns, item.properties.get("rows", []))
+    await ctx.db.commit()
+    await ctx.db.refresh(item)
+    await _safe_broadcast(item)
+    return {"table_id": str(item.id), "column_id": target["id"], "was": target["name"], "name": name}
+
+
+DELETE_TABLE_COLUMN = ToolDefinition(
+    name="delete_table_column",
+    description=(
+        "Удалить столбец таблицы вместе с его значениями во всех строках — необратимо, назови "
+        "пользователю столбец перед вызовом. Столбец — по column_id из get_table или по названию "
+        "column_name."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "table_id": {"type": "string"},
+            "column_id": {"type": "string"},
+            "column_name": {"type": "string"},
+        },
+        "required": ["table_id"],
+    },
+)
+
+
+async def delete_table_column(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
+    item = await _get_table_item(ctx, args.get("table_id"))
+    target = _find_column(item, args.get("column_id"), args.get("column_name"))
+    columns = [c for c in item.properties.get("columns", []) if c["id"] != target["id"]]
+    rows = [{**r, "cells": {k: v for k, v in r["cells"].items() if k != target["id"]}} for r in item.properties.get("rows", [])]
+    item.properties = {**item.properties, "columns": columns, "rows": rows}
+    item.content = _flatten_table(columns, rows)
+    await ctx.db.commit()
+    await ctx.db.refresh(item)
+    await _safe_broadcast(item)
+    return {"table_id": str(item.id), "deleted": target["name"], "columns": [c["name"] for c in columns]}
