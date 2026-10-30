@@ -237,16 +237,22 @@ def _log_api_error(resp: httpx.Response, method: str, chat_id: int) -> None:
     )
 
 
-async def send_message(chat_id: int, text: str, reply_markup: dict | None = None) -> int | None:
+async def send_message(chat_id: int, text: str, reply_markup: dict | None = None, *, silent: bool = False) -> int | None:
     """Отправить сообщение. Возвращает его message_id (или None, если не
     ушло) — рутинам (app/routines.py) он нужен, чтобы на повторном пинге
-    удалить старое сообщение и держать в чате одно."""
+    удалить старое сообщение и держать в чате одно.
+
+    silent — без звука и вибрации (disable_notification): так уходит
+    дневная сводка приёмов, которую переотправляют после каждой отметки,
+    чтобы она была последним сообщением в чате; звенеть ей не за что."""
     settings = get_settings()
     if not settings.telegram_bot_token:
         return None
     payload: dict = {"chat_id": chat_id, "text": text}
     if reply_markup:
         payload["reply_markup"] = reply_markup
+    if silent:
+        payload["disable_notification"] = True
     async with httpx.AsyncClient(timeout=30) as client:
         try:
             resp = await client.post(_api_url("sendMessage"), json=payload)

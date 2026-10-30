@@ -553,6 +553,11 @@ class TelegramLink(Base):
     active_dialog_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("items.id", ondelete="SET NULL"), nullable=True
     )
+    # Дневная сводка приёмов рутин в этом чате (app/routines.py,
+    # day_summary): {"date": "2026-10-30", "message_id": 123}. Закрытые
+    # пинги удаляются, а это сообщение перерисовывается — без него после
+    # каждой отметки появлялась бы новая сводка.
+    routine_summary: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
 
 class TelegramLinkCode(Base):

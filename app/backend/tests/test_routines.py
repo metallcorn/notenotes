@@ -5,6 +5,8 @@
 
 import contextlib
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
 
@@ -225,11 +227,11 @@ async def test_telegram_ping_replaces_previous_message(auth_client, db_session, 
     routine = await _routine(auth_client, space_id)
     db_session.add(TelegramLink(user_id=test_user.id, chat_id=4242, space_id=space_id))
     await db_session.commit()
-    sent, deleted = [], []
+    sent, summaries, deleted = [], [], []
 
-    async def fake_send(chat_id, text, reply_markup=None):
-        sent.append((chat_id, text, reply_markup))
-        return 100 + len(sent)
+    async def fake_send(chat_id, text, reply_markup=None, silent=False):
+        (summaries if silent else sent).append((chat_id, text, reply_markup))
+        return 100 + len(sent) + len(summaries)
 
     async def fake_delete(chat_id, message_id):
         deleted.append(message_id)
@@ -242,45 +244,109 @@ async def test_telegram_ping_replaces_previous_message(auth_client, db_session, 
 
     await routines.deliver(db_session, n, 4242, now + timedelta(minutes=1))
     assert "Ждёт 4 мин" in sent[0][1]
+    # Первый пинг дня заводит дневную сводку (тихо), повторный — нет.
+    assert len(summaries) == 1 and summaries[0][1].startswith("💊 Приёмы") and "⏳" in summaries[0][1]
     await routines.deliver(db_session, n, 4242, now + timedelta(minutes=31))
 
     assert deleted == [101], "второй пинг удаляет первое сообщение"
-    assert n.payload["telegram_message_id"] == 102
+    assert len(summaries) == 1
+    assert n.payload["telegram_message_id"] == 103
     assert "Tabletka dla Burka" in sent[0][1] and "Burek · pół tabletki" in sent[0][1]
     assert "напоминаю 2-й раз" in sent[1][1]
     buttons = [b["text"] for row in sent[1][2]["inline_keyboard"] for b in row]
     assert buttons == ["✓ Дал", "Делает не я", "⏰ +30 мин", "⏰ +1 ч", "Пропустить", "Открыть"]
 
 
-async def test_telegram_callback_done_redraws_and_closes_for_all(auth_client, db_session, test_user, monkeypatch):
+async def test_telegram_callback_done_deletes_pings_and_redraws_day_summary(auth_client, db_session, test_user, monkeypatch):
+    """Жалоба 30.10: чат с ботом забит закрытыми пингами. Теперь «дал»
+    удаляет пинг у всех участников, а итог живёт в одной сводке за день,
+    которая переотправляется тихо и хранит свой message_id в TelegramLink."""
     space_id = await _space(auth_client)
     other = await _member(db_session, auth_client, space_id)
     routine = await _routine(auth_client, space_id)
     db_session.add(TelegramLink(user_id=other.id, chat_id=7, space_id=space_id))
+    db_session.add(TelegramLink(user_id=test_user.id, chat_id=8, space_id=space_id, routine_summary={"date": "2000-01-01", "message_id": 1}))
     await db_session.commit()
-    edited = []
+    edited, deleted, sent = [], [], []
 
     async def fake_edit(chat_id, message_id, text, reply_markup=None):
         edited.append((chat_id, message_id, text))
 
+    async def fake_delete(chat_id, message_id):
+        deleted.append((chat_id, message_id))
+
+    async def fake_send(chat_id, text, reply_markup=None, silent=False):
+        sent.append((chat_id, text, silent))
+        return 900 + len(sent)
+
     monkeypatch.setattr(telegram_bot, "edit_message", fake_edit)
+    monkeypatch.setattr(telegram_bot, "delete_message", fake_delete)
+    monkeypatch.setattr(telegram_bot, "send_message", fake_send)
     notifications = await _notifications(db_session, routine["id"])
     mine = next(n for n in notifications if n.user_id == test_user.id)
     theirs = next(n for n in notifications if n.user_id == other.id)
     theirs.payload = {**theirs.payload, "telegram_message_id": 555}
+    mine.payload = {**mine.payload, "telegram_message_id": 444}
     await db_session.commit()
+    await _rewind(db_session, routine["id"], minutes=2)
 
-    text, keyboard = await routines.handle_callback(db_session, test_user.id, f"rt:d:{mine.id}")
+    result = await routines.handle_callback(db_session, test_user.id, f"rt:d:{mine.id}")
 
-    assert "✓ Test User" in text
-    assert [b["text"] for row in keyboard for b in row] == ["Открыть"]
-    assert edited and edited[0][:2] == (7, 555) and "✓ Test User" in edited[0][2]
+    assert result is None, "перерисовывать нечего — пинг удалён"
+    assert not edited
+    assert set(deleted) == {(8, 444), (7, 555)}, "пинги удалены у обоих"
+    # Сводка — по одной у каждого, тихо; у test_user вчерашняя запись не удалялась (другой день).
+    assert sorted((c, silent) for c, _, silent in sent) == [(7, True), (8, True)]
+    text = next(t for c, t, _ in sent if c == 8)
+    assert text.startswith("💊 Приёмы") and "1 из" in text and "✓" in text and "Test User" in text
+    link = (await db_session.execute(select(TelegramLink).where(TelegramLink.user_id == test_user.id))).scalar_one()
+    assert link.routine_summary["message_id"] in (901, 902) and link.routine_summary["date"] == datetime.now(timezone.utc).astimezone(ZoneInfo("Europe/Warsaw")).date().isoformat()
     item = await db_session.get(Item, routine["id"])
     statuses = [d["status"] for d in item.properties["doses"]]
     assert statuses == [STATUS_DONE, STATUS_PENDING]
 
+    # Вторая отметка за день — старая сводка удаляется, новая внизу чата.
+    deleted.clear(); sent.clear()
+    await _rewind(db_session, routine["id"], minutes=1)
+    pending = next(d for d in (await db_session.get(Item, routine["id"])).properties["doses"] if d["status"] == STATUS_PENDING)
+    await routines.skip(db_session, await routines.lock_item(db_session, item.id), pending["id"], user=test_user)
+    assert (8, link.routine_summary["message_id"]) in deleted
+    text = next(t for c, t, _ in sent if c == 8)
+    assert "⏭" in text and "пропущен" in text
+
     # Чужое уведомление кнопкой не закрыть.
     assert await routines.handle_callback(db_session, test_user.id, f"rt:d:{theirs.id}") == ("Приём не найден", [])
+
+
+def test_day_summary_text_orders_and_counts():
+    tz = ZoneInfo("Europe/Warsaw")
+    now = datetime(2026, 10, 30, 19, 0, tzinfo=tz)
+    day = now.date()
+
+    def dose(hhmm, status, done_at=None, who=None):
+        planned = datetime.combine(day, datetime.strptime(hhmm, "%H:%M").time(), tzinfo=tz)
+        return {
+            "id": hhmm, "planned_at": planned.astimezone(timezone.utc).isoformat(), "status": status,
+            "done_at": datetime.combine(day, datetime.strptime(done_at, "%H:%M").time(), tzinfo=tz).astimezone(timezone.utc).isoformat() if done_at else None,
+            "done_by_name": who,
+        }
+
+    yesterday = datetime.combine(day - timedelta(days=1), datetime.min.time(), tzinfo=tz)
+    items = [
+        SimpleNamespace(title="Amodip", properties={"doses": [dose("22:00", "pending")]}),
+        SimpleNamespace(title="Krople", properties={"doses": [
+            {"id": "y", "planned_at": yesterday.astimezone(timezone.utc).isoformat(), "status": "done", "done_at": None, "done_by_name": None},
+            dose("09:00", "done", "09:40", "Anna"), dose("16:30", "skipped"), dose("18:00", "pending"),
+        ]}),
+    ]
+    text = routines.day_summary_text(items, day=day, tz=tz, now=now.astimezone(timezone.utc))
+    lines = text.split("\n")
+    assert lines[0] == "💊 Приёмы 30.10 · 1 из 4"
+    assert lines[1] == "✓ 09:00 Krople · 09:40 Anna, с опозданием"
+    assert lines[2] == "⏭ 16:30 Krople · пропущен"
+    assert lines[3] == "⏳ 18:00 Krople · ждёт 1 ч"
+    assert lines[4] == "· 22:00 Amodip"
+    assert routines.day_summary_text(items, day=day + timedelta(days=5), tz=tz, now=now) is None
 
 
 async def test_telegram_callback_not_me_and_snooze(auth_client, db_session, test_user, monkeypatch):

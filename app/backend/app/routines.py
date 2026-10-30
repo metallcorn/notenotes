@@ -348,29 +348,127 @@ def _open_rows(item: Item) -> list[list[dict]]:
     return [[telegram_bot.open_button("Открыть", f"{base_url}/?item={item.id}")]]
 
 
-async def _finalize_notifications(
-    db: AsyncSession, item: Item, dose: dict, line: str, *, now: datetime, except_id: uuid.UUID | None = None
-) -> None:
-    """Закрыть пинги приёма у всех и перерисовать их сообщения в итог.
+async def _finalize_notifications(db: AsyncSession, item: Item, dose: dict, line: str, *, now: datetime) -> None:
+    """Закрыть пинги приёма у всех и убрать их сообщения из Telegram.
 
-    except_id — уведомление, чьё сообщение перерисует сам обработчик
-    кнопки (telegram_bot.py): Telegram отдаёт message_id только ему, и
-    второй edit того же сообщения был бы лишним запросом.
+    Раньше сообщение перерисовывалось в итог («✓ Дмитрий — в 22:09») и
+    оставалось в чате навсегда. Жалоба владельца 30.10: при шести приёмах
+    в день чат с ботом через неделю — сплошная лента закрытых пингов, и
+    полезное среди них не найти. Теперь закрытый пинг удаляется, а итог
+    попадает в одну сводку за день (day_summary), которая у каждого
+    получателя перерисовывается на месте. line остаётся в сигнатуре для
+    журнала/логов — в чате она больше не показывается.
     """
     from app import telegram_bot
 
     notifications = await _dose_notifications(db, item, dose["id"])
     links = await _links_for(db, [n.user_id for n in notifications])
+    touched: set[uuid.UUID] = set()
     for n in notifications:
         if n.resolved_at is None:
             n.resolved_at = now
         n.dispatched_at = n.dispatched_at or now
         message_id = (n.payload or {}).get("telegram_message_id")
         chat_id = links.get(n.user_id)
-        if message_id and chat_id and n.id != except_id:
-            await telegram_bot.edit_message(chat_id, message_id, f"{base_text(item, dose)}\n\n{line}", {"inline_keyboard": _open_rows(item)})
+        if message_id and chat_id:
+            await telegram_bot.delete_message(chat_id, message_id)
+            n.payload = {k: v for k, v in (n.payload or {}).items() if k != "telegram_message_id"}
+        if chat_id:
+            touched.add(n.user_id)
         await realtime.notify_user(n.user_id)
+    for user_id in touched:
+        await refresh_day_summary(db, user_id, now=now)
     await realtime.notify_space(item.space_id, "items")
+
+
+# --- дневная сводка в Telegram ---------------------------------------------
+#
+# Одно сообщение на день у каждого получателя: «💊 Приёмы 30.10 · 4 из 6» и
+# строка на каждый приём этого дня — дали (во сколько, кто), пропущен, ждёт,
+# ещё впереди. Перерисовывается при каждой отметке. Переотправляется, а не
+# редактируется: так сводка всегда последняя в чате, под пингами, которые
+# к тому моменту уже удалены. Без звука — звенят только пинги.
+
+_SUMMARY_ICON = {STATUS_DONE: "✓", STATUS_SKIPPED: "⏭", STATUS_MISSED: "✗"}
+
+
+async def _user_routines(db: AsyncSession, user_id: uuid.UUID) -> list[Item]:
+    from app.models import SpaceMember
+
+    rows = await db.execute(
+        select(Item)
+        .join(SpaceMember, SpaceMember.space_id == Item.space_id)
+        .where(SpaceMember.user_id == user_id, Item.material_type == MATERIAL_TYPE, Item.deleted_at.is_(None))
+    )
+    return [i for i in rows.scalars().all() if (i.properties or {}).get("notify") != "self" or i.author_id == user_id]
+
+
+def day_summary_text(items: list[Item], *, day: date, tz: ZoneInfo, now: datetime) -> str | None:
+    """Текст сводки за местный день day. None — приёмов в этот день нет."""
+    rows: list[tuple[datetime, str]] = []
+    done = total = 0
+    for item in items:
+        for dose in (item.properties or {}).get("doses") or []:
+            planned = _dt(dose["planned_at"])
+            if planned is None:
+                continue
+            # День приёма — по факту, если дали (вечером дали «завтрашнюю
+            # утреннюю» заранее — это сегодняшнее событие), иначе по плану.
+            done_at = _dt(dose.get("done_at")) if dose.get("status") == STATUS_DONE else None
+            if (done_at or planned).astimezone(tz).date() != day:
+                continue
+            total += 1
+            local = planned.astimezone(tz)
+            status = dose.get("status")
+            if status == STATUS_DONE:
+                done += 1
+                at = _dt(dose.get("done_at"))
+                who = dose.get("done_by_name") or ""
+                late = ", с опозданием" if is_late(dose) else ""
+                detail = f" · {at.astimezone(tz):%H:%M} {who}{late}".rstrip() if at else ""
+                line = f"✓ {local:%H:%M} {item.title}{detail}"
+            elif status == STATUS_SKIPPED:
+                line = f"⏭ {local:%H:%M} {item.title} · пропущен"
+            elif status == STATUS_MISSED:
+                line = f"✗ {local:%H:%M} {item.title} · никто не отметил"
+            elif planned <= now:
+                line = f"⏳ {local:%H:%M} {item.title} · ждёт {_humanize(now - planned)}"
+            else:
+                line = f"· {local:%H:%M} {item.title}"
+            rows.append((planned, line))
+    if not rows:
+        return None
+    rows.sort(key=lambda r: r[0])
+    header = f"💊 Приёмы {day:%d.%m} · {done} из {total}"
+    return "\n".join([header, *[line for _, line in rows]])
+
+
+async def refresh_day_summary(db: AsyncSession, user_id: uuid.UUID, *, now: datetime, only_if_missing: bool = False) -> None:
+    """Перерисовать сводку сегодняшнего дня у пользователя в Telegram.
+
+    only_if_missing — завести сводку, если её за сегодня ещё нет, и ничего
+    не трогать, если есть (первый пинг дня показывает план на день, а
+    повторные пинги каждые полчаса сводку не дёргают).
+    """
+    from app import telegram_bot
+
+    link = (await db.execute(select(TelegramLink).where(TelegramLink.user_id == user_id))).scalar_one_or_none()
+    if link is None:
+        return
+    user = await db.get(User, user_id)
+    tz = resolve_timezone(user.timezone if user else None)
+    day = now.astimezone(tz).date()
+    current = dict(link.routine_summary or {})
+    if only_if_missing and current.get("date") == day.isoformat() and current.get("message_id"):
+        return
+    text = day_summary_text(await _user_routines(db, user_id), day=day, tz=tz, now=now)
+    if text is None:
+        return
+    if current.get("date") == day.isoformat() and current.get("message_id"):
+        await telegram_bot.delete_message(link.chat_id, int(current["message_id"]))
+    message_id = await telegram_bot.send_message(link.chat_id, text, silent=True)
+    link.routine_summary = {"date": day.isoformat(), "message_id": message_id} if message_id else None
+    flag_modified(link, "routine_summary")
 
 
 def base_text(item: Item, dose: dict) -> str:
@@ -392,7 +490,6 @@ async def _user_name(db: AsyncSession, user_id: uuid.UUID) -> str:
 
 async def mark_done(
     db: AsyncSession, item: Item, dose_id: str, *, user: User, at: datetime | None = None, by: uuid.UUID | None = None,
-    except_notification: uuid.UUID | None = None,
 ) -> dict:
     """«Дал». at — когда на самом деле (по умолчанию сейчас), by — кто
     (по умолчанию нажавший). Закрывает приём у всех и заводит следующий."""
@@ -414,14 +511,12 @@ async def mark_done(
     dose["done_by_name"] = await _user_name(db, by)
     set_props(item, props)
     local = at.astimezone(tz_of(item))
-    await _finalize_notifications(
-        db, item, dose, f"✓ {dose['done_by_name']} — в {local:%H:%M}", now=now, except_id=except_notification
-    )
+    await _finalize_notifications(db, item, dose, f"✓ {dose['done_by_name']} — в {local:%H:%M}", now=now)
     await ensure_open_dose(db, item, now)
     return dose
 
 
-async def skip(db: AsyncSession, item: Item, dose_id: str, *, user: User, except_notification: uuid.UUID | None = None) -> dict:
+async def skip(db: AsyncSession, item: Item, dose_id: str, *, user: User) -> dict:
     now = _now()
     props = props_of(item)
     dose = find_dose(props, dose_id)
@@ -431,7 +526,7 @@ async def skip(db: AsyncSession, item: Item, dose_id: str, *, user: User, except
     _close(dose, STATUS_SKIPPED)
     set_props(item, props)
     name = await _user_name(db, user.id)
-    await _finalize_notifications(db, item, dose, f"⏭ Пропущен — {name}", now=now, except_id=except_notification)
+    await _finalize_notifications(db, item, dose, f"⏭ Пропущен — {name}", now=now)
     await ensure_open_dose(db, item, now)
     return dose
 
@@ -601,6 +696,9 @@ async def deliver(db: AsyncSession, notification: Notification, chat_id: int | N
             await telegram_bot.delete_message(chat_id, previous)
         message_id = await telegram_bot.send_message(chat_id, text, reply_markup={"inline_keyboard": ping_keyboard(item, notification)})
         payload["telegram_message_id"] = message_id
+        # Первый пинг дня заводит сводку с планом на день; повторные
+        # пинги её не трогают — перерисовка только по отметкам.
+        await refresh_day_summary(db, notification.user_id, now=now, only_if_missing=True)
     payload["nag_count"] = int(payload.get("nag_count", 0)) + 1
     notification.payload = payload
     body = text.split("\n", 1)[1] if "\n" in text else ""
@@ -624,7 +722,8 @@ def after_dispatch(notification: Notification, now: datetime) -> None:
 
 async def handle_callback(db: AsyncSession, user_id: uuid.UUID, data: str) -> tuple[str, list[list[dict]]] | None:
     """Кнопка под пингом. Возвращает (текст, клавиатура), которыми
-    перерисовать ЭТО сообщение, или None, если данные не наши."""
+    перерисовать ЭТО сообщение, или None — данные не наши ЛИБО сообщение
+    уже удалено («дал»/«пропустить»: итог уходит в дневную сводку)."""
     if not data.startswith(CALLBACK_PREFIX):
         return None
     parts = data[len(CALLBACK_PREFIX):].split(":")
@@ -651,13 +750,15 @@ async def handle_callback(db: AsyncSession, user_id: uuid.UUID, data: str) -> tu
     action = parts[0]
     try:
         if action == "d" and len(parts) == 2:
-            dose = await mark_done(db, item, dose["id"], user=user, except_notification=n.id)
+            # Сообщение пинга уже удалено внутри mark_done, итог — в
+            # дневной сводке; перерисовывать нечего.
+            await mark_done(db, item, dose["id"], user=user)
             await db.commit()
-            return f"{base_text(item, dose)}\n\n{_final_line(dose, tz)}", open_rows
+            return None
         if action == "k" and len(parts) == 2:
-            dose = await skip(db, item, dose["id"], user=user, except_notification=n.id)
+            await skip(db, item, dose["id"], user=user)
             await db.commit()
-            return f"{base_text(item, dose)}\n\n{_final_line(dose, tz)}", open_rows
+            return None
         if action == "n" and len(parts) == 2:
             await defer(db, item, dose["id"], user=user)
             await db.commit()
