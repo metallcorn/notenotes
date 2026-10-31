@@ -4,7 +4,7 @@ import asyncio
 import json
 import logging
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import select
 
@@ -41,7 +41,7 @@ def enqueue_autotag(item_id: uuid.UUID) -> None:
     _queue.put_nowait(item_id)
 
 
-def _build_prompt(existing_tag_names: list[str], today: str) -> str:
+def _build_prompt(existing_tag_names: list[str], today: str, written: str | None = None) -> str:
     # Теги, события и адреса — в ОДНОМ вызове, не в трёх: реальная жалоба
     # на "разбухание", а тут это ещё и деньги — заметка и так уже гоняется
     # через LLM на каждое автосохранение ради тегов, отдельный вызов на
@@ -63,6 +63,14 @@ def _build_prompt(existing_tag_names: list[str], today: str) -> str:
         "дедлайны, поездки, дни рождения, мероприятия и т.п. с определённой "
         f"датой, в том числе относительной (сегодня {today} — 'завтра', 'в "
         "пятницу', 'через неделю' переведи в абсолютную дату от этого дня). "
+        + (
+            f"ВАЖНО: этот текст написан {written}, а не сегодня — 'завтра', "
+            "'в пятницу', 'через неделю' отсчитывай от дня написания, не от "
+            "сегодняшнего. "
+            if written
+            else ""
+        )
+        +
         'Каждый элемент — {"title": короткое (до 60 символов) описание '
         'события, "at": дата или дата-время в ISO 8601}. Не включай явно '
         "прошедшие, уже неактуальные даты, если заметка не исторический "
@@ -90,6 +98,20 @@ def _build_prompt(existing_tag_names: list[str], today: str) -> str:
         '[{"text": "ул. Ленина, 15", "query": "Кофейня Пуля, ул. Ленина, '
         '15, Москва"}]}'
     )
+
+
+def source_written_at(properties: dict | None) -> datetime | None:
+    """Когда написан исходный текст заметки, если он пришёл со стороны
+    (properties.source.written_at — пересылка из Telegram). None — заметка
+    своя или дата неизвестна."""
+    raw = ((properties or {}).get("source") or {}).get("written_at")
+    if not raw:
+        return None
+    try:
+        dt = datetime.fromisoformat(str(raw))
+    except ValueError:
+        return None
+    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
 
 
 def _parse_events(raw: object, tz_name: str | None = None) -> list[dict]:
@@ -145,7 +167,11 @@ def _parse_addresses(raw: object, content: str) -> list[dict]:
 
 
 async def _classify(
-    title: str, content: str, existing_tag_names: list[str], tz_name: str | None = None
+    title: str,
+    content: str,
+    existing_tag_names: list[str],
+    tz_name: str | None = None,
+    written_at: datetime | None = None,
 ) -> tuple[list[str], list[dict], list[dict]]:
     settings = get_settings()
     if not settings.llm_api_key:
@@ -157,10 +183,17 @@ async def _classify(
     # assume_default_timezone ниже: у границы полуночи (Польша летом на 2
     # часа впереди UTC) "сегодня"/"завтра" по UTC резолвились бы не в тот
     # локальный день.
-    today = datetime.now(resolve_timezone(tz_name)).strftime("%Y-%m-%d, %A")
+    tz = resolve_timezone(tz_name)
+    today = datetime.now(tz).strftime("%Y-%m-%d, %A")
+    # Пересланное из Telegram «завтра» написано не сегодня (реальный
+    # случай: вчерашнее «у нас завтра консультация» легло на послезавтра).
+    # Дата оригинала лежит в properties.source.written_at (telegram_bot.py).
+    written = written_at.astimezone(tz).strftime("%Y-%m-%d, %A") if written_at else None
+    if written == today:
+        written = None
     response = await client.chat(
         [
-            Message(role="system", content=_build_prompt(existing_tag_names, today)),
+            Message(role="system", content=_build_prompt(existing_tag_names, today, written)),
             Message(role="user", content=text),
         ],
         [],
@@ -207,7 +240,9 @@ async def _process(item_id: uuid.UUID) -> None:
             # С раскрытыми вложениями: о чём скан или PDF, видно только по
             # его тексту, а он с 18.10 живёт в загрузке (app/attachment_text.py).
             readable = await readable_content(db, item.content or "")
-            names, events, addresses = await _classify(item.title, readable, list(existing), tz_name)
+            names, events, addresses = await _classify(
+                item.title, readable, list(existing), tz_name, written_at=source_written_at(item.properties)
+            )
         except Exception:
             logger.exception("Ошибка автотегирования для заметки %s", item_id)
             return

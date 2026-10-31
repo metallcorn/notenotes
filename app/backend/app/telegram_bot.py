@@ -110,7 +110,8 @@ def _derive_title(text: str, fallback: str = "") -> str:
     — эта разметка тоже убирается, в названии заметки она не нужна, только
     мусор (скобки, звёздочки, голый URL)."""
     for line in text.splitlines():
-        candidate = line.strip().lstrip("#")
+        # rstrip("\\") — жёсткий перенос от _hard_breaks в конце строки.
+        candidate = line.strip().rstrip("\\").strip().lstrip("#")
         candidate = _MARKDOWN_LINK_OR_IMAGE_RE.sub(lambda m: m.group(1), candidate)
         stripped = _MARKDOWN_MARKS_RE.sub("", candidate).strip()
         if stripped:
@@ -152,7 +153,18 @@ def _entities_to_markdown(text: str, entities: list[dict] | None) -> str:
         etype = e.get("type")
         if etype in _ENTITY_MARKDOWN_WRAP:
             wrap = _ENTITY_MARKDOWN_WRAP[etype]
-            parts.append(f"{wrap}{segment}{wrap}")
+            # Telegram охотно включает в жирный спан пробел или перенос по
+            # краям («**ul. Przykładowa 1 **»), а в Markdown закрывающая
+            # звёздочка после пробела — не разметка, а текст: звёздочки
+            # оставались в заметке буквально (реальная жалоба). Пробелы
+            # выносим наружу, размечаем только непустое ядро.
+            core = segment.strip()
+            if not core:
+                parts.append(segment)
+            else:
+                lead = segment[: len(segment) - len(segment.lstrip())]
+                trail = segment[len(segment.rstrip()) :]
+                parts.append(f"{lead}{wrap}{core}{wrap}{trail}")
         elif etype == "text_link" and e.get("url"):
             # Скобки в ТЕКСТЕ ссылки ломают разметку: «[смотри [тут]]»
             # разъезжается, и в заметке остаётся мусор вместо ссылки. Тот же
@@ -173,6 +185,63 @@ def _entities_to_markdown(text: str, entities: list[dict] | None) -> str:
         cursor = offset + length
     parts.append(unit_slice(cursor, total_units))
     return "".join(parts)
+
+
+# Строки, которые Markdown и так начинает с новой строки (пункты списков,
+# заголовки, цитаты, строки таблиц): обратный слэш перед ними стал бы не
+# переносом, а буквальным символом в конце предыдущего блока.
+_MARKDOWN_BLOCK_START_RE = re.compile(r"^\s*(?:[-*+]\s|\d+[.)]\s|#{1,6}\s|>|\||```)")
+
+
+def _hard_breaks(markdown: str) -> str:
+    """Перенос строки в сообщении Telegram — настоящий перенос: адрес,
+    код домофона и реквизиты перевода идут каждый со своей строки. В
+    Markdown одиночный перенос — мягкий, редактор склеивал всё в один абзац
+    (реальная жалоба: адрес, этаж и IBAN одной простынёй). Ставим в конец
+    строки обратный слэш — жёсткий перенос CommonMark, его же пишет и сам
+    редактор (tiptap-markdown сериализует hardBreak как «\\» + перенос).
+    Пустые строки остаются границами абзацев, блоки кода не трогаем."""
+    lines = markdown.split("\n")
+    out: list[str] = []
+    in_fence = False
+    for i, line in enumerate(lines):
+        if line.strip().startswith("```"):
+            in_fence = not in_fence
+            out.append(line)
+            continue
+        nxt = lines[i + 1] if i + 1 < len(lines) else None
+        joinable = (
+            not in_fence
+            and line.strip()
+            and nxt is not None
+            and nxt.strip()
+            and not _MARKDOWN_BLOCK_START_RE.match(nxt)
+            and not _MARKDOWN_BLOCK_START_RE.match(line)
+            and not line.endswith("\\")
+        )
+        out.append(line + "\\" if joinable else line)
+    return "\n".join(out)
+
+
+def _message_markdown(text: str, entities: list[dict] | None) -> str:
+    """Текст сообщения Telegram → Markdown заметки: разметка из entities
+    плюс жёсткие переносы строк."""
+    return _hard_breaks(_entities_to_markdown(text or "", entities))
+
+
+def _forward_written_at(messages: list[dict]) -> datetime | None:
+    """Когда был написан оригинал пересланного сообщения: Bot API 7.0+
+    кладёт дату в forward_origin.date, старый формат — forward_date (оба в
+    секундах Unix). Для пачки — самое раннее. None — не пересылка."""
+    stamps: list[int] = []
+    for m in messages:
+        origin = m.get("forward_origin") or {}
+        raw = origin.get("date") or m.get("forward_date")
+        if isinstance(raw, (int, float)) and raw > 0:
+            stamps.append(int(raw))
+    if not stamps:
+        return None
+    return datetime.fromtimestamp(min(stamps), tz=timezone.utc)
 
 
 async def register_webhook() -> None:
@@ -521,7 +590,7 @@ async def _handle_photo(db: AsyncSession, message: dict, space_id: uuid.UUID, au
     # очередь — плейсхолдер "обрабатывается…" остаётся навсегда.
     upload.transcription_status = "pending"
     placeholder = image_placeholder_text(upload.id)
-    caption = _entities_to_markdown(message.get("caption", ""), message.get("caption_entities"))
+    caption = _message_markdown(message.get("caption", ""), message.get("caption_entities"))
     body = f"{caption}\n\n" if caption else ""
     content = f"{body}![](/api/uploads/{upload.id})\n\n{placeholder}\n"
     title = _derive_title(caption, fallback="Фото")
@@ -563,7 +632,7 @@ async def _handle_video(db: AsyncSession, message: dict, space_id: uuid.UUID, au
     # "pending"/"processing", а не дефолтный "none".
     upload.transcription_status = "pending"
     placeholder = video_placeholder_text(upload.id)
-    caption = _entities_to_markdown(message.get("caption", ""), message.get("caption_entities"))
+    caption = _message_markdown(message.get("caption", ""), message.get("caption_entities"))
     body = f"{caption}\n\n" if caption else ""
     content = (
         f'{body}<video src="/api/uploads/{upload.id}" controls preload="metadata" '
@@ -601,7 +670,7 @@ async def _handle_document(db: AsyncSession, message: dict, space_id: uuid.UUID,
     content_bytes, _file_path = result
     mime_type = document.get("mime_type", "application/octet-stream")
     upload = await _save_upload(db, space_id, author_id, content_bytes, filename, mime_type)
-    caption = _entities_to_markdown(message.get("caption", ""), message.get("caption_entities"))
+    caption = _message_markdown(message.get("caption", ""), message.get("caption_entities"))
     body = f"{caption}\n\n" if caption else ""
     attachment_url = f"/api/uploads/{upload.id}"
 
@@ -700,9 +769,10 @@ async def _flush_media_group(group_id: str) -> None:
             logger.exception("Не удалось обработать альбом из Telegram (chat_id=%s)", chat_id)
             await send_message(chat_id, "⚠️ Не получилось сохранить альбом. Попробуйте отправить ещё раз.")
             return
+        reply = await _saved_reply(db, saved) if saved is not None else None
 
-    if saved:
-        await send_message(chat_id, "Сохранено ✅")
+    if reply is not None:
+        await send_message(chat_id, *reply)
 
 
 def _buffer_forward_message(message: dict, chat_id: int, sender_name: str | None) -> None:
@@ -749,9 +819,10 @@ async def _flush_forward_batch(key: str) -> None:
             logger.exception("Не удалось обработать пересланные сообщения из Telegram (chat_id=%s)", chat_id)
             await send_message(chat_id, "⚠️ Не получилось сохранить пересланное сообщение. Попробуйте отправить ещё раз.")
             return
+        reply = await _saved_reply(db, saved) if saved is not None else None
 
-    if saved:
-        await send_message(chat_id, "Сохранено ✅")
+    if reply is not None:
+        await send_message(chat_id, *reply)
 
 
 async def _handle_forward_batch(
@@ -760,7 +831,7 @@ async def _handle_forward_batch(
     space_id: uuid.UUID,
     author_id: uuid.UUID,
     sender_name: str | None,
-) -> bool:
+) -> Item | None:
     """Несколько сообщений одним постом (альбом, media_group_id) ИЛИ
     несколько сообщений, пересланных вручную одним действием (без
     media_group_id — буферизуются отдельно, см. _buffer_forward_message) —
@@ -783,7 +854,7 @@ async def _handle_forward_batch(
     title = ""
     for m in messages:
         if m.get("text"):
-            formatted = _entities_to_markdown(m["text"], m.get("entities"))
+            formatted = _message_markdown(m["text"], m.get("entities"))
             if not title:
                 title = _derive_title(formatted)
             parts.append(linkify_notes_content(formatted))
@@ -797,7 +868,7 @@ async def _handle_forward_batch(
             content_bytes, file_path = result
             filename = file_path.rsplit("/", 1)[-1]
             upload = await _save_upload(db, space_id, author_id, content_bytes, filename, "image/jpeg")
-            caption = _entities_to_markdown(m.get("caption", ""), m.get("caption_entities"))
+            caption = _message_markdown(m.get("caption", ""), m.get("caption_entities"))
             if caption and not title:
                 title = _derive_title(caption)
             body = f"{caption}\n\n" if caption else ""
@@ -817,7 +888,7 @@ async def _handle_forward_batch(
             filename = file_path.rsplit("/", 1)[-1]
             mime_type = video.get("mime_type", "video/mp4")
             upload = await _save_upload(db, space_id, author_id, content_bytes, filename, mime_type)
-            caption = _entities_to_markdown(m.get("caption", ""), m.get("caption_entities"))
+            caption = _message_markdown(m.get("caption", ""), m.get("caption_entities"))
             if caption and not title:
                 title = _derive_title(caption)
             body = f"{caption}\n\n" if caption else ""
@@ -861,7 +932,7 @@ async def _handle_forward_batch(
             content_bytes, _file_path = result
             mime_type = document.get("mime_type", "application/octet-stream")
             upload = await _save_upload(db, space_id, author_id, content_bytes, filename, mime_type)
-            caption = _entities_to_markdown(m.get("caption", ""), m.get("caption_entities"))
+            caption = _message_markdown(m.get("caption", ""), m.get("caption_entities"))
             if caption and not title:
                 title = _derive_title(caption)
             body = f"{caption}\n\n" if caption else ""
@@ -892,11 +963,29 @@ async def _handle_forward_batch(
                 parts.append(f"{body}{serialize_document_attachment(attachment_url, filename)}")
 
     if not parts:
-        return False
+        return None
     content = "\n\n".join(parts)
     if not title:
         title = sender_name or ""
-    await create_item_row(
+    properties: dict = {}
+    written_at = _forward_written_at(messages)
+    if written_at is not None:
+        # Дата оригинала — в свойства (от неё app/autotag.py считает
+        # «завтра»/«в пятницу»: пересланное вчера вечером «завтра» — это
+        # сегодня, а не следующий день) и первой строкой в текст, как
+        # показывает пересылку сам Telegram.
+        from app.user_timezone import resolve_timezone
+
+        author = await db.get(User, author_id)
+        local = written_at.astimezone(resolve_timezone(author.timezone if author else None))
+        properties["source"] = {
+            "kind": "telegram_forward",
+            "sender": sender_name,
+            "written_at": written_at.isoformat(),
+        }
+        who = f" · {sender_name}" if sender_name else ""
+        content = f"_Переслано из Telegram{who} · {local.strftime('%d.%m.%Y, %H:%M')}_\n\n{content}"
+    item = await create_item_row(
         db,
         space_id=space_id,
         author_id=author_id,
@@ -904,12 +993,26 @@ async def _handle_forward_batch(
         title=title,
         content=content,
         folder_id=folder_id,
+        properties=properties,
     )
     if folder_created:
         await realtime.notify_space(space_id, "folders")
     for fn, upload_id in deferred:
         fn(upload_id)
-    return True
+    return item
+
+
+async def _saved_reply(db: AsyncSession, item: Item) -> tuple[str, dict]:
+    """Ответ бота после сохранения: что и куда легло, с кнопкой открыть.
+    Голое «Сохранено ✅» оставляло человека искать заметку по всей базе
+    (реальная жалоба: пересланное «вроде сохранилось», а где — неясно)."""
+    space = await db.get(Space, item.space_id)
+    folder = await db.get(Folder, item.folder_id) if item.folder_id else None
+    where = " › ".join(n for n in ((space.name if space else ""), (folder.name if folder else "")) if n)
+    title = (item.title or "").strip() or "Без названия"
+    text = f"Сохранено ✅ «{title}»" + (f"\n{where}" if where else "")
+    base_url = get_settings().public_base_url.rstrip("/")
+    return text, {"inline_keyboard": [[open_button("Открыть", f"{base_url}/?item={item.id}")]]}
 
 
 async def _transcribe_voice_only(message: dict) -> str:
