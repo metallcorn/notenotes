@@ -203,8 +203,8 @@ function RoutineDoseRow({
             <div className={`mt-0.5 text-xs font-semibold ${!resolved && waiting > 0 ? "text-warning" : "text-subtle"}`}>{status}</div>
           </button>
           {!resolved && (
-            <button onClick={() => run("done")} disabled={busy} className="h-10 shrink-0 rounded-full bg-nav px-4 text-sm font-extrabold text-lime disabled:opacity-60">
-              {t("routine.given")}
+            <button onClick={() => run("done")} disabled={busy} aria-label={t("routine.given")} title={t("routine.given")} className="flex h-10 w-11 shrink-0 items-center justify-center rounded-full bg-nav text-lime disabled:opacity-60">
+              <Check size={18} strokeWidth={2.8} />
             </button>
           )}
           {resolved && (

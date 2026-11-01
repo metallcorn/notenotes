@@ -210,7 +210,7 @@ export function journalText(routine: Pick<Routine, "title" | "subject" | "dose" 
         return `${when} → ${time(d.done_at)} (${sign}${Math.abs(offset)} ${ru ? "мин" : "min"})${d.done_by_name ? ` · ${d.done_by_name}` : ""}`;
       }
       if (d.status === "skipped") return `${when} → ${ru ? "не нужно сегодня" : "not needed"}`;
-      if (d.reported_by_name) return `${when} → ${ru ? "не дали" : "not given"} · ${d.reported_by_name}`;
+      if (d.reported_by_name) return `${when} → ${ru ? "пропустили" : "missed"} · ${d.reported_by_name}`;
       return `${when} → ${ru ? "никто не отметил" : "nobody confirmed"}`;
     });
   return [header, ...lines].join("\n");

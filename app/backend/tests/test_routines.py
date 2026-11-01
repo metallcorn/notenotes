@@ -255,7 +255,7 @@ async def test_telegram_ping_replaces_previous_message(auth_client, db_session, 
     assert "Tabletka dla Burka" in sent[0][1] and "Burek · pół tabletki" in sent[0][1]
     assert "напоминаю 2-й раз" in sent[1][1]
     buttons = [b["text"] for row in sent[1][2]["inline_keyboard"] for b in row]
-    assert buttons == ["✓ Дал", "Делает не я", "⏰ +30 мин", "⏰ +1 ч", "Не нужно сегодня", "✗ Не дали", "Открыть"]
+    assert buttons == ["✓", "⏰ +30 мин", "⏰ +1 ч", "Делает не я", "Не нужно сегодня", "✗ Пропустили", "Открыть"]
 
 
 async def test_telegram_callback_done_deletes_pings_and_redraws_day_summary(auth_client, db_session, test_user, monkeypatch):
@@ -357,7 +357,7 @@ async def test_telegram_callback_not_me_and_snooze(auth_client, db_session, test
 
     text, keyboard = await routines.handle_callback(db_session, test_user.id, f"rt:n:{mine.id}")
     assert "Ждём отметку" in text
-    assert [b["text"] for row in keyboard for b in row] == ["✓ Всё-таки дал я", "Открыть"]
+    assert [b["text"] for row in keyboard for b in row] == ["✓ Всё-таки я", "Открыть"]
 
     text, keyboard = await routines.handle_callback(db_session, test_user.id, f"rt:s:30:{mine.id}")
     assert "Отложено до" in text
@@ -370,7 +370,7 @@ async def test_telegram_callback_not_me_and_snooze(auth_client, db_session, test
     closed = next(d for d in item.properties["doses"] if d["id"] == mine.payload["dose_id"])
     assert closed["status"] == STATUS_MISSED and closed["reported_by_name"] == "Test User"
     text, _ = await routines.handle_callback(db_session, test_user.id, f"rt:m:{mine.id}")
-    assert text.endswith("✗ Не дали — Test User")
+    assert text.endswith("✗ Пропустили — Test User")
 
 
 async def test_tick_marks_missed_and_opens_next(auth_client, db_session, test_user):
@@ -528,7 +528,7 @@ def test_dose_day_keeps_late_dose_on_planned_day_and_moves_early_one():
         [SimpleNamespace(title="Amodip", properties={"doses": [late, {**pending, "status": "missed", "reported_by_name": "Anna"}]})],
         day=datetime(2026, 10, 31).date(), tz=tz, now=planned + timedelta(hours=11),
     )
-    assert text.split("\n") == ["💊 Приёмы 31.10 · 1 из 2", "✓ 22:00 Amodip · 08:00 , с опозданием", "✗ 22:00 Amodip · не дали · Anna"]
+    assert text.split("\n") == ["💊 Приёмы 31.10 · 1 из 2", "✓ 22:00 Amodip · 08:00 , с опозданием", "✗ 22:00 Amodip · пропустили · Anna"]
 
 
 async def test_skip_missed_records_who_admitted_it(auth_client, db_session, test_user):
@@ -586,7 +586,7 @@ async def test_closing_yesterdays_dose_edits_yesterdays_summary_in_place(auth_cl
     await db_session.commit()
 
     assert [(c, m) for c, m, _ in edited] == [(8, 640)], "вчерашняя сводка поправлена на месте"
-    assert "✗ 22:00 Tabletka dla Burka · не дали · Test User" in edited[0][2]
+    assert "✗ 22:00 Tabletka dla Burka · пропустили · Test User" in edited[0][2]
     assert (8, 640) not in deleted, "вчерашнее сообщение не удаляется и не переотправляется"
     # Сегодня пока нечего показывать (следующий приём заводится уже после
     # закрытия пингов, сводку на день заведёт его первый пинг) — ничего не шлём.

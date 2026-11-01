@@ -453,7 +453,7 @@ def day_summary_text(items: list[Item], *, day: date, tz: ZoneInfo, now: datetim
                 line = f"⏭ {local:%H:%M} {item.title} · пропущен"
             elif status == STATUS_MISSED:
                 who = dose.get("reported_by_name")
-                line = f"✗ {local:%H:%M} {item.title} · " + (f"не дали · {who}" if who else "никто не отметил")
+                line = f"✗ {local:%H:%M} {item.title} · " + (f"пропустили · {who}" if who else "никто не отметил")
             elif planned <= now:
                 line = f"⏳ {local:%H:%M} {item.title} · ждёт {_humanize(now - planned)}"
             else:
@@ -593,7 +593,7 @@ async def skip(db: AsyncSession, item: Item, dose_id: str, *, user: User, missed
         dose["reported_by"] = str(user.id)
         dose["reported_by_name"] = name
         dose["reported_at"] = _iso(now)
-        line = f"✗ Не дали — {name}"
+        line = f"✗ Пропустили — {name}"
     else:
         _close(dose, STATUS_SKIPPED)
         line = f"⏭ Пропущен — {name}"
@@ -735,18 +735,18 @@ def ping_text(item: Item, dose: dict, notification: Notification, now: datetime)
 
 def ping_keyboard(item: Item, notification: Notification) -> list[list[dict]]:
     nid = notification.id
+    # Галочка без слова (владелец, 01.11): «дал» — про лекарство и про
+    # другого, а рутина бывает своя и не про таблетки. Одна на всю ширину.
     return [
-        [
-            {"text": "✓ Дал", "callback_data": f"{CALLBACK_PREFIX}d:{nid}"},
-            {"text": "Делает не я", "callback_data": f"{CALLBACK_PREFIX}n:{nid}"},
-        ],
+        [{"text": "✓", "callback_data": f"{CALLBACK_PREFIX}d:{nid}"}],
         [
             {"text": "⏰ +30 мин", "callback_data": f"{CALLBACK_PREFIX}s:30:{nid}"},
             {"text": "⏰ +1 ч", "callback_data": f"{CALLBACK_PREFIX}s:60:{nid}"},
+            {"text": "Делает не я", "callback_data": f"{CALLBACK_PREFIX}n:{nid}"},
         ],
         [
             {"text": "Не нужно сегодня", "callback_data": f"{CALLBACK_PREFIX}k:{nid}"},
-            {"text": "✗ Не дали", "callback_data": f"{CALLBACK_PREFIX}m:{nid}"},
+            {"text": "✗ Пропустили", "callback_data": f"{CALLBACK_PREFIX}m:{nid}"},
         ],
         _open_rows(item)[0],
     ]
@@ -846,7 +846,7 @@ async def handle_callback(db: AsyncSession, user_id: uuid.UUID, data: str) -> tu
             await db.commit()
             return (
                 f"{base_text(item, dose)}\n\nЖдём отметку от других. Тебя больше не дёргаю.",
-                [[{"text": "✓ Всё-таки дал я", "callback_data": f"{CALLBACK_PREFIX}d:{n.id}"}], *open_rows],
+                [[{"text": "✓ Всё-таки я", "callback_data": f"{CALLBACK_PREFIX}d:{n.id}"}], *open_rows],
             )
         if action == "s" and len(parts) == 3 and parts[1].isdigit():
             minutes = int(parts[1])
@@ -867,7 +867,7 @@ def _final_line(dose: dict, tz: ZoneInfo) -> str:
     if dose["status"] == STATUS_SKIPPED:
         return "⏭ Пропущен"
     if dose.get("reported_by_name"):
-        return f"✗ Не дали — {dose['reported_by_name']}"
+        return f"✗ Пропустили — {dose['reported_by_name']}"
     return "⏭ Никто не отметил — пропущен"
 
 

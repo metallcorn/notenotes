@@ -65,9 +65,8 @@ export default function DueReminderCard({
       {first.body && <div className="mt-0.5 truncate text-sm font-medium opacity-70">{first.body}</div>}
       {isDose ? (
         <div className="mt-3 flex flex-wrap gap-2">
-          <button type="button" onClick={() => doseAction("done")} disabled={busy} className="flex h-10 items-center gap-1.5 rounded-full bg-nav px-4 text-sm font-bold text-nav-text disabled:opacity-60">
-            {dose.isPending ? <Spinner size={14} /> : <Check size={16} strokeWidth={2.6} />}
-            {t("routine.given")}
+          <button type="button" onClick={() => doseAction("done")} disabled={busy} aria-label={t("routine.given")} title={t("routine.given")} className="flex h-10 w-12 items-center justify-center rounded-full bg-nav text-nav-text disabled:opacity-60">
+            {dose.isPending ? <Spinner size={14} /> : <Check size={18} strokeWidth={2.8} />}
           </button>
           <button type="button" onClick={() => doseAction("snooze", 30)} disabled={busy} className="h-10 rounded-full border-[1.5px] border-on-lime px-4 text-sm font-bold disabled:opacity-60">
             {t("routine.plus30")}

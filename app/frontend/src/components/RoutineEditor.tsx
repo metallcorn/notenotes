@@ -234,8 +234,10 @@ export default function RoutineEditor({ itemId, onDeleted, onBack }: { itemId: s
                   </div>
                   <div className={`truncate text-[13px] font-semibold ${waitingMinutes(pending, now) > 0 ? "text-warning" : "text-nav-muted"}`}>{pendingStatus(pending)}</div>
                 </div>
-                <button onClick={() => setDoneFor(pending)} disabled={busy} className="h-11 rounded-full bg-lime px-5 text-[15px] font-extrabold text-on-lime disabled:opacity-60">
-                  {t("routine.given")}
+                {/* Галочка без слова (владелец, 01.11): «дал» — про лекарство
+                    и про другого, а рутина бывает и своя, и не про таблетки. */}
+                <button onClick={() => setDoneFor(pending)} disabled={busy} aria-label={t("routine.given")} title={t("routine.given")} className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-lime text-on-lime disabled:opacity-60">
+                  <Check size={24} strokeWidth={3} />
                 </button>
               </div>
               <div className="mt-3 flex flex-wrap gap-2">

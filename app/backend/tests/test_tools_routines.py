@@ -255,8 +255,8 @@ async def test_routine_journal_offsets_and_summary(auth_client, db_session, test
     result = await get_routine_journal(ctx, {"routine_id": routine["id"]})
     assert result["timezone"] == "Europe/Warsaw" and result["schedule"]
     rows = result["journal"]
-    assert [r["status"] for r in rows] == ["дал", "дал", "дал", "не нужно", "не дали"]
-    assert rows[0] == {"date": "2026-09-21", "planned": "16:30", "status": "дал", "done_at": "16:31", "offset_minutes": 1, "by": "Jan"}
+    assert [r["status"] for r in rows] == ["сделано", "сделано", "сделано", "не нужно", "пропустили"]
+    assert rows[0] == {"date": "2026-09-21", "planned": "16:30", "status": "сделано", "done_at": "16:31", "offset_minutes": 1, "by": "Jan"}
     assert rows[1]["offset_minutes"] == 40 and rows[2]["offset_minutes"] == -10
     assert rows[4]["by"] == "Anna" and "offset_minutes" not in rows[3]
     assert result["summary"] == {

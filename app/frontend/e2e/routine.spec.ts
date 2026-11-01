@@ -43,14 +43,14 @@ test("рутина: создать, отметить приём, увидеть 
   await expect(page.getByRole("heading", { name: "Таблетка Бурку" })).toBeVisible({ timeout: 15_000 });
   const today = page.getByRole("region", { name: "Сегодня" });
   await expect(today).toBeVisible();
-  await expect(today.getByRole("button", { name: "Дал", exact: true })).toBeVisible();
+  await expect(today.getByRole("button", { name: "Отметить", exact: true })).toBeVisible();
   await page.screenshot({ path: "test-results/routine-screen.png" });
 
-  await today.getByRole("button", { name: "Дал", exact: true }).click();
-  const done = page.getByRole("dialog", { name: "Дал" });
+  await today.getByRole("button", { name: "Отметить", exact: true }).click();
+  const done = page.getByRole("dialog", { name: "Отметить" });
   await expect(done).toBeVisible();
   await page.waitForTimeout(400);
-  await done.getByRole("button", { name: /^Дал в / }).click();
+  await done.getByRole("button", { name: /^✓ в / }).click();
 
   // Приём закрыт: в карточке — галочка с именем и временем, и новый «Дал»
   // для следующего приёма (расписание по умолчанию — два раза в день).
