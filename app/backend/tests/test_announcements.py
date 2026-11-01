@@ -52,7 +52,7 @@ async def test_announce_writes_journal_and_notifies_every_member(auth_client, db
     personal = await _space(auth_client, "Osobiste")
     ctx = _ctx(db_session, test_user, personal)
 
-    result = await announce(ctx, {"text": "ушёл из дома, вернусь к десяти", "until": "23:59", "space": "Rodzina", "details": "Ключи под ковриком.\nКот накормлен."})
+    result = await announce(ctx, {"text": "ушёл из дома, вернусь к десяти", "until": "23:59", "space": "w rodzinie", "details": "Ключи под ковриком.\nКот накормлен."})
 
     assert result["recipients"] == 2, "автор тоже получает — так проверяется доставка"
     assert result["space_name"] == "Rodzina"
@@ -75,7 +75,8 @@ async def test_announce_writes_journal_and_notifies_every_member(auth_client, db
     assert sent[0].payload["entry_id"] == result["entry_id"]
 
     # Второе объявление в том же месяце — та же заметка, свежее сверху, версия в истории.
-    second = await announce(_ctx(db_session, test_user, space_id), {"text": "интернет отключат на час", "kind": "info"})
+    # «текущий» — пользователь спейс не назвал, берётся спейс диалога.
+    second = await announce(_ctx(db_session, test_user, space_id), {"text": "интернет отключат на час", "kind": "info", "space": "текущий"})
     assert second["journal_id"] == result["journal_id"]
     await db_session.refresh(item)
     assert len(item.properties["entries"]) == 2

@@ -14,7 +14,7 @@ from typing import Any
 from app import announcements
 from app.llm.base import ToolDefinition
 from app.models import User
-from app.tools.notes import SPACE_PARAM, _resolve_space, item_url
+from app.tools.notes import _resolve_space, item_url
 from app.tools.registry import ToolContext, ToolError
 from app.user_timezone import assume_default_timezone, resolve_timezone
 
@@ -25,27 +25,32 @@ ANNOUNCE = ToolDefinition(
         "push и колокольчик, а запись ложится строкой в журнал «Объявления» этого месяца. Вызывай, "
         "когда пользователь обращается к другим людям, а не к себе: «скажи семье, что ушёл, вернусь "
         "к десяти», «анонс музыкантам: реп сегодня с 10 до 12», «предупреди всех, что интернет "
-        "отключат». Спейс — тот, что назвал пользователь (space по названию), иначе текущий спейс "
-        "диалога. НЕ переспрашивай и не проси подтверждения — фраза и есть действие; уточни только "
-        "если спейс не назван, а текущий спейс личный и у пользователя есть общие. text — одна "
-        "короткая строка, заголовок уведомления (без имени автора — оно подставится само); всё "
-        "длинное — в details. until — до какого времени (вернусь к…, занят до…), если пользователь "
-        "его назвал. kind=away для «ушёл/уехал/буду там-то», info для остального. Это НЕ напоминание "
+        "отключат». space ОБЯЗАТЕЛЕН: кому адресовано — название спейса ровно так, как сказал "
+        "пользователь («семье» → «семейный», «в личный спейс» → «личный», «музыкантам» → «музыка»); "
+        "если пользователь спейс не назвал вообще — передай «текущий». Пропустить space нельзя: "
+        "объявление уйдёт не тем людям. НЕ переспрашивай и не проси подтверждения — фраза и есть "
+        "действие. text — одна короткая строка, заголовок уведомления (без имени автора — оно "
+        "подставится само); всё длинное — в details. until — до какого времени, если пользователь "
+        "его назвал: «вернусь к десяти / после десяти» вечером — это 22:00, выбирай ближайшее "
+        "будущее. kind=away для «ушёл/уехал/буду там-то», info для остального. Это НЕ напоминание "
         "(create_reminder) и не заметка себе (create_note)."
     ),
     parameters={
         "type": "object",
         "properties": {
             "text": {"type": "string", "description": "Короткий заголовок объявления: «ушёл из дома, вернусь к 22:00»"},
+            "space": {
+                "type": "string",
+                "description": "Кому: название спейса, как сказал пользователь («семейный», «личный», «музыка»), или «текущий», если не назвал",
+            },
             "details": {"type": "string", "description": "Подробности, если есть, — любой длины, уйдут в тело уведомления и под строку журнала"},
             "until": {
                 "type": "string",
                 "description": "До какого времени: ISO 8601 в местном времени («2026-11-01T22:00») или просто «22:00» — сегодня (если уже прошло — завтра)",
             },
             "kind": {"type": "string", "enum": ["away", "info"], "description": "away — ушёл/уехал/буду в другом месте; info — всё остальное"},
-            "space": SPACE_PARAM,
         },
-        "required": ["text"],
+        "required": ["text", "space"],
     },
 )
 
@@ -94,6 +99,18 @@ def parse_until(raw: Any, tz_name: str | None, now: datetime) -> datetime | None
     return assume_default_timezone(parsed, tz_name)
 
 
+# Живой случай 01.11, первый же тест владельца: «в личный спейс мой сделай
+# анонс…» — модель вызвала announce без space, и объявление ушло в спейс
+# бота «Telegram». Необязательный параметр модель опускает; поэтому space
+# обязателен в схеме, а «не назвал» выражается словом, не пропуском.
+_CURRENT_SPACE_WORDS = {"текущий", "текущий спейс", "этот", "этот спейс", "current", "here", "this"}
+
+
+def _space_arg(raw: Any) -> str | None:
+    text = str(raw or "").strip()
+    return None if not text or text.casefold() in _CURRENT_SPACE_WORDS else text
+
+
 async def _author(ctx: ToolContext) -> User:
     user = await ctx.db.get(User, ctx.user_id)
     if user is None:
@@ -117,7 +134,7 @@ async def announce(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
         raise ToolError("Пустой text — передай короткую строку объявления, например «ушёл из дома, вернусь к 22:00»")
     now = datetime.now(timezone.utc)
     until = parse_until(args.get("until"), ctx.client_timezone, now)
-    space_id = await _resolve_space(ctx, args.get("space"))
+    space_id = await _resolve_space(ctx, _space_arg(args.get("space")))
     tz = resolve_timezone(ctx.client_timezone)
     try:
         item, entry, recipients = await announcements.announce(
