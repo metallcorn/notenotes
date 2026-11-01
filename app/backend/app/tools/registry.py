@@ -112,7 +112,7 @@ SKILL_CATALOG: dict[str, dict[str, Any]] = {
     "list_documents": {"label": "Документы", "description": "Все документы одним списком, с сериями ежемесячных", "toggleable": False},
     "routines": {
         "label": "Рутины",
-        "description": "Заводит приёмы лекарств с подтверждением, отмечает «дал», ставит на паузу (create_routine/list_routines/mark_dose/update_routine)",
+        "description": "Заводит приёмы лекарств с подтверждением, отмечает «дал», ставит на паузу, отдаёт журнал приёмов (create_routine/list_routines/mark_dose/update_routine/get_routine_journal)",
         "toggleable": True,
     },
     "run_python": {"label": "Python-вычисления", "description": "Точные вычисления в изолированной песочнице", "toggleable": True},
@@ -151,7 +151,7 @@ TOOL_GROUPS: dict[str, tuple[str, ...]] = {
     # track_delivery (статус в чат) и insert_delivery_block (виджет в заметку).
     "track_delivery": ("track_delivery", "insert_delivery_block"),
     # Один тумблер «Рутины» на все четыре инструмента — как у таблиц.
-    "routines": ("create_routine", "list_routines", "mark_dose", "update_routine", "reopen_dose", "defer_dose"),
+    "routines": ("create_routine", "list_routines", "mark_dose", "update_routine", "reopen_dose", "defer_dose", "get_routine_journal"),
     "structure": ("update_folder", "delete_folder", "remove_tag", "rename_tag", "merge_tag", "delete_tag"),
     "history": ("list_versions", "revert_version", "list_trash", "restore_note", "archive_note"),
     "sharing": ("share_note", "unshare_note"),
@@ -243,6 +243,7 @@ def _build_registry() -> dict[str, tuple[ToolDefinition, ToolHandler]]:
         tables.DELETE_TABLE_COLUMN.name: (tables.DELETE_TABLE_COLUMN, tables.delete_table_column),
         routines_tool.REOPEN_DOSE.name: (routines_tool.REOPEN_DOSE, routines_tool.reopen_dose),
         routines_tool.DEFER_DOSE.name: (routines_tool.DEFER_DOSE, routines_tool.defer_dose),
+        routines_tool.GET_ROUTINE_JOURNAL.name: (routines_tool.GET_ROUTINE_JOURNAL, routines_tool.get_routine_journal),
         tables.CREATE_TABLE.name: (tables.CREATE_TABLE, tables.create_table),
         tables.GET_TABLE.name: (tables.GET_TABLE, tables.get_table),
         tables.ADD_TABLE_ROW.name: (tables.ADD_TABLE_ROW, tables.add_table_row),

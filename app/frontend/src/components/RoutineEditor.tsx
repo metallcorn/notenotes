@@ -1,10 +1,12 @@
 import { useState } from "react";
-import { Check, ChevronLeft, History, MoreVertical, Pause, Pill, Play, RotateCcw, Settings2, Trash2 } from "lucide-react";
+import { Check, ChevronLeft, ClipboardCopy, History, MoreVertical, Pause, Pill, Play, RotateCcw, Settings2, Trash2 } from "lucide-react";
 import { useDeleteItem, useMe, useRoutine, useRoutineDoseAction, useSpaces, useUpdateRoutine } from "../api/hooks";
 import type { RoutineDose } from "../api/types";
 import { dayOfCourse, deferredNames, humanMinutes, lateMinutes, sameLocalDay, waitingMinutes } from "../lib/routineFormat";
+import { journalText, levelOf, offsetLabel, offsetMinutes } from "../lib/routineInsights";
 import ConfirmDialog from "./ConfirmDialog";
 import DoseDoneSheet from "./DoseDoneSheet";
+import RoutineInsights from "./RoutineInsights";
 import RoutineSheet from "./RoutineSheet";
 import Spinner from "./Spinner";
 import VersionHistoryPanel from "./VersionHistoryPanel";
@@ -31,14 +33,19 @@ function dayLabel(value: string, now: Date): string {
   return d.toLocaleDateString(dateLocale, { day: "numeric", month: "short" });
 }
 
+// Оттенок по отклонению от плана (владелец, 01.11): ±10 мин — норма,
+// зелёный как есть; до часа — янтарный; больше часа — красный. Раньше
+// срока — тоже отклонение, со знаком «−».
+const BADGE_CLASS = {
+  ok: "bg-lime/60 text-on-lime",
+  warn: "bg-warning/15 text-warning",
+  bad: "bg-danger-soft text-danger",
+};
+
 function DoseBadge({ dose }: { dose: RoutineDose }) {
-  if (dose.status === "done") {
-    const late = lateMinutes(dose);
-    return late > 0 ? (
-      <span className="rounded-full bg-warning/15 px-2.5 py-1 text-xs font-extrabold text-warning">{t("routine.lateBy", { n: late })}</span>
-    ) : (
-      <span className="rounded-full bg-lime/60 px-2.5 py-1 text-xs font-extrabold text-on-lime">{t("routine.onTime")}</span>
-    );
+  const offset = offsetMinutes(dose);
+  if (dose.status === "done" && offset !== null) {
+    return <span className={`rounded-full px-2.5 py-1 text-xs font-extrabold ${BADGE_CLASS[levelOf(offset)]}`}>{offsetLabel(offset, dateLocale)}</span>;
   }
   if (dose.status === "skipped") return <span className="rounded-full bg-muted px-2.5 py-1 text-xs font-extrabold text-subtle">{t("routine.skipped")}</span>;
   return (
@@ -60,6 +67,8 @@ export default function RoutineEditor({ itemId, onDeleted, onBack }: { itemId: s
   const [doneFor, setDoneFor] = useState<RoutineDose | null>(null);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
+  const [showAllJournal, setShowAllJournal] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   if (!routine) {
     return (
@@ -82,10 +91,19 @@ export default function RoutineEditor({ itemId, onDeleted, onBack }: { itemId: s
     return done && done.getTime() < planned.getTime() ? done : planned;
   };
   const todayClosed = routine.doses.filter((d) => d.status !== "pending" && sameLocalDay(dayOf(d), now));
-  const journal = routine.doses
-    .filter((d) => d.status !== "pending" && !sameLocalDay(dayOf(d), now))
-    .slice(-30)
-    .reverse();
+  // Журнал хранится целиком (до 400 приёмов); на экран — последние 30, по
+  // кнопке — все (жалоба 01.11: «журнал старше посмотреть не могу»).
+  const journalAll = routine.doses.filter((d) => d.status !== "pending" && !sameLocalDay(dayOf(d), now)).reverse();
+  const journal = showAllJournal ? journalAll : journalAll.slice(0, 30);
+  const copyJournal = async () => {
+    try {
+      await navigator.clipboard.writeText(journalText(routine, dateLocale));
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      /* нет буфера (http, старый WebView) — молча */
+    }
+  };
   const lastClosed = [...routine.doses].filter((d) => d.status !== "pending").pop() ?? null;
   const course = dayOfCourse(routine, now);
   const subtitle = [routine.subject, routine.dose, routine.schedule_text, routine.ends_on ? `${t("routine.to")} ${new Date(routine.ends_on + "T00:00:00").toLocaleDateString(dateLocale, { day: "numeric", month: "short" })}` : null]
@@ -129,6 +147,9 @@ export default function RoutineEditor({ itemId, onDeleted, onBack }: { itemId: s
           <button onClick={() => setShowHistory((v) => !v)} title={t("routine.history")} className="hidden h-9 w-9 shrink-0 items-center justify-center rounded-xl text-subtle hover:bg-muted hover:text-secondary lg:flex">
             <History size={16} />
           </button>
+          <button onClick={() => void copyJournal()} title={t("routine.copyJournal")} className="hidden h-9 w-9 shrink-0 items-center justify-center rounded-xl text-subtle hover:bg-muted hover:text-secondary lg:flex">
+            <ClipboardCopy size={16} />
+          </button>
           <button onClick={() => setConfirmingDelete(true)} title={t("routine.delete")} className="hidden h-9 w-9 shrink-0 items-center justify-center rounded-xl text-subtle hover:bg-muted hover:text-danger lg:flex">
             <Trash2 size={16} />
           </button>
@@ -153,6 +174,9 @@ export default function RoutineEditor({ itemId, onDeleted, onBack }: { itemId: s
                   )}
                   <button onClick={() => { setShowHistory((v) => !v); setMenuOpen(false); }} className={menuItem}>
                     <History size={14} /> {t("routine.history")}
+                  </button>
+                  <button onClick={() => { void copyJournal(); setMenuOpen(false); }} className={menuItem}>
+                    <ClipboardCopy size={14} /> {t("routine.copyJournal")}
                   </button>
                   <button onClick={() => { setConfirmingDelete(true); setMenuOpen(false); }} className="flex min-h-11 w-full items-center gap-2.5 px-4 text-left text-sm font-bold text-danger hover:bg-danger-soft">
                     <Trash2 size={14} /> {t("routine.delete")}
@@ -237,6 +261,10 @@ export default function RoutineEditor({ itemId, onDeleted, onBack }: { itemId: s
           <div className="mt-1.5 text-[12px] font-semibold text-subtle">{t("routine.stats", { done: routine.stats.done, late: routine.stats.late, missed: routine.stats.missed })}</div>
         </div>
 
+        <RoutineInsights routine={routine} />
+
+        {copied && <div className="mx-5 mt-3 rounded-2xl bg-lime/60 px-3.5 py-2 text-[13px] font-bold text-on-lime lg:mx-6 lg:max-w-2xl">{t("routine.copied")}</div>}
+
         {journal.length > 0 && (
           <div className="mx-5 mt-4 pb-28 lg:mx-6 lg:max-w-2xl lg:pb-8">
             <h2 className="text-lg font-extrabold tracking-tight text-primary">{t("routine.journal")}</h2>
@@ -251,6 +279,11 @@ export default function RoutineEditor({ itemId, onDeleted, onBack }: { itemId: s
                 </div>
               ))}
             </div>
+            {!showAllJournal && journalAll.length > journal.length && (
+              <button onClick={() => setShowAllJournal(true)} className="mt-3 h-11 w-full rounded-2xl bg-muted text-sm font-bold text-secondary hover:bg-muted-hover">
+                {t("routine.showAll", { n: journalAll.length })}
+              </button>
+            )}
           </div>
         )}
         {journal.length === 0 && <div className="pb-28 lg:pb-8" />}

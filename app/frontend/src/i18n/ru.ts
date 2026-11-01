@@ -249,6 +249,17 @@ export const ru = {
   "routine.nowDose": "Сейчас · приём {time}",
   "routine.edit": "Править",
   "routine.timesHint": "Время по поясу {tz}",
+  "routine.insights": "Попадание во время",
+  "routine.median": "медиана {n}",
+  "routine.within10": "в ±10 мин: {n} из {total}",
+  "routine.offTrack": "мимо: {n}",
+  "routine.last4weeks": "Последние 4 недели",
+  "routine.legendOk": "±10 мин",
+  "routine.legendWarn": "до часа",
+  "routine.legendBad": "больше часа · не дали",
+  "routine.copyJournal": "Скопировать журнал",
+  "routine.copied": "Журнал скопирован — можно вставить ассистенту",
+  "routine.showAll": "Показать все ({n})",
 } as const;
 
 export type MessageKey = keyof typeof ru;

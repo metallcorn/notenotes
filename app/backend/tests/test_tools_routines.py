@@ -229,3 +229,46 @@ async def test_mcp_exposes_routines_and_instructions(client, db_session, test_us
     assert r.json()["result"]["isError"] is False, r.text
     item = (await db_session.execute(select(Item).where(Item.title == "Tabletka dla Burka"))).scalar_one()
     assert item.material_type == "routine"
+
+
+async def test_routine_journal_offsets_and_summary(auth_client, db_session, test_user):
+    from app.tools.routines import get_routine_journal
+
+    space_id = await _space(auth_client)
+    ctx = _ctx(db_session, test_user, space_id)
+    routine = await create_routine(ctx, {"title": "Krople dla Burka", "times": ["16:30"]})
+    item = await db_session.get(Item, uuid.UUID(routine["id"]))
+    tz = timezone(timedelta(hours=2))  # Варшава летом
+    day = lambda d, h=16, m=30: datetime(2026, 9, d, h, m, tzinfo=tz).astimezone(timezone.utc).isoformat()
+    props = dict(item.properties)
+    props["doses"] = [
+        {"id": "a", "planned_at": day(21), "status": "done", "done_at": day(21, 16, 31), "done_by_name": "Jan"},
+        {"id": "b", "planned_at": day(22), "status": "done", "done_at": day(22, 17, 10), "done_by_name": "Jan"},
+        {"id": "c", "planned_at": day(23), "status": "done", "done_at": day(23, 16, 20), "done_by_name": "Anna"},
+        {"id": "d", "planned_at": day(24), "status": "skipped", "done_at": None},
+        {"id": "e", "planned_at": day(25), "status": "missed", "done_at": None, "reported_by_name": "Anna"},
+        *props["doses"],
+    ]
+    item.properties = props
+    await db_session.commit()
+
+    result = await get_routine_journal(ctx, {"routine_id": routine["id"]})
+    assert result["timezone"] == "Europe/Warsaw" and result["schedule"]
+    rows = result["journal"]
+    assert [r["status"] for r in rows] == ["дал", "дал", "дал", "не нужно", "не дали"]
+    assert rows[0] == {"date": "2026-09-21", "planned": "16:30", "status": "дал", "done_at": "16:31", "offset_minutes": 1, "by": "Jan"}
+    assert rows[1]["offset_minutes"] == 40 and rows[2]["offset_minutes"] == -10
+    assert rows[4]["by"] == "Anna" and "offset_minutes" not in rows[3]
+    assert result["summary"] == {
+        "total": 5, "done": 3, "skipped": 1, "missed": 1,
+        "within_10_min": 2, "late_over_hour": 0, "median_offset_minutes": 1, "max_late_minutes": 40,
+    }
+
+    with pytest.raises(ToolError, match="целое число"):
+        await get_routine_journal(ctx, {"routine_id": routine["id"], "days": "много"})
+    with pytest.raises(ToolError, match="больше нуля"):
+        await get_routine_journal(ctx, {"routine_id": routine["id"], "days": 0})
+    recent = await get_routine_journal(ctx, {"routine_id": routine["id"], "days": 1})
+    assert recent["journal"] == [] and "hint" in recent
+    assert "get_routine_journal" in {d.name for d in get_tool_definitions()}
+    assert "get_routine_journal" not in {d.name for d in get_tool_definitions({"routines"})}

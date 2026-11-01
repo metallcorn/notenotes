@@ -145,7 +145,7 @@ _TOOL_CATEGORIES: dict[str, set[str]] = {
     # попадал бы в КАЖДЫЙ ход (см. _relevant_tool_names), а их девять;
     # ключевые слова, как везде, с запасом в сторону «включить».
     "history": {"list_versions", "revert_version", "list_trash", "restore_note", "archive_note", "list_recent"},
-    "routines": {"create_routine", "list_routines", "mark_dose", "update_routine", "reopen_dose", "defer_dose"},
+    "routines": {"create_routine", "list_routines", "mark_dose", "update_routine", "reopen_dose", "defer_dose", "get_routine_journal"},
     "sharing": {"share_note", "unshare_note"},
     "files": {"delete_file", "reprocess_file", "update_file_text", "list_documents"},
     "links": {"list_backlinks"},

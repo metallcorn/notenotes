@@ -18,7 +18,7 @@ app/routines.py, здесь только разбор аргументов и о
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from fastapi import HTTPException
@@ -510,3 +510,117 @@ async def defer_dose(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
         raise ToolError(f"{exc} — см. list_routines") from None
     await ctx.db.commit()
     return {"id": str(item.id), "title": item.title, "deferred": True, "planned_at": _local(pending["planned_at"], (item.properties or {}).get("timezone"))}
+
+
+# --- журнал приёмов ---------------------------------------------------------
+#
+# Владелец (01.11): «журнал потом скормлю Claude в соседнем чате — оцени,
+# как давали». list_routines отдаёт только сводку и последний приём; здесь —
+# каждый приём с отклонением от плана в минутах и итоговые цифры, чтобы
+# модели не пришлось считать самой.
+
+_ON_TIME_MINUTES = 10
+
+
+def _status_label(dose: dict) -> str:
+    status = dose.get("status")
+    if status == STATUS_DONE:
+        return "дал"
+    if status == STATUS_SKIPPED:
+        return "не нужно"
+    if status == STATUS_MISSED:
+        return "не дали" if dose.get("reported_by_name") else "никто не отметил"
+    return "ждёт"
+
+
+GET_ROUTINE_JOURNAL = ToolDefinition(
+    name="get_routine_journal",
+    description=(
+        "Полный журнал приёмов одной рутины: каждый приём — дата, план, когда и кто отметил, "
+        "отклонение от плана в минутах (минус — раньше), исход (дал / не нужно / не дали / никто "
+        "не отметил), плюс сводка: медианное отклонение, сколько в пределах ±10 мин, сколько "
+        "опозданий больше часа, пропуски. Вызывай на «как мы давали», «оцени, насколько вовремя», "
+        "«сколько пропустили», «выгрузи журнал». routine_id — из list_routines."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "routine_id": {"type": "string", "description": "id рутины из list_routines"},
+            "days": {"type": "integer", "description": "За сколько последних дней (по умолчанию весь журнал)"},
+        },
+        "required": ["routine_id"],
+    },
+)
+
+
+async def get_routine_journal(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
+    item = await _get_routine(ctx, args.get("routine_id"))
+    props = item.properties or {}
+    tz = resolve_timezone(props.get("timezone") or ctx.client_timezone)
+    cutoff: datetime | None = None
+    if args.get("days") is not None:
+        try:
+            days = int(args["days"])
+        except (TypeError, ValueError):
+            raise ToolError(f"Некорректный days: {args['days']} — нужно целое число дней, например 30") from None
+        if days <= 0:
+            raise ToolError("days должен быть больше нуля — например 7 или 30")
+        cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+
+    rows: list[dict[str, Any]] = []
+    offsets: list[int] = []
+    counts = {"done": 0, "skipped": 0, "missed": 0}
+    for dose in props.get("doses") or []:
+        if dose.get("status") == STATUS_PENDING:
+            continue
+        planned = routines._dt(dose.get("planned_at"))
+        if planned is None or (cutoff is not None and planned < cutoff):
+            continue
+        local = planned.astimezone(tz)
+        row: dict[str, Any] = {"date": local.date().isoformat(), "planned": f"{local:%H:%M}", "status": _status_label(dose)}
+        if dose.get("status") == STATUS_DONE:
+            counts["done"] += 1
+            done_at = routines._dt(dose.get("done_at"))
+            if done_at is not None:
+                offset = round((done_at - planned).total_seconds() / 60)
+                offsets.append(offset)
+                done_local = done_at.astimezone(tz)
+                row["done_at"] = f"{done_local:%H:%M}" if done_local.date() == local.date() else done_local.isoformat(timespec="minutes")
+                row["offset_minutes"] = offset
+            row["by"] = dose.get("done_by_name")
+        elif dose.get("status") == STATUS_SKIPPED:
+            counts["skipped"] += 1
+        else:
+            counts["missed"] += 1
+            if dose.get("reported_by_name"):
+                row["by"] = dose["reported_by_name"]
+        rows.append(row)
+
+    ordered = sorted(offsets)
+    median = None
+    if ordered:
+        mid = len(ordered) // 2
+        median = ordered[mid] if len(ordered) % 2 else round((ordered[mid - 1] + ordered[mid]) / 2)
+    summary = {
+        "total": len(rows),
+        **counts,
+        "within_10_min": sum(1 for o in offsets if abs(o) <= _ON_TIME_MINUTES),
+        "late_over_hour": sum(1 for o in offsets if o > 60),
+        "median_offset_minutes": median,
+        "max_late_minutes": max(offsets) if offsets else None,
+    }
+    try:
+        schedule_text = describe(props.get("schedule") or {})
+    except ValueError:
+        schedule_text = ""
+    return {
+        "id": str(item.id),
+        "title": item.title,
+        "subject": props.get("subject") or "",
+        "dose": props.get("dose") or "",
+        "schedule": schedule_text,
+        "timezone": tz.key,
+        "summary": summary,
+        "journal": rows,
+        **({} if rows else {"hint": "Закрытых приёмов пока нет — журнал наполнится после первых отметок"}),
+    }
