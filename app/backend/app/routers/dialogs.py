@@ -146,6 +146,7 @@ _TOOL_CATEGORIES: dict[str, set[str]] = {
     # ключевые слова, как везде, с запасом в сторону «включить».
     "history": {"list_versions", "revert_version", "list_trash", "restore_note", "archive_note", "list_recent"},
     "routines": {"create_routine", "list_routines", "mark_dose", "update_routine", "reopen_dose", "defer_dose", "get_routine_journal"},
+    "announcements": {"announce", "close_announcement"},
     "sharing": {"share_note", "unshare_note"},
     "files": {"delete_file", "reprocess_file", "update_file_text", "list_documents"},
     "links": {"list_backlinks"},
@@ -164,6 +165,9 @@ _CATEGORY_KEYWORDS: dict[str, tuple[str, ...]] = {
     "files": ("файл", "документ", "скан", "pdf", "распозна", "ocr", "расшифров", "транскри", "счёт", "счет", "выписк", "серии", "за месяц"),
     "links": ("ссылается", "ссылаются", "обратн", "связан"),
     "routines": ("рутин", "таблет", "лекарств", "капл", "приём", "прием", "укол", "витамин", "курс", "дал ", "дала ", "дали", "выпил", "пропуст", "пауз"),
+    # Объявления — обращение к другим людям: «скажи семье», «анонс», и
+    # сами фразы ухода/возвращения («ушёл, вернусь к…», «я дома»).
+    "announcements": ("анонс", "объяв", "скажи ", "сообщи", "передай", "предупреди", "всем", "семье", "ушёл", "ушел", "ушла", "уехал", "уехала", "вернусь", "приду", "я дома", "на месте", "вернул"),
 }
 
 

@@ -225,6 +225,10 @@ async def _process(item_id: uuid.UUID) -> None:
         item = await db.get(Item, item_id)
         if item is None or item.material_type != "note" or item.deleted_at is not None:
             return
+        # Журнал объявлений (app/announcements.py) сам ведёт detected_events
+        # из своих записей; автотеггер перезаписал бы их целиком.
+        if (item.properties or {}).get("kind") == "announcements":
+            return
         # Сейф — title/content зашифрованы на клиенте, бэкенд видит только
         # непрозрачный blob. Классифицировать нечего и незачем.
         from app.deps import is_vault_space

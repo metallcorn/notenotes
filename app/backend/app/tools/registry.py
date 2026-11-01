@@ -110,6 +110,11 @@ SKILL_CATALOG: dict[str, dict[str, Any]] = {
     "list_backlinks": {"label": "Обратные ссылки", "description": "Смотрит, какие заметки ссылаются на эту", "toggleable": False},
     "list_recent": {"label": "Недавнее", "description": "Смотрит, что правили последним", "toggleable": False},
     "list_documents": {"label": "Документы", "description": "Все документы одним списком, с сериями ежемесячных", "toggleable": False},
+    "announcements": {
+        "label": "Объявления участникам",
+        "description": "Говорит всем участникам спейса сразу («ушёл, вернусь к 20:00») и ведёт журнал объявлений, закрывает «я дома» (announce/close_announcement)",
+        "toggleable": True,
+    },
     "routines": {
         "label": "Рутины",
         "description": "Заводит приёмы лекарств с подтверждением, отмечает «дал», ставит на паузу, отдаёт журнал приёмов (create_routine/list_routines/mark_dose/update_routine/get_routine_journal)",
@@ -152,6 +157,7 @@ TOOL_GROUPS: dict[str, tuple[str, ...]] = {
     "track_delivery": ("track_delivery", "insert_delivery_block"),
     # Один тумблер «Рутины» на все четыре инструмента — как у таблиц.
     "routines": ("create_routine", "list_routines", "mark_dose", "update_routine", "reopen_dose", "defer_dose", "get_routine_journal"),
+    "announcements": ("announce", "close_announcement"),
     "structure": ("update_folder", "delete_folder", "remove_tag", "rename_tag", "merge_tag", "delete_tag"),
     "history": ("list_versions", "revert_version", "list_trash", "restore_note", "archive_note"),
     "sharing": ("share_note", "unshare_note"),
@@ -169,7 +175,7 @@ def _expand_disabled(disabled: set[str]) -> set[str]:
 
 def _build_registry() -> dict[str, tuple[ToolDefinition, ToolHandler]]:
     from app import self_check
-    from app.tools import agenda, calendar_event, files as files_tool, dialog_history, history, lists, maps, memory, notes, overview, python_sandbox, read_website, reminders, routines as routines_tool, search_base, sharing, structure, tables, track_delivery, ui, url_check, web_search
+    from app.tools import agenda, announcements as announcements_tool, calendar_event, files as files_tool, dialog_history, history, lists, maps, memory, notes, overview, python_sandbox, read_website, reminders, routines as routines_tool, search_base, sharing, structure, tables, track_delivery, ui, url_check, web_search
 
     registry: dict[str, tuple[ToolDefinition, ToolHandler]] = {
         search_base.DEFINITION.name: (search_base.DEFINITION, search_base.handle),
@@ -244,6 +250,8 @@ def _build_registry() -> dict[str, tuple[ToolDefinition, ToolHandler]]:
         routines_tool.REOPEN_DOSE.name: (routines_tool.REOPEN_DOSE, routines_tool.reopen_dose),
         routines_tool.DEFER_DOSE.name: (routines_tool.DEFER_DOSE, routines_tool.defer_dose),
         routines_tool.GET_ROUTINE_JOURNAL.name: (routines_tool.GET_ROUTINE_JOURNAL, routines_tool.get_routine_journal),
+        announcements_tool.ANNOUNCE.name: (announcements_tool.ANNOUNCE, announcements_tool.announce),
+        announcements_tool.CLOSE_ANNOUNCEMENT.name: (announcements_tool.CLOSE_ANNOUNCEMENT, announcements_tool.close_announcement),
         tables.CREATE_TABLE.name: (tables.CREATE_TABLE, tables.create_table),
         tables.GET_TABLE.name: (tables.GET_TABLE, tables.get_table),
         tables.ADD_TABLE_ROW.name: (tables.ADD_TABLE_ROW, tables.add_table_row),
