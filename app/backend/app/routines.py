@@ -735,10 +735,12 @@ def ping_text(item: Item, dose: dict, notification: Notification, now: datetime)
 
 def ping_keyboard(item: Item, notification: Notification) -> list[list[dict]]:
     nid = notification.id
-    # Галочка без слова (владелец, 01.11): «дал» — про лекарство и про
-    # другого, а рутина бывает своя и не про таблетки. Одна на всю ширину.
+    # «Сделано», не «дал» (владелец, 01.11): «дал» — про лекарство и про
+    # другого, а рутина бывает своя и не про таблетки. В вебе на кнопке
+    # одна галочка — слово не влезало; здесь места хватает, голая галочка
+    # непонятна. Одна на всю ширину.
     return [
-        [{"text": "✓", "callback_data": f"{CALLBACK_PREFIX}d:{nid}"}],
+        [{"text": "✓ Сделано", "callback_data": f"{CALLBACK_PREFIX}d:{nid}"}],
         [
             {"text": "⏰ +30 мин", "callback_data": f"{CALLBACK_PREFIX}s:30:{nid}"},
             {"text": "⏰ +1 ч", "callback_data": f"{CALLBACK_PREFIX}s:60:{nid}"},

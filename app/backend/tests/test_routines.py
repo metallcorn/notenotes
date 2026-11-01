@@ -255,7 +255,7 @@ async def test_telegram_ping_replaces_previous_message(auth_client, db_session, 
     assert "Tabletka dla Burka" in sent[0][1] and "Burek · pół tabletki" in sent[0][1]
     assert "напоминаю 2-й раз" in sent[1][1]
     buttons = [b["text"] for row in sent[1][2]["inline_keyboard"] for b in row]
-    assert buttons == ["✓", "⏰ +30 мин", "⏰ +1 ч", "Делает не я", "Не нужно сегодня", "✗ Пропустили", "Открыть"]
+    assert buttons == ["✓ Сделано", "⏰ +30 мин", "⏰ +1 ч", "Делает не я", "Не нужно сегодня", "✗ Пропустили", "Открыть"]
 
 
 async def test_telegram_callback_done_deletes_pings_and_redraws_day_summary(auth_client, db_session, test_user, monkeypatch):
