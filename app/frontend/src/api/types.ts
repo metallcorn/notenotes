@@ -385,6 +385,7 @@ export interface RoutineDose {
   done_at: string | null;
   done_by: string | null;
   done_by_name: string | null;
+  reported_by_name?: string | null;
   deferred_by: { id: string; name: string }[];
   snoozed_until: string | null;
   nag_until: string | null;

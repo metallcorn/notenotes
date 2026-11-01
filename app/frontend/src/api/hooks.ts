@@ -1714,7 +1714,7 @@ export function useRoutineDoseAction() {
       routineId: string;
       doseId: string;
       action: RoutineDoseAction;
-      body?: { at?: string; by?: string; minutes?: number };
+      body?: { at?: string; by?: string; minutes?: number; missed?: boolean };
     }) => api.post<Routine>(`/routines/${routineId}/doses/${doseId}/${action}`, body ?? {}),
     onSuccess: (routine) => {
       qc.setQueryData(["routine", routine.id], routine);

@@ -141,7 +141,7 @@ async def test_mark_dose_errors(auth_client, db_session, test_user):
     with pytest.raises(ToolError, match="list_routines"):
         await mark_dose(ctx, {"routine_id": str(uuid.uuid4())})
     created = await create_routine(ctx, {"title": "Krople", "times": ["08:00"]})
-    with pytest.raises(ToolError, match="done или skip"):
+    with pytest.raises(ToolError, match="done, skip или missed"):
         await mark_dose(ctx, {"routine_id": created["id"], "action": "later"})
     with pytest.raises(ToolError, match="будущем"):
         future = (datetime.now(timezone.utc) + timedelta(hours=2)).isoformat()

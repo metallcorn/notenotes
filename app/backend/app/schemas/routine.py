@@ -88,6 +88,7 @@ class DoseOut(BaseModel):
     done_at: datetime | None = None
     done_by: str | None = None
     done_by_name: str | None = None
+    reported_by_name: str | None = None
     deferred_by: list[dict] = []
     snoozed_until: datetime | None = None
     nag_until: datetime | None = None
@@ -128,6 +129,11 @@ class RoutineOut(BaseModel):
 class DoseDoneIn(BaseModel):
     at: datetime | None = None
     by: uuid.UUID | None = None
+
+
+class DoseSkipIn(BaseModel):
+    # missed — «не дали» (забыли), в отличие от «не нужно сегодня».
+    missed: bool = False
 
 
 class DoseSnoozeIn(BaseModel):

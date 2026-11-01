@@ -204,6 +204,7 @@ async def test_dispatch_rearms_nag_until_window_ends(auth_client, db_session, te
     routine = await _routine(auth_client, space_id, nag_minutes=30)
     await _rewind(db_session, routine["id"], minutes=3)
     monkeypatch.setattr(nd, "async_session", _session_factory(db_session))
+    monkeypatch.setattr(routines, "in_quiet_hours", lambda *_: False)  # тест может идти ночью
 
     await nd._dispatch_due()
 
@@ -254,7 +255,7 @@ async def test_telegram_ping_replaces_previous_message(auth_client, db_session, 
     assert "Tabletka dla Burka" in sent[0][1] and "Burek · pół tabletki" in sent[0][1]
     assert "напоминаю 2-й раз" in sent[1][1]
     buttons = [b["text"] for row in sent[1][2]["inline_keyboard"] for b in row]
-    assert buttons == ["✓ Дал", "Делает не я", "⏰ +30 мин", "⏰ +1 ч", "Пропустить", "Открыть"]
+    assert buttons == ["✓ Дал", "Делает не я", "⏰ +30 мин", "⏰ +1 ч", "Не нужно сегодня", "✗ Не дали", "Открыть"]
 
 
 async def test_telegram_callback_done_deletes_pings_and_redraws_day_summary(auth_client, db_session, test_user, monkeypatch):
@@ -362,6 +363,15 @@ async def test_telegram_callback_not_me_and_snooze(auth_client, db_session, test
     assert "Отложено до" in text
     assert await routines.handle_callback(db_session, test_user.id, f"rt:s:45:{mine.id}") is None
 
+    # «Не дали» прямо с пинга — исход «не дали», с именем; повторное нажатие
+    # по закрытому приёму показывает итог.
+    assert await routines.handle_callback(db_session, test_user.id, f"rt:m:{mine.id}") is None
+    item = await db_session.get(Item, routine["id"])
+    closed = next(d for d in item.properties["doses"] if d["id"] == mine.payload["dose_id"])
+    assert closed["status"] == STATUS_MISSED and closed["reported_by_name"] == "Test User"
+    text, _ = await routines.handle_callback(db_session, test_user.id, f"rt:m:{mine.id}")
+    assert text.endswith("✗ Не дали — Test User")
+
 
 async def test_tick_marks_missed_and_opens_next(auth_client, db_session, test_user):
     space_id = await _space(auth_client)
@@ -465,3 +475,121 @@ async def test_validation(auth_client, db_session, test_user):
         json={"space_id": space_id, "title": "x", "schedule": TIMES, "starts_on": "2026-11-10", "ends_on": "2026-11-01"},
     )
     assert r.status_code == 422
+
+
+# --- ночь, окно напоминаний и «не дали» (жалоба 01.11) ---------------------
+#
+# Вечерний приём с одним слотом в день пинговал всю ночь (21 раз до утра),
+# вчерашняя сводка навсегда зависла с «⏳ ждёт», а признать «забыли дать»
+# руками было нечем — только «пропустить», как будто намеренно.
+
+
+def test_nag_window_is_capped_at_half_a_day():
+    from app.routine_schedule import MAX_NAG_WINDOW, nag_until
+
+    tz = ZoneInfo("Europe/Warsaw")
+    planned = datetime(2026, 10, 31, 22, 0, tzinfo=tz)
+    assert nag_until({"mode": "times", "times": ["22:00"]}, planned, tz=tz) == planned + MAX_NAG_WINDOW
+    assert MAX_NAG_WINDOW == timedelta(hours=12)
+    # Два слота подряд — по-прежнему до следующего минус пять минут.
+    assert nag_until({"mode": "times", "times": ["22:00", "23:00"]}, planned, tz=tz) == planned + timedelta(minutes=55)
+
+
+def test_after_dispatch_moves_night_repeats_to_morning():
+    tz = ZoneInfo("Europe/Warsaw")
+    now = datetime(2026, 10, 31, 22, 40, tzinfo=tz).astimezone(timezone.utc)
+    payload = {"nag_minutes": 30, "nag_until": (now + timedelta(hours=12)).isoformat(), "tz": "Europe/Warsaw"}
+    n = Notification(user_id=None, type="routine_dose", title="x", payload=payload, trigger_at=now, dispatched_at=now)
+    routines.after_dispatch(n, now)
+    assert n.dispatched_at is None
+    assert n.trigger_at == datetime(2026, 11, 1, 8, 0, tzinfo=tz).astimezone(timezone.utc), "23:10 — ночь, повтор утром"
+
+    # Окно короче ночи — повтора нет вовсе.
+    n = Notification(user_id=None, type="routine_dose", title="x", payload={**payload, "nag_until": (now + timedelta(hours=2)).isoformat()}, trigger_at=now, dispatched_at=now)
+    routines.after_dispatch(n, now)
+    assert n.dispatched_at is not None
+
+    day = datetime(2026, 10, 31, 12, 0, tzinfo=tz).astimezone(timezone.utc)
+    n = Notification(user_id=None, type="routine_dose", title="x", payload={**payload, "nag_until": (day + timedelta(hours=2)).isoformat()}, trigger_at=day, dispatched_at=day)
+    routines.after_dispatch(n, day)
+    assert n.dispatched_at is None and n.trigger_at == day + timedelta(minutes=30)
+
+
+def test_dose_day_keeps_late_dose_on_planned_day_and_moves_early_one():
+    tz = ZoneInfo("Europe/Warsaw")
+    planned = datetime(2026, 10, 31, 22, 0, tzinfo=tz).astimezone(timezone.utc)
+    late = {"planned_at": planned.isoformat(), "status": "done", "done_at": (planned + timedelta(hours=10)).isoformat()}
+    early = {"planned_at": planned.isoformat(), "status": "done", "done_at": (planned - timedelta(hours=23)).isoformat()}
+    pending = {"planned_at": planned.isoformat(), "status": "pending", "done_at": None}
+    assert routines.dose_day(late, tz) == datetime(2026, 10, 31).date()
+    assert routines.dose_day(early, tz) == datetime(2026, 10, 30).date()
+    assert routines.dose_day(pending, tz) == datetime(2026, 10, 31).date()
+    text = routines.day_summary_text(
+        [SimpleNamespace(title="Amodip", properties={"doses": [late, {**pending, "status": "missed", "reported_by_name": "Anna"}]})],
+        day=datetime(2026, 10, 31).date(), tz=tz, now=planned + timedelta(hours=11),
+    )
+    assert text.split("\n") == ["💊 Приёмы 31.10 · 1 из 2", "✓ 22:00 Amodip · 08:00 , с опозданием", "✗ 22:00 Amodip · не дали · Anna"]
+
+
+async def test_skip_missed_records_who_admitted_it(auth_client, db_session, test_user):
+    space_id = await _space(auth_client)
+    routine = await _routine(auth_client, space_id)
+    dose_id = next(d["id"] for d in routine["doses"] if d["status"] == "pending")
+    r = await auth_client.post(f"/api/routines/{routine['id']}/doses/{dose_id}/skip", json={"missed": True})
+    assert r.status_code == 200, r.text
+    closed = next(d for d in r.json()["doses"] if d["id"] == dose_id)
+    assert closed["status"] == STATUS_MISSED and closed["reported_by_name"] == "Test User"
+    assert r.json()["stats"]["missed"] == 1
+
+    # Без пометки — «не нужно сегодня», как раньше.
+    pending = next(d["id"] for d in r.json()["doses"] if d["status"] == "pending")
+    r = await auth_client.post(f"/api/routines/{routine['id']}/doses/{pending}/skip")
+    assert r.status_code == 200 and next(d for d in r.json()["doses"] if d["id"] == pending)["status"] == "skipped"
+
+
+async def test_closing_yesterdays_dose_edits_yesterdays_summary_in_place(auth_client, db_session, test_user, monkeypatch):
+    space_id = await _space(auth_client)
+    routine = await _routine(auth_client, space_id)
+    tz = ZoneInfo("Europe/Warsaw")
+    today = datetime.now(timezone.utc).astimezone(tz).date()
+    yesterday = (today - timedelta(days=1)).isoformat()
+    db_session.add(TelegramLink(
+        user_id=test_user.id, chat_id=8, space_id=space_id,
+        routine_summary={"date": yesterday, "message_id": 640, "days": {yesterday: 640}},
+    ))
+    await db_session.commit()
+    # Открытый приём — вчера вечером (22:00 по Варшаве), его так и не отметили.
+    await _rewind(db_session, routine["id"], minutes=0)
+    item = await db_session.get(Item, routine["id"])
+    props = routines.props_of(item)
+    dose = routines.pending_dose(props)
+    dose["planned_at"] = datetime.combine(today - timedelta(days=1), datetime.min.time().replace(hour=22), tzinfo=tz).astimezone(timezone.utc).isoformat()
+    routines.set_props(item, props)
+    await db_session.commit()
+    edited, deleted, sent = [], [], []
+
+    async def fake_edit(chat_id, message_id, text, reply_markup=None):
+        edited.append((chat_id, message_id, text))
+
+    async def fake_delete(chat_id, message_id):
+        deleted.append((chat_id, message_id))
+
+    async def fake_send(chat_id, text, reply_markup=None, silent=False):
+        sent.append((chat_id, text, silent))
+        return 700 + len(sent)
+
+    monkeypatch.setattr(telegram_bot, "edit_message", fake_edit)
+    monkeypatch.setattr(telegram_bot, "delete_message", fake_delete)
+    monkeypatch.setattr(telegram_bot, "send_message", fake_send)
+
+    await routines.skip(db_session, await routines.lock_item(db_session, item.id), dose["id"], user=test_user, missed=True)
+    await db_session.commit()
+
+    assert [(c, m) for c, m, _ in edited] == [(8, 640)], "вчерашняя сводка поправлена на месте"
+    assert "✗ 22:00 Tabletka dla Burka · не дали · Test User" in edited[0][2]
+    assert (8, 640) not in deleted, "вчерашнее сообщение не удаляется и не переотправляется"
+    # Сегодня пока нечего показывать (следующий приём заводится уже после
+    # закрытия пингов, сводку на день заведёт его первый пинг) — ничего не шлём.
+    assert sent == []
+    link = (await db_session.execute(select(TelegramLink).where(TelegramLink.user_id == test_user.id))).scalar_one()
+    assert link.routine_summary["days"] == {yesterday: 640}

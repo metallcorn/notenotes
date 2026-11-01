@@ -339,16 +339,17 @@ MARK_DOSE = ToolDefinition(
     name="mark_dose",
     description=(
         "Отметить текущий (открытый) приём рутины: done — «дал» (закрывает приём у всех "
-        "участников, пинги затихают, заводится следующий по расписанию), skip — пропустить "
-        "намеренно. Используй на «дал коту таблетку», «уже выпила», «сегодня вечером "
-        "пропускаем». Подтверждения не спрашивай — сама фраза и есть подтверждение. at — если "
+        "участников, пинги затихают, заводится следующий по расписанию), skip — не нужен "
+        "сегодня (намеренно), missed — не дали, забыли. Используй на «дал коту таблетку», "
+        "«уже выпила», «сегодня вечером пропускаем», «вчера забыли дать». Подтверждения не "
+        "спрашивай — сама фраза и есть подтверждение. at — если "
         "дали не сейчас («дал полчаса назад»). routine_id — из list_routines."
     ),
     parameters={
         "type": "object",
         "properties": {
             "routine_id": {"type": "string", "description": "id рутины из list_routines"},
-            "action": {"type": "string", "enum": ["done", "skip"], "description": "done (по умолчанию) или skip"},
+            "action": {"type": "string", "enum": ["done", "skip", "missed"], "description": "done (по умолчанию), skip или missed"},
             "at": {
                 "type": "string",
                 "description": "Когда на самом деле дали, ISO 8601 в местном времени ('2026-10-28T21:40'); не указывать — сейчас",
@@ -376,10 +377,10 @@ async def mark_dose(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
     try:
         if action == "done":
             dose = await routines.mark_done(ctx.db, item, pending["id"], user=user, at=at)
-        elif action == "skip":
-            dose = await routines.skip(ctx.db, item, pending["id"], user=user)
+        elif action in ("skip", "missed"):
+            dose = await routines.skip(ctx.db, item, pending["id"], user=user, missed=action == "missed")
         else:
-            raise ToolError("action — done или skip")
+            raise ToolError("action — done, skip или missed")
     except routines.RoutineError as exc:
         raise ToolError(str(exc)) from None
     await ctx.db.commit()

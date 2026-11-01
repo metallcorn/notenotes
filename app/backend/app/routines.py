@@ -54,6 +54,8 @@ from app.deps import space_member_ids
 from app.models import Item, ItemVersion, Notification, TelegramLink, User
 from app.schemas.routine import RoutineUpdate
 from app.routine_schedule import (
+    in_quiet_hours,
+    next_morning,
     STATUS_DONE,
     STATUS_MISSED,
     STATUS_PENDING,
@@ -313,6 +315,7 @@ async def ensure_open_dose(db: AsyncSession, item: Item, now: datetime | None = 
                     "nag_until": _iso(until),
                     "nag_minutes": nag_minutes,
                     "nag_count": 0,
+                    "tz": tz.key,
                 },
                 trigger_at=planned,
             )
@@ -377,7 +380,16 @@ async def _finalize_notifications(db: AsyncSession, item: Item, dose: dict, line
             touched.add(n.user_id)
         await realtime.notify_user(n.user_id)
     for user_id in touched:
+        # Сегодняшняя сводка — заново внизу чата; сводка дня, к которому
+        # относится приём (вчерашний вечерний, закрытый утром), — правится
+        # на месте, иначе в ней навсегда остаётся «⏳ ждёт».
         await refresh_day_summary(db, user_id, now=now)
+        user = await db.get(User, user_id)
+        tz = resolve_timezone(user.timezone if user else None)
+        today = now.astimezone(tz).date()
+        for day in {dose_day(dose, tz)}:
+            if day != today:
+                await refresh_day_summary(db, user_id, now=now, day=day)
     await realtime.notify_space(item.space_id, "items")
 
 
@@ -403,6 +415,21 @@ async def _user_routines(db: AsyncSession, user_id: uuid.UUID) -> list[Item]:
     return [i for i in rows.scalars().all() if (i.properties or {}).get("notify") != "self" or i.author_id == user_id]
 
 
+def dose_day(dose: dict, tz: ZoneInfo) -> date | None:
+    """К какому местному дню относится приём в сводке: ко дню плана; если
+    дали раньше (вечером «завтрашнюю утреннюю») — ко дню, когда дали.
+    Поздний приём (вчерашний вечерний, отмеченный утром) остаётся во
+    вчерашнем дне — иначе он пропадает из той сводки, а она висит с «ждёт»."""
+    planned = _dt(dose.get("planned_at"))
+    if planned is None:
+        return None
+    day = planned.astimezone(tz).date()
+    done_at = _dt(dose.get("done_at")) if dose.get("status") == STATUS_DONE else None
+    if done_at is not None:
+        day = min(day, done_at.astimezone(tz).date())
+    return day
+
+
 def day_summary_text(items: list[Item], *, day: date, tz: ZoneInfo, now: datetime) -> str | None:
     """Текст сводки за местный день day. None — приёмов в этот день нет."""
     rows: list[tuple[datetime, str]] = []
@@ -410,12 +437,7 @@ def day_summary_text(items: list[Item], *, day: date, tz: ZoneInfo, now: datetim
     for item in items:
         for dose in (item.properties or {}).get("doses") or []:
             planned = _dt(dose["planned_at"])
-            if planned is None:
-                continue
-            # День приёма — по факту, если дали (вечером дали «завтрашнюю
-            # утреннюю» заранее — это сегодняшнее событие), иначе по плану.
-            done_at = _dt(dose.get("done_at")) if dose.get("status") == STATUS_DONE else None
-            if (done_at or planned).astimezone(tz).date() != day:
+            if planned is None or dose_day(dose, tz) != day:
                 continue
             total += 1
             local = planned.astimezone(tz)
@@ -430,7 +452,8 @@ def day_summary_text(items: list[Item], *, day: date, tz: ZoneInfo, now: datetim
             elif status == STATUS_SKIPPED:
                 line = f"⏭ {local:%H:%M} {item.title} · пропущен"
             elif status == STATUS_MISSED:
-                line = f"✗ {local:%H:%M} {item.title} · никто не отметил"
+                who = dose.get("reported_by_name")
+                line = f"✗ {local:%H:%M} {item.title} · " + (f"не дали · {who}" if who else "никто не отметил")
             elif planned <= now:
                 line = f"⏳ {local:%H:%M} {item.title} · ждёт {_humanize(now - planned)}"
             else:
@@ -443,8 +466,25 @@ def day_summary_text(items: list[Item], *, day: date, tz: ZoneInfo, now: datetim
     return "\n".join([header, *[line for _, line in rows]])
 
 
-async def refresh_day_summary(db: AsyncSession, user_id: uuid.UUID, *, now: datetime, only_if_missing: bool = False) -> None:
-    """Перерисовать сводку сегодняшнего дня у пользователя в Telegram.
+# Сколько дней назад сводку ещё можно поправить на месте: message_id
+# старше в TelegramLink.routine_summary["days"] не держим.
+_SUMMARY_KEEP_DAYS = 7
+
+
+async def refresh_day_summary(
+    db: AsyncSession,
+    user_id: uuid.UUID,
+    *,
+    now: datetime,
+    only_if_missing: bool = False,
+    day: date | None = None,
+) -> None:
+    """Перерисовать сводку дня у пользователя в Telegram.
+
+    Сегодняшняя (day=None) переотправляется — так она всегда последняя в
+    чате. Прошлый день (day задан) редактируется на месте, если его
+    сообщение ещё известно: вчерашний вечерний приём, закрытый утром,
+    иначе вечно висел бы в той сводке как «⏳ ждёт».
 
     only_if_missing — завести сводку, если её за сегодня ещё нет, и ничего
     не трогать, если есть (первый пинг дня показывает план на день, а
@@ -457,17 +497,37 @@ async def refresh_day_summary(db: AsyncSession, user_id: uuid.UUID, *, now: date
         return
     user = await db.get(User, user_id)
     tz = resolve_timezone(user.timezone if user else None)
-    day = now.astimezone(tz).date()
+    today = now.astimezone(tz).date()
     current = dict(link.routine_summary or {})
-    if only_if_missing and current.get("date") == day.isoformat() and current.get("message_id"):
+    days: dict[str, int] = {k: int(v) for k, v in (current.get("days") or {}).items() if v}
+    if current.get("date") and current.get("message_id"):
+        days.setdefault(str(current["date"]), int(current["message_id"]))
+
+    if day is not None and day != today:
+        message_id = days.get(day.isoformat())
+        if not message_id:
+            return
+        text = day_summary_text(await _user_routines(db, user_id), day=day, tz=tz, now=now)
+        if text is not None:
+            await telegram_bot.edit_message(link.chat_id, message_id, text)
         return
-    text = day_summary_text(await _user_routines(db, user_id), day=day, tz=tz, now=now)
+
+    key = today.isoformat()
+    if only_if_missing and days.get(key):
+        return
+    text = day_summary_text(await _user_routines(db, user_id), day=today, tz=tz, now=now)
     if text is None:
         return
-    if current.get("date") == day.isoformat() and current.get("message_id"):
-        await telegram_bot.delete_message(link.chat_id, int(current["message_id"]))
+    if days.get(key):
+        await telegram_bot.delete_message(link.chat_id, days[key])
     message_id = await telegram_bot.send_message(link.chat_id, text, silent=True)
-    link.routine_summary = {"date": day.isoformat(), "message_id": message_id} if message_id else None
+    if message_id:
+        days[key] = message_id
+    else:
+        days.pop(key, None)
+    cutoff = (today - timedelta(days=_SUMMARY_KEEP_DAYS)).isoformat()
+    days = {k: v for k, v in days.items() if k >= cutoff}
+    link.routine_summary = {"date": key, "message_id": days.get(key), "days": days} if days.get(key) else {"days": days}
     flag_modified(link, "routine_summary")
 
 
@@ -516,17 +576,29 @@ async def mark_done(
     return dose
 
 
-async def skip(db: AsyncSession, item: Item, dose_id: str, *, user: User) -> dict:
+async def skip(db: AsyncSession, item: Item, dose_id: str, *, user: User, missed: bool = False) -> dict:
+    """Закрыть приём без «дал». missed=False — не нужен сегодня (намеренно),
+    missed=True — не дали, забыли: тот же исход, что у автозакрытия по
+    истечении окна, но с именем того, кто это признал — чтобы в журнале
+    «проспали» отличалось от «решили не давать»."""
     now = _now()
     props = props_of(item)
     dose = find_dose(props, dose_id)
     if dose is None or dose["status"] != STATUS_PENDING:
         raise RoutineError("Этот приём уже закрыт")
     _snapshot(db, item, user.id)
-    _close(dose, STATUS_SKIPPED)
-    set_props(item, props)
     name = await _user_name(db, user.id)
-    await _finalize_notifications(db, item, dose, f"⏭ Пропущен — {name}", now=now)
+    if missed:
+        _close(dose, STATUS_MISSED)
+        dose["reported_by"] = str(user.id)
+        dose["reported_by_name"] = name
+        dose["reported_at"] = _iso(now)
+        line = f"✗ Не дали — {name}"
+    else:
+        _close(dose, STATUS_SKIPPED)
+        line = f"⏭ Пропущен — {name}"
+    set_props(item, props)
+    await _finalize_notifications(db, item, dose, line, now=now)
     await ensure_open_dose(db, item, now)
     return dose
 
@@ -672,7 +744,11 @@ def ping_keyboard(item: Item, notification: Notification) -> list[list[dict]]:
             {"text": "⏰ +30 мин", "callback_data": f"{CALLBACK_PREFIX}s:30:{nid}"},
             {"text": "⏰ +1 ч", "callback_data": f"{CALLBACK_PREFIX}s:60:{nid}"},
         ],
-        [{"text": "Пропустить", "callback_data": f"{CALLBACK_PREFIX}k:{nid}"}, *_open_rows(item)[0]],
+        [
+            {"text": "Не нужно сегодня", "callback_data": f"{CALLBACK_PREFIX}k:{nid}"},
+            {"text": "✗ Не дали", "callback_data": f"{CALLBACK_PREFIX}m:{nid}"},
+        ],
+        _open_rows(item)[0],
     ]
 
 
@@ -714,6 +790,12 @@ def after_dispatch(notification: Notification, now: datetime) -> None:
     if nag <= 0 or until is None:
         return
     again = now + timedelta(minutes=nag)
+    # Ночью — не каждые полчаса, а один раз утром: «вчерашний приём так и
+    # не отмечен», и ещё есть время нажать «дал» или «не дали», пока окно
+    # не закрылось.
+    tz = resolve_timezone(payload.get("tz"))
+    if in_quiet_hours(again, tz):
+        again = next_morning(again, tz)
     if again >= until:
         return
     notification.trigger_at = again
@@ -755,8 +837,8 @@ async def handle_callback(db: AsyncSession, user_id: uuid.UUID, data: str) -> tu
             await mark_done(db, item, dose["id"], user=user)
             await db.commit()
             return None
-        if action == "k" and len(parts) == 2:
-            await skip(db, item, dose["id"], user=user)
+        if action in ("k", "m") and len(parts) == 2:
+            await skip(db, item, dose["id"], user=user, missed=action == "m")
             await db.commit()
             return None
         if action == "n" and len(parts) == 2:
@@ -784,6 +866,8 @@ def _final_line(dose: dict, tz: ZoneInfo) -> str:
         return f"✓ {dose.get('done_by_name') or 'дали'} — в {_dt(dose['done_at']).astimezone(tz):%H:%M}"
     if dose["status"] == STATUS_SKIPPED:
         return "⏭ Пропущен"
+    if dose.get("reported_by_name"):
+        return f"✗ Не дали — {dose['reported_by_name']}"
     return "⏭ Никто не отметил — пропущен"
 
 

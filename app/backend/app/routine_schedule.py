@@ -34,9 +34,33 @@ STATUS_DONE = "done"
 STATUS_SKIPPED = "skipped"
 STATUS_MISSED = "missed"
 
-# Дольше этого один приём не напоминает ни в каком режиме: сутки без
+# Дольше этого один приём не напоминает ни в каком режиме: полсуток без
 # отметки — это уже не «забыли нажать», а пропуск, и следующий приём важнее.
+# Укорачивать нельзя (владелец, 01.11): в дороге приём откладывают на час
+# и ещё на час, и напоминание должно догнать; snooze к тому же сдвигает
+# окно (routines.snooze).
 MAX_NAG_WINDOW = timedelta(hours=12)
+
+# Ночью повторы не идут каждые полчаса (реальный случай 31.10: вечерний
+# приём пинговал 21 раз до утра, и человек нажал «дал», лишь бы отстало),
+# а переносятся на утро — один пинг «вчерашний приём так и не отмечен».
+# Приём, назначенный на ночные часы, звенит как поставили.
+QUIET_FROM_HOUR = 23
+QUIET_UNTIL_HOUR = 8
+
+
+def in_quiet_hours(moment: datetime, tz: ZoneInfo) -> bool:
+    hour = moment.astimezone(tz).hour
+    return hour >= QUIET_FROM_HOUR or hour < QUIET_UNTIL_HOUR
+
+
+def next_morning(moment: datetime, tz: ZoneInfo) -> datetime:
+    """Ближайшие QUIET_UNTIL_HOUR:00 по местному времени после moment."""
+    local = moment.astimezone(tz)
+    morning = local.replace(hour=QUIET_UNTIL_HOUR, minute=0, second=0, microsecond=0)
+    if morning <= local:
+        morning += timedelta(days=1)
+    return morning.astimezone(timezone.utc)
 
 
 def parse_hhmm(value: str) -> time:

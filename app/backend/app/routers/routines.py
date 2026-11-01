@@ -17,7 +17,7 @@ from app.deps import ensure_space_access, get_current_user, is_vault_space
 from app.models import Folder, Item, User
 from app.routers.items import create_item_row
 from app.routine_schedule import STATUS_DONE, STATUS_MISSED, STATUS_PENDING, STATUS_SKIPPED, describe
-from app.schemas.routine import DoseDoneIn, DoseOut, DoseSnoozeIn, RoutineCreate, RoutineOut, RoutineStats, RoutineUpdate
+from app.schemas.routine import DoseDoneIn, DoseOut, DoseSkipIn, DoseSnoozeIn, RoutineCreate, RoutineOut, RoutineStats, RoutineUpdate
 from app.user_timezone import DEFAULT_TZ_NAME
 
 router = APIRouter(prefix="/api/routines", tags=["routines"])
@@ -168,11 +168,15 @@ async def dose_done(
 
 @router.post("/{routine_id}/doses/{dose_id}/skip", response_model=RoutineOut)
 async def dose_skip(
-    routine_id: uuid.UUID, dose_id: str, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+    routine_id: uuid.UUID,
+    dose_id: str,
+    payload: DoseSkipIn | None = None,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ) -> RoutineOut:
     item = await _get_routine(db, user, routine_id, lock=True)
     try:
-        await routines.skip(db, item, dose_id, user=user)
+        await routines.skip(db, item, dose_id, user=user, missed=bool(payload and payload.missed))
     except routines.RoutineError as exc:
         raise _handle(exc) from None
     await db.commit()

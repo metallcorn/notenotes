@@ -43,15 +43,17 @@ export default function DoseDoneSheet({ routine, dose, onClose }: { routine: Rou
   const lateMin = Math.round((at.getTime() - planned.getTime()) / 60_000);
   const busy = action.isPending;
 
-  async function run(kind: "done" | "defer" | "skip") {
+  // "missed" — «не дали» (забыли): тот же endpoint skip с пометкой, в
+  // журнале отличается от «не нужно сегодня» и несёт имя того, кто признал.
+  async function run(kind: "done" | "defer" | "skip" | "missed") {
     if (busy) return;
     setError(null);
     try {
       await action.mutateAsync({
         routineId: routine.id,
         doseId: dose.id,
-        action: kind,
-        body: kind === "done" ? { at: at.toISOString(), ...(who && who !== me?.id ? { by: who } : {}) } : undefined,
+        action: kind === "missed" ? "skip" : kind,
+        body: kind === "done" ? { at: at.toISOString(), ...(who && who !== me?.id ? { by: who } : {}) } : kind === "missed" ? { missed: true } : undefined,
       });
       onClose();
     } catch (err) {
@@ -137,12 +139,15 @@ export default function DoseDoneSheet({ routine, dose, onClose }: { routine: Rou
           {busy ? <Spinner size={18} /> : null}
           {t("routine.markDone", { time: atValid ? time(at) : "—" })}
         </button>
-        <div className="mt-2 grid grid-cols-2 gap-2">
-          <button type="button" onClick={() => run("defer")} disabled={busy} className="h-12 rounded-2xl border-[1.5px] border-strong text-sm font-extrabold text-primary disabled:opacity-50">
+        <div className="mt-2 grid grid-cols-3 gap-2">
+          <button type="button" onClick={() => run("defer")} disabled={busy} className="h-12 rounded-2xl border-[1.5px] border-strong px-1 text-[13px] font-extrabold leading-tight text-primary disabled:opacity-50">
             {t("routine.notMe")}
           </button>
-          <button type="button" onClick={() => run("skip")} disabled={busy} className="h-12 rounded-2xl bg-muted text-sm font-bold text-subtle disabled:opacity-50">
+          <button type="button" onClick={() => run("skip")} disabled={busy} className="h-12 rounded-2xl bg-muted px-1 text-[13px] font-bold leading-tight text-subtle disabled:opacity-50">
             {t("routine.skip")}
+          </button>
+          <button type="button" onClick={() => run("missed")} disabled={busy} className="h-12 rounded-2xl bg-danger-soft px-1 text-[13px] font-bold leading-tight text-danger disabled:opacity-50">
+            {t("routine.notGiven")}
           </button>
         </div>
         <div className="mt-2.5 px-1 text-[12px] font-semibold leading-snug text-subtle">{t("routine.notMeHint")}</div>

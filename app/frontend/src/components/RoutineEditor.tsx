@@ -41,7 +41,11 @@ function DoseBadge({ dose }: { dose: RoutineDose }) {
     );
   }
   if (dose.status === "skipped") return <span className="rounded-full bg-muted px-2.5 py-1 text-xs font-extrabold text-subtle">{t("routine.skipped")}</span>;
-  return <span className="rounded-full bg-muted px-2.5 py-1 text-xs font-extrabold text-subtle">{t("routine.missed")}</span>;
+  return (
+    <span className="rounded-full bg-muted px-2.5 py-1 text-xs font-extrabold text-subtle">
+      {dose.reported_by_name ? t("routine.notGivenBy", { name: dose.reported_by_name }) : t("routine.missed")}
+    </span>
+  );
 }
 
 export default function RoutineEditor({ itemId, onDeleted, onBack }: { itemId: string; onDeleted: () => void; onBack: () => void }) {
@@ -70,7 +74,13 @@ export default function RoutineEditor({ itemId, onDeleted, onBack }: { itemId: s
   const pending = routine.doses.find((d) => d.status === "pending") ?? null;
   // День закрытого приёма — когда дали на самом деле, а не план: вечером
   // дали «завтрашнюю утреннюю» заранее — она сегодняшняя.
-  const dayOf = (d: RoutineDose) => new Date(d.status === "done" && d.done_at ? d.done_at : d.planned_at);
+  // День приёма — день плана; раньше срока (вечером «завтрашнюю утреннюю») —
+  // день, когда дали. Поздний остаётся в своём дне — как в сводке Telegram.
+  const dayOf = (d: RoutineDose) => {
+    const planned = new Date(d.planned_at);
+    const done = d.status === "done" && d.done_at ? new Date(d.done_at) : null;
+    return done && done.getTime() < planned.getTime() ? done : planned;
+  };
   const todayClosed = routine.doses.filter((d) => d.status !== "pending" && sameLocalDay(dayOf(d), now));
   const journal = routine.doses
     .filter((d) => d.status !== "pending" && !sameLocalDay(dayOf(d), now))
