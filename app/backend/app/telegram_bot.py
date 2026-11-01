@@ -14,7 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import realtime
-from app import daily_digest, reminder_actions, routines
+from app import daily_digest, reminder_actions, routines, telegram_markdown
 from app.asr.factory import asr_available, get_asr_client
 from app.core.config import get_settings
 from app.db import async_session
@@ -306,18 +306,28 @@ def _log_api_error(resp: httpx.Response, method: str, chat_id: int) -> None:
     )
 
 
-async def send_message(chat_id: int, text: str, reply_markup: dict | None = None, *, silent: bool = False) -> int | None:
+async def send_message(
+    chat_id: int, text: str, reply_markup: dict | None = None, *, silent: bool = False, markdown: bool = False
+) -> int | None:
     """Отправить сообщение. Возвращает его message_id (или None, если не
     ушло) — рутинам (app/routines.py) он нужен, чтобы на повторном пинге
     удалить старое сообщение и держать в чате одно.
 
     silent — без звука и вибрации (disable_notification): так уходит
     дневная сводка приёмов, которую переотправляют после каждой отметки,
-    чтобы она была последним сообщением в чате; звенеть ей не за что."""
+    чтобы она была последним сообщением в чате; звенеть ей не за что.
+
+    markdown — text это Markdown ответа ассистента: уходит HTML-разметкой
+    Telegram (app/telegram_markdown.py). Если Telegram разметку не принял,
+    то же сообщение уходит простым текстом без выделений — потерять ответ
+    хуже, чем потерять жирный шрифт."""
     settings = get_settings()
     if not settings.telegram_bot_token:
         return None
     payload: dict = {"chat_id": chat_id, "text": text}
+    if markdown:
+        payload["text"] = telegram_markdown.markdown_to_telegram_html(text)
+        payload["parse_mode"] = "HTML"
     if reply_markup:
         payload["reply_markup"] = reply_markup
     if silent:
@@ -325,6 +335,11 @@ async def send_message(chat_id: int, text: str, reply_markup: dict | None = None
     async with httpx.AsyncClient(timeout=30) as client:
         try:
             resp = await client.post(_api_url("sendMessage"), json=payload)
+            if markdown and resp.status_code == 400:
+                logger.warning("Telegram не принял HTML-разметку для chat_id=%s, шлю простым текстом: %s", chat_id, resp.text[:300])
+                payload.pop("parse_mode")
+                payload["text"] = telegram_markdown.markdown_to_plain(text)
+                resp = await client.post(_api_url("sendMessage"), json=payload)
         except Exception:
             logger.exception("Не удалось отправить сообщение в Telegram chat_id=%s", chat_id)
             return None
@@ -1204,7 +1219,7 @@ async def _handle_assistant_message(db: AsyncSession, link: TelegramLink, text: 
     keyboard = action_rows + reply_rows
     reply_markup = {"inline_keyboard": keyboard} if keyboard else None
 
-    await send_message(link.chat_id, reply_text, reply_markup=reply_markup)
+    await send_message(link.chat_id, reply_text, reply_markup=reply_markup, markdown=True)
 
 
 async def _handle_callback_query(callback: dict) -> None:
