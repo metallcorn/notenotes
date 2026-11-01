@@ -379,7 +379,7 @@ async def _finalize_notifications(db: AsyncSession, item: Item, dose: dict, line
         if chat_id:
             touched.add(n.user_id)
         await realtime.notify_user(n.user_id)
-    for user_id in touched:
+    for user_id in sorted(touched):  # детерминированный порядок отправки
         # Сегодняшняя сводка — заново внизу чата; сводка дня, к которому
         # относится приём (вчерашний вечерний, закрытый утром), — правится
         # на месте, иначе в ней навсегда остаётся «⏳ ждёт».

@@ -308,10 +308,11 @@ async def test_telegram_callback_done_deletes_pings_and_redraws_day_summary(auth
 
     # Вторая отметка за день — старая сводка удаляется, новая внизу чата.
     deleted.clear(); sent.clear()
+    previous_summary = link.routine_summary["message_id"]
     await _rewind(db_session, routine["id"], minutes=1)
     pending = next(d for d in (await db_session.get(Item, routine["id"])).properties["doses"] if d["status"] == STATUS_PENDING)
     await routines.skip(db_session, await routines.lock_item(db_session, item.id), pending["id"], user=test_user)
-    assert (8, link.routine_summary["message_id"]) in deleted
+    assert (8, previous_summary) in deleted, "старая сводка удалена"
     text = next(t for c, t, _ in sent if c == 8)
     assert "⏭" in text and "пропущен" in text
 
