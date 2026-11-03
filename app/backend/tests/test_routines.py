@@ -255,7 +255,7 @@ async def test_telegram_ping_replaces_previous_message(auth_client, db_session, 
     assert "Tabletka dla Burka" in sent[0][1] and "Burek · pół tabletki" in sent[0][1]
     assert "напоминаю 2-й раз" in sent[1][1]
     buttons = [b["text"] for row in sent[1][2]["inline_keyboard"] for b in row]
-    assert buttons == ["✓ Сделано", "⏰ +30 мин", "⏰ +1 ч", "Делает не я", "Не нужно сегодня", "✗ Пропустили", "Открыть"]
+    assert buttons == ["✓ Сделано", "✓ Вовремя", "✓ В другое время…", "⏰ +30 мин", "⏰ +1 ч", "Делает не я", "Не нужно сегодня", "✗ Пропустили", "Открыть"]
 
 
 async def test_telegram_callback_done_deletes_pings_and_redraws_day_summary(auth_client, db_session, test_user, monkeypatch):
@@ -594,3 +594,101 @@ async def test_closing_yesterdays_dose_edits_yesterdays_summary_in_place(auth_cl
     assert sent == []
     link = (await db_session.execute(select(TelegramLink).where(TelegramLink.user_id == test_user.id))).scalar_one()
     assert link.routine_summary["days"] == {yesterday: 640}
+
+
+async def _noop_send(*args, **kwargs):
+    return None
+
+
+def test_parse_clock():
+    assert routines.parse_clock("16:15") == (16, 15)
+    assert routines.parse_clock(" в 9.05 ") == (9, 5)
+    assert routines.parse_clock("16 15") == (16, 15)
+    assert routines.parse_clock("25:00") is None
+    assert routines.parse_clock("дал в 16:15") is None, "это ассистенту, не ответ на вопрос"
+    assert routines.parse_clock("") is None
+
+
+async def test_callback_on_time_and_clock_reply(auth_client, db_session, test_user, monkeypatch):
+    """«✓ Вовремя» пишет запланированное время, а не момент нажатия; «16:15»
+    ответом на вопрос бота — сегодня в 16:15, утренний ответ про вчерашний
+    вечерний приём — вчера."""
+    monkeypatch.setattr(telegram_bot, "send_message", _noop_send)
+    monkeypatch.setattr(telegram_bot, "delete_message", _noop_send)
+    space_id = await _space(auth_client)
+    routine = await _routine(auth_client, space_id)
+    await _rewind(db_session, routine["id"], minutes=90)
+    (n,) = await _notifications(db_session, routine["id"])
+    item = await db_session.get(Item, routine["id"])
+    planned = routines._dt(next(d for d in item.properties["doses"] if d["status"] == STATUS_PENDING)["planned_at"])
+
+    assert await routines.handle_callback(db_session, test_user.id, f"rt:d:p:{n.id}") is None
+    await db_session.refresh(item)
+    done = next(d for d in item.properties["doses"] if d["status"] == STATUS_DONE)
+    assert routines._dt(done["done_at"]) == planned, "вовремя — ровно в план"
+    assert not routines.is_late(done)
+
+    # Следующий приём: ответ временем.
+    await _rewind(db_session, routine["id"], minutes=30)
+    pending_n = next(x for x in await _notifications(db_session, routine["id"]) if x.id != n.id)
+    tz = routines.tz_of(item)
+    local_now = datetime.now(timezone.utc).astimezone(tz)
+    ahead = (local_now + timedelta(hours=2)).replace(second=0, microsecond=0)
+    reply = await routines.done_at_clock(db_session, test_user.id, pending_n.id, ahead.hour, ahead.minute)
+    assert reply.startswith("✓ Tabletka dla Burka — записал: в ")
+    await db_session.refresh(item)
+    done2 = [d for d in item.properties["doses"] if d["status"] == STATUS_DONE][-1]
+    # Названное время ещё впереди — значит, речь про вчера. Если «+2 часа»
+    # перевалило за полночь, это время сегодня уже прошло — тогда сегодня.
+    expected = (local_now - timedelta(days=1)).date() if ahead.date() == local_now.date() else local_now.date()
+    assert routines._dt(done2["done_at"]).astimezone(tz).date() == expected
+    assert routines._dt(done2["done_at"]).astimezone(tz).strftime("%H:%M") == ahead.strftime("%H:%M")
+
+    # Повторный ответ на тот же пинг — приём уже закрыт.
+    assert "уже закрыт" in await routines.done_at_clock(db_session, test_user.id, pending_n.id, 10, 0)
+
+
+async def test_bot_asks_clock_and_takes_reply(auth_client, db_session, test_user, monkeypatch):
+    """Кнопка «✓ В другое время…» → вопрос с force_reply; «16:15» в ответ
+    закрывает приём; любое другое сообщение снимает вопрос и идёт ассистенту."""
+    space_id = await _space(auth_client)
+    routine = await _routine(auth_client, space_id)
+    db_session.add(TelegramLink(user_id=test_user.id, chat_id=9, space_id=space_id))
+    await db_session.commit()
+    sent, assistant = [], []
+
+    async def fake_send(chat_id, text, reply_markup=None, silent=False, markdown=False):
+        sent.append((text, reply_markup))
+        return 1
+
+    async def fake_assistant(db, link, text):
+        assistant.append(text)
+
+    async def noop(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr(telegram_bot, "send_message", fake_send)
+    monkeypatch.setattr(telegram_bot, "delete_message", noop)
+    monkeypatch.setattr(telegram_bot, "answer_callback_query", noop)
+    monkeypatch.setattr(telegram_bot, "_handle_assistant_message", fake_assistant)
+    monkeypatch.setattr(telegram_bot, "async_session", _session_factory(db_session))
+    await _rewind(db_session, routine["id"], minutes=40)
+    (n,) = await _notifications(db_session, routine["id"])
+
+    callback = {"id": "cb1", "data": f"rt:t:{n.id}", "message": {"chat": {"id": 9}, "message_id": 77}}
+    await telegram_bot._process({"callback_query": callback})
+    assert sent[-1][0].startswith("Во сколько?") and sent[-1][1] == {"force_reply": True, "input_field_placeholder": "16:15"}
+
+    # Не время — вопрос снимается, текст уходит ассистенту.
+    await telegram_bot._process({"message": {"chat": {"id": 9}, "text": "а что по погоде"}})
+    assert assistant == ["а что по погоде"]
+    assert 9 not in telegram_bot._CLOCK_PROMPTS
+
+    # Снова кнопка и ответ временем — приём закрыт в названное время.
+    await telegram_bot._process({"callback_query": callback})
+    await telegram_bot._process({"message": {"chat": {"id": 9}, "text": "16:15"}})
+    assert sent[-1][0].startswith("✓ Tabletka dla Burka — записал: в 16:15")
+    item = await db_session.get(Item, routine["id"])
+    done = next(d for d in item.properties["doses"] if d["status"] == STATUS_DONE)
+    assert routines._dt(done["done_at"]).astimezone(routines.tz_of(item)).strftime("%H:%M") == "16:15"
+    assert assistant == ["а что по погоде"], "время ассистенту не ушло"

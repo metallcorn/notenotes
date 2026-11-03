@@ -57,6 +57,12 @@ _MAX_DOWNLOAD_BYTES = 20 * 1024 * 1024
 # собираем ОДНУ заметку. Живёт в памяти воркер-процесса — как и остальные
 # очереди в этом модуле, не переживает рестарт, что приемлемо для окна
 # в пару секунд.
+# Чат → (пинг рутины, срок): после «✓ В другое время…» ближайшее
+# сообщение-время («16:15») — ответ на вопрос бота, а не реплика
+# ассистенту. В памяти процесса, как и буферы ниже: вопрос живёт минуты.
+_CLOCK_PROMPTS: dict[int, tuple[uuid.UUID, float]] = {}
+_CLOCK_PROMPT_TTL = 15 * 60
+
 _media_groups: dict[str, dict] = {}
 _MEDIA_GROUP_DEBOUNCE_SECONDS = 1.5
 
@@ -1237,6 +1243,25 @@ async def _handle_callback_query(callback: dict) -> None:
         message_id = message.get("message_id")
         if chat_id is None:
             return
+        if data.startswith(f"{routines.CALLBACK_PREFIX}t:"):
+            # «✓ В другое время…»: спрашиваем время и запоминаем, к какому
+            # пингу относится следующий ответ (см. _CLOCK_PROMPTS).
+            try:
+                notification_id = uuid.UUID(data.rsplit(":", 1)[-1])
+            except ValueError:
+                return
+            async with async_session() as db:
+                link = (await db.execute(select(TelegramLink).where(TelegramLink.chat_id == chat_id))).scalar_one_or_none()
+                if link is None or await routines.dose_for_notification(db, link.user_id, notification_id) is None:
+                    await send_message(chat_id, "Этот приём уже закрыт — отмечать нечего.")
+                    return
+            _CLOCK_PROMPTS[chat_id] = (notification_id, time.monotonic() + _CLOCK_PROMPT_TTL)
+            await send_message(
+                chat_id,
+                "Во сколько? Напиши время, например 16:15",
+                reply_markup={"force_reply": True, "input_field_placeholder": "16:15"},
+            )
+            return
         async with async_session() as db:
             link = (await db.execute(select(TelegramLink).where(TelegramLink.chat_id == chat_id))).scalar_one_or_none()
             if link is None:
@@ -1384,6 +1409,17 @@ async def _process(update: dict) -> None:
             await db.commit()
             await send_message(chat_id, "Начат новый диалог с ассистентом.")
             return
+
+        # Ответ временем на «во сколько?» (см. _CLOCK_PROMPTS). Любое другое
+        # сообщение снимает вопрос: человек передумал и пишет ассистенту.
+        prompt = _CLOCK_PROMPTS.pop(chat_id, None)
+        if prompt is not None and prompt[1] > time.monotonic():
+            clock = routines.parse_clock(text)
+            if clock is not None:
+                reply = await routines.done_at_clock(db, link.user_id, prompt[0], *clock)
+                await realtime.notify_user(link.user_id)
+                await send_message(chat_id, reply)
+                return
 
         # Пересланное — всегда захват контента (заметка), напечатанное/
         # надиктованное прямо в чат — разговор с ассистентом. forward_origin

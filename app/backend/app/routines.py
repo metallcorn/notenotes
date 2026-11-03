@@ -40,6 +40,7 @@ from __future__ import annotations
 
 import copy
 import logging
+import re
 import uuid
 from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
@@ -739,8 +740,15 @@ def ping_keyboard(item: Item, notification: Notification) -> list[list[dict]]:
     # другого, а рутина бывает своя и не про таблетки. В вебе на кнопке
     # одна галочка — слово не влезало; здесь места хватает, голая галочка
     # непонятна. Одна на всю ширину.
+    # «Вовремя» и «в другое время» (владелец, 03.11): дал коту таблетку
+    # вовремя, а нажать забыл — через час «Сделано» запишет опоздание,
+    # которого не было. Честнее спросить, во сколько.
     return [
         [{"text": "✓ Сделано", "callback_data": f"{CALLBACK_PREFIX}d:{nid}"}],
+        [
+            {"text": "✓ Вовремя", "callback_data": f"{CALLBACK_PREFIX}d:p:{nid}"},
+            {"text": "✓ В другое время…", "callback_data": f"{CALLBACK_PREFIX}t:{nid}"},
+        ],
         [
             {"text": "⏰ +30 мин", "callback_data": f"{CALLBACK_PREFIX}s:30:{nid}"},
             {"text": "⏰ +1 ч", "callback_data": f"{CALLBACK_PREFIX}s:60:{nid}"},
@@ -833,10 +841,12 @@ async def handle_callback(db: AsyncSession, user_id: uuid.UUID, data: str) -> tu
 
     action = parts[0]
     try:
-        if action == "d" and len(parts) == 2:
+        if action == "d" and (len(parts) == 2 or parts[1:2] == ["p"]):
             # Сообщение пинга уже удалено внутри mark_done, итог — в
-            # дневной сводке; перерисовывать нечего.
-            await mark_done(db, item, dose["id"], user=user)
+            # дневной сводке; перерисовывать нечего. «p» — вовремя: в
+            # запланированное время, а не в момент нажатия.
+            at = _dt(dose["planned_at"]) if len(parts) == 3 else None
+            await mark_done(db, item, dose["id"], user=user, at=at)
             await db.commit()
             return None
         if action in ("k", "m") and len(parts) == 2:
@@ -861,6 +871,61 @@ async def handle_callback(db: AsyncSession, user_id: uuid.UUID, data: str) -> tu
     except RoutineError as exc:
         return f"{base_text(item, dose)}\n\n{exc}", open_rows
     return None
+
+
+CLOCK_RE = re.compile(r"^\s*(?:в\s*)?(\d{1,2})[:.\-h ](\d{2})\s*$", re.I)
+
+
+def parse_clock(text: str) -> tuple[int, int] | None:
+    """«16:15», «16.15», «в 16 15» → (16, 15); остальное — None."""
+    match = CLOCK_RE.match(text or "")
+    if not match:
+        return None
+    hour, minute = int(match.group(1)), int(match.group(2))
+    if hour > 23 or minute > 59:
+        return None
+    return hour, minute
+
+
+async def dose_for_notification(db: AsyncSession, user_id: uuid.UUID, notification_id: uuid.UUID) -> tuple[Item, dict] | None:
+    """Открытый приём по пингу этого пользователя — None, если пинг не его,
+    рутина удалена или приём уже закрыт."""
+    n = await db.get(Notification, notification_id)
+    if n is None or n.user_id != user_id or n.type != NOTIFICATION_TYPE:
+        return None
+    payload = n.payload or {}
+    item = await lock_item(db, uuid.UUID(payload["item_id"]))
+    if item is None or item.deleted_at is not None:
+        return None
+    dose = find_dose(item.properties or {}, payload.get("dose_id", ""))
+    if dose is None or dose["status"] != STATUS_PENDING:
+        return None
+    return item, dose
+
+
+async def done_at_clock(db: AsyncSession, user_id: uuid.UUID, notification_id: uuid.UUID, hour: int, minute: int) -> str:
+    """«✓ В другое время…» → бот спросил «во сколько?», человек ответил
+    «16:15». Сегодня в это время по поясу рутины; если это ещё впереди
+    (ответ утром про вчерашний вечерний приём) — вчера. Возвращает текст
+    ответа человеку."""
+    found = await dose_for_notification(db, user_id, notification_id)
+    if found is None:
+        return "Этот приём уже закрыт или пинг не найден — отмечать нечего"
+    item, dose = found
+    tz = tz_of(item)
+    now = _now()
+    local_now = now.astimezone(tz)
+    at = local_now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    if at > local_now + timedelta(minutes=5):
+        at -= timedelta(days=1)
+    user = await db.get(User, user_id)
+    try:
+        await mark_done(db, item, dose["id"], user=user, at=at.astimezone(timezone.utc))
+    except RoutineError as exc:
+        return str(exc)
+    await db.commit()
+    day = "" if at.date() == local_now.date() else f" {at:%d.%m}"
+    return f"✓ {item.title} — записал: в {at:%H:%M}{day}"
 
 
 def _final_line(dose: dict, tz: ZoneInfo) -> str:
