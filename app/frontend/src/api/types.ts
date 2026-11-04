@@ -376,6 +376,8 @@ export interface RoutineSchedule {
   every_minutes: number | null;
   min_gap_minutes: number;
   first_at: string | null;
+  // Дни недели для «по интервалу» (0 — пн … 6 — вс), пусто — любой.
+  weekdays: number[];
 }
 
 export interface RoutineDose {

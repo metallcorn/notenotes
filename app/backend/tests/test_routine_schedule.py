@@ -125,3 +125,64 @@ def test_describe():
 def test_times_mode_requires_a_time():
     with pytest.raises(ValueError):
         next_planned({"mode": "times", "times": []}, tz=TZ, now=_local(2026, 10, 26, 9, 0), previous=None)
+
+
+# --- бытовые дела: интервал в днях плюс дни недели (04.11) -----------------
+
+# Ориентир: 7 ноября 2026 — суббота.
+CHORE = {"mode": "interval", "every_minutes": 30 * 1440, "first_at": "10:00", "weekdays": [5]}
+
+
+def test_chore_counts_from_actual_done_and_snaps_forward_to_weekday():
+    previous = {
+        "planned_at": _utc(_local(2026, 11, 7, 10, 0)).isoformat(),
+        "status": STATUS_DONE,
+        "done_at": _utc(_local(2026, 11, 7, 14, 37)).isoformat(),
+    }
+    planned = next_planned(CHORE, tz=TZ, now=_local(2026, 11, 7, 14, 38), previous=previous)
+    # 7.12 — понедельник; ближайшая суббота — 12.12, время — first_at, не 14:37.
+    assert planned == _utc(_local(2026, 12, 12, 10, 0))
+
+
+def test_chore_allows_several_weekdays_and_keeps_same_day_if_it_fits():
+    weekend = {**CHORE, "weekdays": [5, 6]}
+    previous = {"planned_at": _utc(_local(2026, 11, 8, 10, 0)).isoformat(), "status": STATUS_DONE, "done_at": _utc(_local(2026, 11, 8, 11, 0)).isoformat()}
+    # 8.12 — вторник → суббота 12.12.
+    assert next_planned(weekend, tz=TZ, now=_local(2026, 11, 8, 11, 1), previous=previous) == _utc(_local(2026, 12, 12, 10, 0))
+    # Сделали 12.11 (четверг): 12.12 — суббота, попадает сама.
+    previous = {"planned_at": _utc(_local(2026, 11, 7, 10, 0)).isoformat(), "status": STATUS_DONE, "done_at": _utc(_local(2026, 11, 12, 9, 0)).isoformat()}
+    assert next_planned(weekend, tz=TZ, now=_local(2026, 11, 12, 9, 1), previous=previous) == _utc(_local(2026, 12, 12, 10, 0))
+
+
+def test_missed_chore_moves_to_next_allowed_day_not_next_cycle():
+    previous = {"planned_at": _utc(_local(2026, 11, 7, 10, 0)).isoformat(), "status": STATUS_MISSED}
+    # Пропустили субботу — следующая суббота, а не через месяц.
+    assert next_planned(CHORE, tz=TZ, now=_local(2026, 11, 7, 22, 0), previous=previous) == _utc(_local(2026, 11, 14, 10, 0))
+    weekend = {**CHORE, "weekdays": [5, 6]}
+    assert next_planned(weekend, tz=TZ, now=_local(2026, 11, 7, 22, 0), previous=previous) == _utc(_local(2026, 11, 8, 10, 0))
+    # Без дней недели, но интервал в месяц — завтра.
+    plain = {"mode": "interval", "every_minutes": 30 * 1440, "first_at": "10:00"}
+    assert next_planned(plain, tz=TZ, now=_local(2026, 11, 7, 22, 0), previous=previous) == _utc(_local(2026, 11, 8, 10, 0))
+    # А ежедневная таблетка пропуск отсчитывает от плана, как и раньше.
+    assert next_planned(DAILY, tz=TZ, now=_local(2026, 11, 7, 22, 0), previous=previous) == _utc(_local(2026, 11, 8, 10, 0))
+
+
+def test_skipped_chore_counts_as_done_for_the_cycle():
+    previous = {"planned_at": _utc(_local(2026, 11, 7, 10, 0)).isoformat(), "status": "skipped"}
+    assert next_planned(CHORE, tz=TZ, now=_local(2026, 11, 7, 12, 0), previous=previous) == _utc(_local(2026, 12, 12, 10, 0))
+
+
+def test_chore_first_dose_is_first_allowed_day_on_or_after_start():
+    # Создали в среду 4.11 без даты старта — ближайшая суббота 7.11 в 10:00.
+    assert next_planned(CHORE, tz=TZ, now=_local(2026, 11, 4, 15, 0), previous=None) == _utc(_local(2026, 11, 7, 10, 0))
+    # «Сделал сегодня» → старт через 30 дней (4.12, пятница) → суббота 5.12.
+    assert next_planned(CHORE, tz=TZ, now=_local(2026, 11, 4, 15, 0), previous=None, starts_on=date(2026, 12, 4)) == _utc(_local(2026, 12, 5, 10, 0))
+    # В саму субботу после 10:00 — уже следующая.
+    assert next_planned(CHORE, tz=TZ, now=_local(2026, 11, 7, 11, 0), previous=None) == _utc(_local(2026, 11, 14, 10, 0))
+
+
+def test_describe_chore():
+    assert describe(CHORE) == "каждые 30 дн., по сб в 10:00"
+    assert describe({**CHORE, "weekdays": [5, 6], "first_at": None}) == "каждые 30 дн., по сб, вс"
+    assert describe({"mode": "interval", "every_minutes": 60 * 1440, "first_at": "09:00"}) == "каждые 60 дн. в 09:00"
+    assert describe({"mode": "interval", "every_minutes": 480, "first_at": "09:00"}) == "каждые 8 ч"

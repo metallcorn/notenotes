@@ -58,7 +58,7 @@ async def test_create_by_times_pings_every_member(auth_client, db_session, test_
     assert result["pending_dose_id"]
     item = await db_session.get(Item, uuid.UUID(result["id"]))
     assert item.material_type == "routine" and item.space_id == space_id
-    assert item.properties["schedule"] == {"mode": "times", "times": ["08:00", "20:00"], "min_gap_minutes": 600, "every_minutes": None, "first_at": None}
+    assert item.properties["schedule"] == {"mode": "times", "times": ["08:00", "20:00"], "min_gap_minutes": 600, "every_minutes": None, "first_at": None, "weekdays": []}
     assert item.properties["timezone"] == "Europe/Warsaw"
     assert {n.user_id for n in await _pings(db_session, item.id)} == {test_user.id, other.id}
 
@@ -272,3 +272,25 @@ async def test_routine_journal_offsets_and_summary(auth_client, db_session, test
     assert recent["journal"] == [] and "hint" in recent
     assert "get_routine_journal" in {d.name for d in get_tool_definitions()}
     assert "get_routine_journal" not in {d.name for d in get_tool_definitions({"routines"})}
+
+
+def test_parse_weekdays_accepts_words_in_both_languages():
+    from app.tools.routines import parse_weekdays
+
+    assert parse_weekdays(["сб", "Sun", 2]) == [2, 5, 6]
+    assert parse_weekdays("суббота, воскресенье") == [5, 6]
+    assert parse_weekdays(["wednesday"]) == [2]
+    with pytest.raises(ToolError, match="Непонятный день недели"):
+        parse_weekdays(["послезавтра"])
+
+
+def test_schedule_from_args_takes_weekdays_only_with_interval():
+    from app.tools.routines import _schedule_from_args
+
+    schedule = _schedule_from_args({"every_minutes": 43200, "weekdays": ["сб"], "first_at": "10:00"})
+    assert schedule.model_dump() == {"mode": "interval", "times": [], "every_minutes": 43200, "min_gap_minutes": 0, "first_at": "10:00", "weekdays": [5]}
+    with pytest.raises(ToolError, match="weekdays — только"):
+        _schedule_from_args({"times": ["08:00"], "weekdays": ["сб"]})
+    # Обновление: интервал меняем, дни остаются.
+    kept = _schedule_from_args({"every_minutes": 86400}, current=schedule.model_dump())
+    assert kept.weekdays == [5] and kept.first_at == "10:00"

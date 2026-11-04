@@ -3,14 +3,18 @@ import { Send, X } from "lucide-react";
 import { useCreateRoutine, useMe, useSpaceMembers, useUpdateRoutine } from "../api/hooks";
 import type { Routine, RoutineInput, Space } from "../api/types";
 import Spinner from "./Spinner";
-import { t } from "../i18n";
+import { dateLocale, t } from "../i18n";
 
 // Шторка «Новая рутина» / «Настройки рутины» (макет «Рутина: создать»,
 // 26.10): название, для кого, что и сколько, «по часам» с временами и
 // зазором или «по интервалу», курс, кому напоминать и как часто повторять.
+// «По интервалу» с 04.11 тянет и бытовые дела: «раз в 30 дней, по субботам»
+// — интервал в днях плюс дни недели, до ближайшего из которых сдвигается срок.
 
 const GAP_OPTIONS = [0, 240, 360, 480, 600, 720];
-const EVERY_OPTIONS = [240, 360, 480, 720, 1440, 2880];
+const EVERY_OPTIONS = [240, 360, 480, 720, 1440, 2880, 7 * 1440, 14 * 1440, 30 * 1440, 60 * 1440, 90 * 1440];
+// 1 января 2024 — понедельник: короткие имена дней на языке интерфейса.
+const WEEKDAY_NAMES = Array.from({ length: 7 }, (_, i) => new Date(2024, 0, 1 + i).toLocaleDateString(dateLocale, { weekday: "short" }));
 const NAG_OPTIONS = [0, 15, 30, 60];
 
 function pad(n: number): string {
@@ -59,6 +63,7 @@ export default function RoutineSheet({
   const [minGap, setMinGap] = useState(routine?.schedule.min_gap_minutes ?? 0);
   const [every, setEvery] = useState(routine?.schedule.every_minutes ?? 1440);
   const [firstAt, setFirstAt] = useState(routine?.schedule.first_at ?? "");
+  const [weekdays, setWeekdays] = useState<number[]>(routine?.schedule.weekdays ?? []);
   const [startsOn, setStartsOn] = useState(routine?.starts_on ?? todayInput());
   const [endsOn, setEndsOn] = useState(routine?.ends_on ?? "");
   const [notify, setNotify] = useState<"space" | "self">(routine?.notify ?? "space");
@@ -75,6 +80,13 @@ export default function RoutineSheet({
 
   const busy = create.isPending || update.isPending;
   const valid = title.trim().length > 0 && (mode === "times" ? times.length > 0 : every > 0);
+
+  function toggleWeekday(day: number) {
+    const next = weekdays.includes(day) ? weekdays.filter((d) => d !== day) : [...weekdays, day].sort();
+    setWeekdays(next);
+    // День недели без времени дня — пинг пришёл бы во сколько попало.
+    if (next.length > 0 && !firstAt) setFirstAt("10:00");
+  }
 
   function addTime() {
     if (!/^\d{2}:\d{2}$/.test(newTime) || times.includes(newTime)) return;
@@ -96,6 +108,7 @@ export default function RoutineSheet({
         every_minutes: mode === "interval" ? every : null,
         min_gap_minutes: mode === "times" ? minGap : 0,
         first_at: mode === "interval" && firstAt ? firstAt : null,
+        weekdays: mode === "interval" ? weekdays : [],
       },
       starts_on: startsOn || null,
       ends_on: endsOn || null,
@@ -212,9 +225,21 @@ export default function RoutineSheet({
                 </select>
               </label>
               <label className="flex h-12 items-center justify-between gap-2 rounded-2xl bg-muted px-3.5 text-sm font-bold text-primary">
-                <span className="truncate">{t("routine.firstAt")}</span>
+                <span className="truncate">{weekdays.length > 0 || every >= 2880 ? t("routine.at") : t("routine.firstAt")}</span>
                 <input type="time" value={firstAt} onChange={(e) => setFirstAt(e.target.value)} className="w-[92px] bg-transparent text-right font-extrabold outline-none" />
               </label>
+              <div className="col-span-2 mt-1 flex items-center justify-between gap-2 px-1 text-[13px] font-semibold text-subtle">
+                <span>{t("routine.weekdays")}</span>
+                {weekdays.length === 0 && <span>{t("routine.anyDay")}</span>}
+              </div>
+              <div className="col-span-2 grid grid-cols-7 gap-1" role="group" aria-label={t("routine.weekdays")}>
+                {WEEKDAY_NAMES.map((name, day) => (
+                  <button key={day} type="button" aria-pressed={weekdays.includes(day)} onClick={() => toggleWeekday(day)} className={`${chip(weekdays.includes(day))} h-10 px-0 text-[13px]`}>
+                    {name}
+                  </button>
+                ))}
+              </div>
+              {weekdays.length > 0 && <div className="col-span-2 px-1 text-[12px] font-semibold text-subtle">{t("routine.weekdaysHint")}</div>}
             </div>
           )}
 

@@ -18,6 +18,14 @@
 - «по интервалу» (interval): каждые N минут от последнего реального
   приёма; пропущенный или отменённый приём отсчитывается от своего плана,
   иначе цепочка «раз в сутки» съехала бы на часы ожидания.
+
+БЫТОВЫЕ ДЕЛА (запрос владельца 04.11): «фильтр поилки раз в 30 дней, но
+по субботам» — тот же интервал плюс weekdays, список допустимых дней
+недели (0 — понедельник … 6 — воскресенье). Срок отсчитывается от
+реального выполнения и сдвигается ВПЕРЁД до ближайшего разрешённого дня,
+время дня — first_at. Такое дело, если его пропустили, не ждёт ещё месяц,
+а напоминает в ближайший подходящий день; «не нужно» считается как
+сделано — цикл идёт дальше.
 """
 
 from __future__ import annotations
@@ -79,6 +87,34 @@ def _local_day_start(day: date, tz: ZoneInfo) -> datetime:
     return datetime.combine(day, time(0, 0), tzinfo=tz).astimezone(timezone.utc)
 
 
+def _weekdays(schedule: dict) -> set[int]:
+    return {int(d) for d in schedule.get("weekdays") or [] if 0 <= int(d) <= 6}
+
+
+def is_chore(schedule: dict) -> bool:
+    """Дело раз в несколько дней (с днями недели или интервалом от двух
+    суток): пропуск переносит на ближайший день, а не на следующий цикл."""
+    if schedule.get("mode", MODE_TIMES) != MODE_INTERVAL:
+        return False
+    return bool(_weekdays(schedule)) or int(schedule.get("every_minutes") or 0) >= 2 * 1440
+
+
+def _snap_to_weekday(moment: datetime, schedule: dict, tz: ZoneInfo, *, floor: datetime) -> datetime:
+    """Ближайший разрешённый день недели не раньше moment, строго позже
+    floor; время дня — first_at, а без него — как у moment."""
+    weekdays = _weekdays(schedule)
+    local = moment.astimezone(tz)
+    slot = parse_hhmm(schedule["first_at"]) if schedule.get("first_at") else local.time().replace(second=0, microsecond=0)
+    day = local.date()
+    for _ in range(16):
+        if day.weekday() in weekdays:
+            candidate = datetime.combine(day, slot, tzinfo=tz).astimezone(timezone.utc)
+            if candidate > floor:
+                return candidate
+        day += timedelta(days=1)
+    raise AssertionError("разрешённый день не найден за две недели — невозможно")
+
+
 def _slots(schedule: dict) -> list[time]:
     slots = sorted({parse_hhmm(t) for t in schedule.get("times") or []})
     if not slots:
@@ -130,11 +166,18 @@ def next_planned(
         else:
             base_raw = previous.get("done_at") if previous.get("status") == STATUS_DONE else None
             base = _parse_dt(base_raw or previous["planned_at"])
-            planned = base + every
+            if previous.get("status") == STATUS_MISSED and is_chore(schedule):
+                # Пропущенное дело — на следующий день (с днями недели —
+                # на ближайший разрешённый), а не через весь интервал.
+                planned = base + timedelta(days=1)
+            else:
+                planned = base + every
             # План ещё не наступил, а предыдущий уже закрыли (дали раньше
             # времени): следующий всё равно не раньше интервала от факта.
             if planned < floor and previous.get("status") != STATUS_DONE:
                 planned = _first_interval_dose(schedule, floor, tz)
+        if _weekdays(schedule):
+            planned = _snap_to_weekday(planned, schedule, tz, floor=floor)
     else:
         slots = _slots(schedule)
         if previous is None:
@@ -182,16 +225,27 @@ def nag_until(schedule: dict, planned: datetime, *, tz: ZoneInfo) -> datetime:
     return min(limit, planned + MAX_NAG_WINDOW)
 
 
+WEEKDAY_NAMES = ("пн", "вт", "ср", "чт", "пт", "сб", "вс")
+
+
 def describe(schedule: dict) -> str:
-    """«в 08:00 и 20:00» / «каждые 24 ч» — для подписи и текста заметки."""
+    """«в 08:00 и 20:00» / «каждые 24 ч» / «каждые 30 дн., по сб» — для
+    подписи и текста заметки."""
     if schedule.get("mode", MODE_TIMES) == MODE_INTERVAL:
         minutes = int(schedule.get("every_minutes") or 0)
         if minutes % 1440 == 0:
             days = minutes // 1440
-            return "каждый день" if days == 1 else f"каждые {days} дн."
-        if minutes % 60 == 0:
-            return f"каждые {minutes // 60} ч"
-        return f"каждые {minutes} мин"
+            text = "каждый день" if days == 1 else f"каждые {days} дн."
+        elif minutes % 60 == 0:
+            text = f"каждые {minutes // 60} ч"
+        else:
+            text = f"каждые {minutes} мин"
+        weekdays = sorted(_weekdays(schedule))
+        if weekdays:
+            text += ", по " + ", ".join(WEEKDAY_NAMES[d] for d in weekdays)
+        if schedule.get("first_at") and (weekdays or minutes >= 2 * 1440):
+            text += f" в {schedule['first_at']}"
+        return text
     times = [t.strftime("%H:%M") for t in _slots(schedule)]
     if len(times) == 1:
         return f"в {times[0]}"

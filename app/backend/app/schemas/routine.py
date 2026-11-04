@@ -13,11 +13,15 @@ class ScheduleIn(BaseModel):
 
     mode: Literal["times", "interval"] = "times"
     times: list[str] = Field(default_factory=list)
-    every_minutes: int | None = Field(default=None, ge=5, le=60 * 24 * 30)
+    # До года: бытовые дела вроде «фильтр раз в 2 месяца» (04.11).
+    every_minutes: int | None = Field(default=None, ge=5, le=60 * 24 * 366)
     # Минимальный зазор от реального приёма (только «по часам»).
     min_gap_minutes: int = Field(default=0, ge=0, le=60 * 24 * 7)
     # Первый приём «по интервалу» — во сколько; пусто — через пять минут.
     first_at: str | None = None
+    # Допустимые дни недели (только «по интервалу»): 0 — пн … 6 — вс.
+    # Пусто — любой день. Срок сдвигается вперёд до ближайшего из них.
+    weekdays: list[int] = Field(default_factory=list)
 
     @field_validator("times")
     @classmethod
@@ -37,12 +41,22 @@ class ScheduleIn(BaseModel):
             raise ValueError("first_at — ЧЧ:ММ")
         return value.strip()
 
+    @field_validator("weekdays")
+    @classmethod
+    def _weekdays_range(cls, value: list[int]) -> list[int]:
+        cleaned = sorted({int(v) for v in value})
+        if any(v < 0 or v > 6 for v in cleaned):
+            raise ValueError("Дни недели — числа от 0 (пн) до 6 (вс)")
+        return cleaned
+
     @model_validator(mode="after")
     def _mode_fields(self) -> "ScheduleIn":
         if self.mode == "times" and not self.times:
             raise ValueError("Укажи хотя бы одно время")
         if self.mode == "interval" and not self.every_minutes:
             raise ValueError("Укажи интервал в минутах")
+        if self.mode == "times" and self.weekdays:
+            raise ValueError("Дни недели — только для расписания по интервалу")
         return self
 
 

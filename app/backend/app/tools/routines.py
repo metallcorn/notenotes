@@ -50,7 +50,20 @@ _SCHEDULE_PARAMS: dict[str, Any] = {
     },
     "every_minutes": {
         "type": "integer",
-        "description": "Режим «по интервалу»: каждые N минут от РЕАЛЬНОГО предыдущего приёма («раз в сутки» → 1440, «каждые 8 часов» → 480)",
+        "description": (
+            "Режим «по интервалу»: каждые N минут от РЕАЛЬНОГО предыдущего приёма («раз в сутки» → 1440, "
+            "«каждые 8 часов» → 480, «раз в 30 дней» → 43200, «раз в два месяца» → 86400)"
+        ),
+    },
+    "weekdays": {
+        "type": "array",
+        "items": {"type": "string"},
+        "description": (
+            "Только для every_minutes: в какие дни недели можно делать — срок сдвигается вперёд до ближайшего "
+            "из них. Для бытовых дел: «раз в 30 дней, по субботам» → [\"сб\"], «в выходные» → [\"сб\", \"вс\"]. "
+            "Пропущенное такое дело напомнит в ближайший разрешённый день, а не через весь интервал. "
+            "Если человек говорит «сделал сегодня, напоминай раз в N дней» — поставь starts_on на сегодня плюс N дней"
+        ),
     },
     "min_gap_minutes": {
         "type": "integer",
@@ -58,7 +71,7 @@ _SCHEDULE_PARAMS: dict[str, Any] = {
     },
     "first_at": {
         "type": "string",
-        "description": "Только для every_minutes: во сколько первый приём, ЧЧ:ММ; не указать — через пять минут",
+        "description": "Только для every_minutes: во сколько приём, ЧЧ:ММ; не указать — через пять минут. Для дел с weekdays или интервалом от двух суток — время дня каждого раза",
     },
 }
 
@@ -106,10 +119,38 @@ CREATE_ROUTINE = ToolDefinition(
 )
 
 
+_WEEKDAY_WORDS = {
+    0: ("пн", "mon", "понедельник", "monday"),
+    1: ("вт", "tue", "вторник", "tuesday"),
+    2: ("ср", "wed", "среда", "wednesday"),
+    3: ("чт", "thu", "четверг", "thursday"),
+    4: ("пт", "fri", "пятница", "friday"),
+    5: ("сб", "sat", "суббота", "saturday"),
+    6: ("вс", "sun", "воскресенье", "sunday"),
+}
+
+
+def parse_weekdays(raw: Any) -> list[int]:
+    """[\"сб\", \"sun\", 2] → [2, 5, 6]: модель называет дни как угодно."""
+    if isinstance(raw, str):
+        raw = raw.replace(";", ",").split(",")
+    result: set[int] = set()
+    for value in raw or []:
+        if isinstance(value, int) or (isinstance(value, str) and value.strip().isdigit()):
+            result.add(int(value))
+            continue
+        word = str(value).strip().casefold()
+        found = next((day for day, words in _WEEKDAY_WORDS.items() if word in words or any(w.startswith(word[:3]) for w in words[2:])), None)
+        if found is None or not word:
+            raise ToolError(f"Непонятный день недели «{value}» — передай «пн»…«вс» или mon…sun")
+        result.add(found)
+    return sorted(result)
+
+
 def _schedule_from_args(args: dict[str, Any], *, current: dict | None = None) -> ScheduleIn | None:
     """Расписание из плоских аргументов. None — расписание не трогали
     (update_routine без times/every_minutes)."""
-    touched = [k for k in ("times", "every_minutes", "min_gap_minutes", "first_at") if args.get(k) not in (None, "", [])]
+    touched = [k for k in ("times", "every_minutes", "min_gap_minutes", "first_at", "weekdays") if args.get(k) not in (None, "", [])]
     if not touched:
         return None
     base = dict(current or {})
@@ -121,7 +162,11 @@ def _schedule_from_args(args: dict[str, Any], *, current: dict | None = None) ->
             times = [t for t in times.replace(";", ",").split(",")]
         base = {"mode": "times", "times": list(times), "min_gap_minutes": base.get("min_gap_minutes", 0)}
     elif args.get("every_minutes"):
-        base = {"mode": "interval", "every_minutes": args["every_minutes"], "first_at": base.get("first_at")}
+        base = {"mode": "interval", "every_minutes": args["every_minutes"], "first_at": base.get("first_at"), "weekdays": base.get("weekdays") or []}
+    if args.get("weekdays") not in (None, "", []):
+        if base.get("mode") != "interval":
+            raise ToolError("weekdays — только для расписания по интервалу (every_minutes)")
+        base["weekdays"] = parse_weekdays(args["weekdays"])
     if args.get("min_gap_minutes") not in (None, ""):
         if base.get("mode", "times") != "times":
             raise ToolError("min_gap_minutes — только для расписания по часам (times)")
