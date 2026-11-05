@@ -299,7 +299,7 @@ function NotificationRow({
         <div className="mt-0.5 flex items-center gap-1 text-xs text-subtle">
           <CalendarClock size={11} />
           {resolved
-            ? `выполнено ${formatWhen(notification.resolved_at!)}`
+            ? `${notification.type === "announcement" ? "отправлено" : "выполнено"} ${formatWhen(notification.resolved_at!)}`
             : notification.trigger_at
               ? `${overdue ? "должно было сработать" : "сработает"} ${formatWhen(notification.trigger_at)}`
               : formatWhen(notification.created_at)}

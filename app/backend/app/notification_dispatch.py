@@ -8,7 +8,7 @@ from urllib.parse import quote
 from sqlalchemy import delete, select
 
 from app.telegram_bot import open_button
-from app import realtime, reminder_actions, routines, telegram_bot
+from app import announcements, realtime, reminder_actions, routines, telegram_bot
 from app.core.config import get_settings
 from app.db import async_session
 from app.models import Notification, PushSubscription, TelegramLink
@@ -133,6 +133,13 @@ async def _dispatch_due() -> None:
             # пока приём не отметят или не истечёт его окно.
             if notification.type == routines.NOTIFICATION_TYPE and notification.resolved_at is None:
                 routines.after_dispatch(notification, datetime.now(timezone.utc))
+            # Объявление участникам — не дело, а сообщение: отправили, и
+            # оно выполнено. Владелец 05.11: четыре «ушёл из дома» висели
+            # в «Активных» рядом с напоминаниями — «в историю положить
+            # можно и нужно, а вот в задачи вряд ли». Колокольчик считает
+            # по read_at, так что непрочитанным оно остаётся.
+            if notification.type == announcements.NOTIFICATION_TYPE and notification.dispatched_at is not None:
+                notification.resolved_at = notification.resolved_at or notification.dispatched_at
         if due:
             await db.commit()
 

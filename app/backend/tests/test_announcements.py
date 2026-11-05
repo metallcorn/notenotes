@@ -168,3 +168,30 @@ def test_render_puts_newest_first_and_labels_other_day():
         "- 01.11 18:40 📣 Anna: реп в 10 · 🏠 20:40 закончили\n"
         "- 01.11 17:40 🚪 Jan: ушёл · до ~03.11 17:40\n"
     )
+
+
+async def test_dispatched_announcement_is_resolved_not_a_task(auth_client, db_session, test_user, monkeypatch):
+    """05.11: объявления копились в «Активных» рядом с напоминаниями.
+    После отправки — сразу в историю (resolved_at), но непрочитанным."""
+    import contextlib
+    from datetime import datetime, timezone
+
+    from app import notification_dispatch
+
+    space_id = await _space(auth_client)
+    ctx = _ctx(db_session, test_user, space_id)
+    result = await announce(ctx, {"text": "ушёл в магазин"})
+
+    async def fake_dispatch(notification, db):
+        notification.dispatched_at = datetime.now(timezone.utc)
+
+    @contextlib.asynccontextmanager
+    async def same_session():
+        yield db_session
+
+    monkeypatch.setattr(notification_dispatch, "_dispatch_one", fake_dispatch)
+    monkeypatch.setattr(notification_dispatch, "async_session", same_session)
+    await notification_dispatch._dispatch_due()
+
+    sent = await _notifications(db_session, uuid.UUID(result["journal_id"]))
+    assert sent and all(n.resolved_at == n.dispatched_at and n.read_at is None for n in sent)
