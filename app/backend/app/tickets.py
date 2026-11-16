@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import io
 import re
 import json
 import logging
@@ -8,6 +9,7 @@ import uuid
 from datetime import datetime, timedelta
 from pathlib import Path
 
+import pymupdf
 import zxingcpp
 from PIL import Image
 from sqlalchemy import select
@@ -64,6 +66,39 @@ _PROMPT = (
 )
 
 
+# Картинки классифицирует vision.py бесплатно — первой строкой того же
+# OCR-ответа. У PDF такого шага не было вовсе: текстовый слой уходил в
+# заметку документом, и билет в PDF (реальный случай 16.11: два жд-билета
+# из Telegram) не получал ни карточки, ни напоминания о поездке. Для PDF
+# классификация — отдельный короткий вызов по уже извлечённому тексту.
+_CLASSIFY_PROMPT = (
+    "Тебе дан текст, извлечённый из PDF-документа. Это билет — на поезд, "
+    "самолёт, автобус, мероприятие, посадочный талон, электронный билет с "
+    "конкретной датой поездки или события? Счёт, страховка, договор, "
+    "бронирование отеля, письмо, статья — НЕ билет. Ответь одним словом: "
+    "да или нет."
+)
+_CLASSIFY_MAX_CHARS = 3000
+_YES_RE = re.compile(r"^\W*(да|yes)\b", re.IGNORECASE)
+
+
+async def looks_like_ticket(transcript: str) -> bool:
+    """Классификация текста PDF: билет ли это. Пустой/крошечный текст —
+    нет без вызова модели."""
+    text = (transcript or "").strip()
+    if len(text) < 40:
+        return False
+    client = get_llm_client()
+    response = await client.chat(
+        [
+            Message(role="system", content=_CLASSIFY_PROMPT),
+            Message(role="user", content=text[:_CLASSIFY_MAX_CHARS]),
+        ],
+        [],
+    )
+    return bool(_YES_RE.match((response.message.content or "").strip()))
+
+
 def enqueue_ticket_extraction(upload_id: uuid.UUID) -> None:
     _queue.put_nowait(upload_id)
 
@@ -72,11 +107,24 @@ def _upload_path(upload_id: uuid.UUID) -> Path:
     return Path(get_settings().upload_dir) / str(upload_id)
 
 
-def _decode_code(upload_id: uuid.UUID) -> str | None:
-    """QR/штрихкод с исходного файла — только для билетов-картинок; PDF
-    этот шаг не проходят (вне рамок текущей фазы). Первый найденный код —
+def is_pdf(filename: str | None, content_type: str | None) -> bool:
+    return (content_type or "") == "application/pdf" or (filename or "").lower().endswith(".pdf")
+
+
+def _document_card_pattern(upload_id: uuid.UUID) -> re.Pattern[str]:
+    """Карточка PDF в заметке (pdf_processing.serialize_document_attachment)
+    — тот же тег и тот же способ найти его по data-url, что у
+    pdf_processing._replace_document_card. Дублируется здесь, а не
+    импортируется: pdf_processing зовёт tickets, обратный импорт дал бы цикл."""
+    url = f"/api/uploads/{upload_id}"
+    return re.compile(rf'<div data-doc-attachment[^>]*data-url="{re.escape(url)}"[^>]*></div>')
+
+
+def _decode_code(upload_id: uuid.UUID, *, pdf: bool = False) -> str | None:
+    """QR/штрихкод с исходного файла. Первый найденный код —
     билет обычно несёт один; если их несколько, остальные теряются, не то
-    что здесь нужно усложнять.
+    что здесь нужно усложнять. PDF — первая страница, отрисованная в
+    картинку: код на жд-билете или посадочном лежит на ней.
 
     zxing-cpp, не pyzbar/zbar: авиабилеты (IATA BCBP) почти всегда кодируют
     посадочный талон в Aztec, не QR — реальный случай поймал на живом
@@ -87,7 +135,15 @@ def _decode_code(upload_id: uuid.UUID) -> str | None:
     if not path.is_file():
         return None
     try:
-        with Image.open(path) as img:
+        if pdf:
+            with pymupdf.open(path) as doc:
+                if doc.page_count == 0:
+                    return None
+                png = doc[0].get_pixmap(dpi=200).tobytes("png")
+            source: Path | io.BytesIO = io.BytesIO(png)
+        else:
+            source = path
+        with Image.open(source) as img:
             results = zxingcpp.read_barcodes(img)
     except Exception:
         logger.exception("Ошибка декодирования QR/штрихкода для %s", upload_id)
@@ -325,13 +381,27 @@ async def _add_event_notification(db: AsyncSession, item: Item, properties: dict
     )
 
 
-async def _finalize_ticket_item(upload_id: uuid.UUID, old: str, new: str, properties: dict, title: str | None) -> None:
+async def _finalize_ticket_item(
+    upload_id: uuid.UUID,
+    old: str | re.Pattern[str],
+    new: str,
+    properties: dict,
+    title: str | None,
+    *,
+    filename: str | None = None,
+) -> None:
     # Как vision._replace_in_referencing_items (тот же retry — плейсхолдер
     # может ещё не долететь до сервера дебаунсом автосохранения), но
     # дополнительно проставляет material_type/properties на том же Item в
     # той же транзакции: реиспользовать generic-хелпер напрямую нельзя, у
     # него нет места передать эти поля, а отдельным запросом — гонка с
     # этим же commit.
+    #
+    # old — текст плейсхолдера (картинка) или шаблон карточки PDF: у PDF
+    # карточка файла уже стоит в заметке в готовом виде, её и заменяем
+    # на карточку билета. Замена функцией, не строкой — см.
+    # pdf_processing._replace_document_card, почему.
+    generic_titles = {"", "Фото", filename or ""}
     for attempt in range(_REPLACE_RETRY_ATTEMPTS):
         async with async_session() as db:
             result = await db.execute(select(Item).where(Item.content.like(f"%{upload_id}%")))
@@ -339,8 +409,12 @@ async def _finalize_ticket_item(upload_id: uuid.UUID, old: str, new: str, proper
             touched_spaces = set()
             touched_item_ids = []
             for item in items:
-                if old in item.content:
-                    item.content = item.content.replace(old, new)
+                if isinstance(old, str):
+                    replaced, n = (item.content.replace(old, new), item.content.count(old))
+                else:
+                    replaced, n = old.subn(lambda _match: new, item.content)
+                if n:
+                    item.content = replaced
                     item.material_type = "ticket"
                     item.properties = {**item.properties, **properties}
                     # Раньше title не трогали вовсе — заметка так и оставалась
@@ -350,7 +424,9 @@ async def _finalize_ticket_item(upload_id: uuid.UUID, old: str, new: str, proper
                     # ассистент не мог найти собственные билеты пользователя
                     # ни по названию, ни по полнотекстовому поиску — заголовок
                     # ничего не говорил о содержимом.
-                    if title and (not item.title or item.title == "Фото"):
+                    # У PDF заголовок — имя файла («ticket_ABC123.pdf»), он
+                    # так же ничего не говорит, как «Фото».
+                    if title and (item.title or "") in generic_titles:
                         item.title = title
                     await _add_event_notification(db, item, properties, title)
                     touched_spaces.add(item.space_id)
@@ -398,10 +474,12 @@ async def _process(upload_id: uuid.UUID) -> None:
         transcript = upload.transcript or ""
         filename = upload.filename
         content_type = upload.content_type
+    pdf = is_pdf(filename, content_type)
 
     if not transcript.strip():
         logger.warning("Пустой transcript для билета %s — извлечение пропущено", upload_id)
-        await _fail_stuck_ticket(upload_id)
+        if not pdf:
+            await _fail_stuck_ticket(upload_id)
         return
 
     try:
@@ -409,6 +487,13 @@ async def _process(upload_id: uuid.UUID) -> None:
     except Exception:
         logger.exception("Ошибка извлечения данных билета %s", upload_id)
         data = None
+
+    if pdf and not data:
+        # PDF уже лежит в заметке готовым документом с текстом
+        # (pdf_processing) — без структуры он таким и остаётся, статус
+        # «done» не трогаем.
+        logger.warning("PDF %s похож на билет, но структуру извлечь не удалось — остаётся документом", upload_id)
+        return
 
     async with async_session() as db:
         upload = await db.get(Upload, upload_id)
@@ -424,11 +509,12 @@ async def _process(upload_id: uuid.UUID) -> None:
         await _replace_in_referencing_items(upload_id, image_placeholder_text(upload_id), formatted)
         return
 
-    code = _decode_code(upload_id)
+    code = _decode_code(upload_id, pdf=pdf)
     properties = _build_properties(upload_id, data, code)
     card = _serialize_ticket_card(f"/api/uploads/{upload_id}", filename, data, code)
     title = str(data.get("title") or "").strip()[:60] or None
-    await _finalize_ticket_item(upload_id, image_placeholder_text(upload_id), card, properties, title)
+    old: str | re.Pattern[str] = _document_card_pattern(upload_id) if pdf else image_placeholder_text(upload_id)
+    await _finalize_ticket_item(upload_id, old, card, properties, title, filename=filename)
 
 
 async def run_worker() -> None:

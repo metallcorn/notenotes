@@ -331,6 +331,23 @@ async def _process(upload_id: uuid.UUID) -> None:
     formatted = serialize_document_attachment(url, filename)
     await _replace_document_card(upload_id, formatted)
     await reindex_items_with_upload(upload_id)
+    await _hand_over_if_ticket(upload_id, result)
+
+
+async def _hand_over_if_ticket(upload_id: uuid.UUID, transcript: str) -> None:
+    """Билет в PDF — тот же конвейер, что у фото билета (tickets.py):
+    карточка, дата, напоминание о поездке. Реальный случай 16.11: два
+    жд-билета PDF из Telegram остались документами, напоминание не
+    пришло — у картинок классификация шла первой строкой OCR, у PDF её не
+    было вовсе. Документ к этому моменту уже на месте, так что ошибка
+    здесь ничего не ломает — только лишает карточки."""
+    from app import tickets  # отложенный импорт: tickets → vision ← pdf_processing
+
+    try:
+        if await tickets.looks_like_ticket(transcript):
+            tickets.enqueue_ticket_extraction(upload_id)
+    except Exception:
+        logger.exception("Не удалось проверить PDF %s на билет", upload_id)
 
 
 async def run_worker() -> None:
