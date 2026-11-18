@@ -171,7 +171,7 @@ async def insert_chart_block(ctx: ToolContext, args: dict[str, Any]) -> dict[str
         raw_y = [raw_y]
     y_columns = [_resolve_column(table, raw, what="оси Y") for raw in raw_y if str(raw).strip()]
     if not y_columns:
-        raise ToolError("Нужен хотя бы один числовой столбец в y_columns")
+        raise ToolError("В y_columns пусто — передай хотя бы один числовой столбец, имена столбцов смотри в get_table")
     x_raw = args.get("x_column")
     x_column = _resolve_column(table, x_raw, what="оси X") if x_raw and str(x_raw).strip() else None
     series_raw = args.get("series_column")
@@ -181,20 +181,20 @@ async def insert_chart_block(ctx: ToolContext, args: dict[str, Any]) -> dict[str
 
     if kind == "pie":
         if len(y_columns) != 1:
-            raise ToolError("Для круговой диаграммы нужен ровно один столбец значений в y_columns")
+            raise ToolError("Для круговой диаграммы в y_columns должен быть ровно один столбец — оставь столбец значений, а подписи долей задай через x_column")
         if x_column is None:
             raise ToolError("Для круговой диаграммы укажи x_column — столбец с подписями долей")
         if series_column is not None:
             raise ToolError("Круговая диаграмма не делится на серии — убери series_column")
     if kind == "scatter":
         if len(y_columns) != 1:
-            raise ToolError("Для точечного графика нужен ровно один столбец в y_columns")
+            raise ToolError("Для точечного графика в y_columns должен быть один столбец — второй показатель передай как size_column или series_column")
         if x_column is None:
             raise ToolError("Для точечного графика укажи x_column — числовой столбец или дата по оси X")
     if size_column is not None and kind != "scatter":
-        raise ToolError("size_column имеет смысл только для scatter (пузырьки)")
+        raise ToolError("size_column работает только для scatter (пузырьки) — убери его или выбери kind=scatter")
     if series_column is not None and len(y_columns) > 1:
-        raise ToolError("С series_column нужен один столбец в y_columns: серии и так дают несколько линий")
+        raise ToolError("С series_column в y_columns нужен один столбец — серии и так дают несколько линий; для нескольких столбцов убери series_column")
     if kind in ("line", "bar") and x_column is None:
         raise ToolError("Укажи x_column — столбец дат или категорий по оси X")
 
