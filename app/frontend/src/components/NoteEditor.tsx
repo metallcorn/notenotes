@@ -90,6 +90,8 @@ import { ReminderAnchor } from "../extensions/ReminderAnchor";
 import { ImageOcrResult } from "../extensions/ImageOcrResult";
 import { SlashCommand } from "../extensions/SlashCommand";
 import { TableEmbed } from "../extensions/TableEmbed";
+import { ChartEmbed, type ChartEmbedAttrs } from "../extensions/ChartEmbed";
+import InsertChartModal from "./InsertChartModal";
 import InsertTableModal from "./InsertTableModal";
 import { CollabProvider, type CollabStatus } from "../lib/collabProvider";
 import { attachCollab, detachCollab } from "../lib/collabState";
@@ -423,6 +425,7 @@ export default function NoteEditor({
   const [reminderAnchorPos, setReminderAnchorPos] = useState<number | null>(null);
   const [insertTableModalOpen, setInsertTableModalOpen] = useState(false);
   const [insertTablePos, setInsertTablePos] = useState<number | null>(null);
+  const [insertChartPos, setInsertChartPos] = useState<number | null>(null);
   const [assistantModalOpen, setAssistantModalOpen] = useState(false);
   const [assistantRange, setAssistantRange] = useState<{ from: number; to: number } | null>(null);
   const [assistantSelectionText, setAssistantSelectionText] = useState<string | null>(null);
@@ -535,6 +538,7 @@ export default function NoteEditor({
       ReminderAnchor,
       ImageOcrResult,
       TableEmbed,
+      ChartEmbed,
       LinkExtension.configure({ HTMLAttributes: { target: "_blank", rel: "noopener noreferrer" } }),
       Table.configure({ resizable: false }),
       TableRow,
@@ -551,6 +555,7 @@ export default function NoteEditor({
           setInsertTablePos(pos);
           setInsertTableModalOpen(true);
         },
+        onInsertChart: (pos: number) => setInsertChartPos(pos),
       }),
     ],
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -2391,6 +2396,23 @@ export default function NoteEditor({
             }
           }}
           onCancel={() => setInsertTableModalOpen(false)}
+        />
+      )}
+
+      {insertChartPos !== null && (
+        <InsertChartModal
+          spaceId={item.space_id}
+          onInsert={(attrs: ChartEmbedAttrs) => {
+            const pos = insertChartPos;
+            setInsertChartPos(null);
+            if (editor && pos !== null) {
+              editor
+                .chain()
+                .insertContentAt(pos, [{ type: "chartEmbed", attrs }, { type: "paragraph" }])
+                .run();
+            }
+          }}
+          onCancel={() => setInsertChartPos(null)}
         />
       )}
 

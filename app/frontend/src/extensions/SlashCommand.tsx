@@ -7,6 +7,7 @@ function buildItems(
   onInsertImage: () => void,
   onCreateReminder: (pos: number) => void,
   onInsertTable: (pos: number) => void,
+  onInsertChart: (pos: number) => void,
 ): SlashCommandItem[] {
   return [
     {
@@ -168,6 +169,18 @@ function buildItems(
         onInsertTable(editor.state.selection.from);
       },
     },
+    {
+      title: "График",
+      // График по существующей таблице (линия/столбцы/круг/точки) — узел
+      // хранит только ссылку на таблицу и столбцы (ChartEmbed.ts), данные
+      // подтягиваются живьём. Как и «Таблица», команда открывает модалку
+      // выбора (InsertChartModal.tsx через NoteEditor.tsx).
+      aliases: ["chart", "диаграмма", "plot", "graph"],
+      run: (editor, range) => {
+        editor.chain().focus().deleteRange(range).run();
+        onInsertChart(editor.state.selection.from);
+      },
+    },
   ];
 }
 
@@ -175,6 +188,7 @@ export interface SlashCommandOptions {
   onInsertImage: () => void;
   onCreateReminder: (pos: number) => void;
   onInsertTable: (pos: number) => void;
+  onInsertChart: (pos: number) => void;
 }
 
 export const SlashCommand = Extension.create<SlashCommandOptions>({
@@ -185,11 +199,12 @@ export const SlashCommand = Extension.create<SlashCommandOptions>({
       onInsertImage: () => {},
       onCreateReminder: () => {},
       onInsertTable: () => {},
+      onInsertChart: () => {},
     };
   },
 
   addProseMirrorPlugins() {
-    const items = buildItems(this.options.onInsertImage, this.options.onCreateReminder, this.options.onInsertTable);
+    const items = buildItems(this.options.onInsertImage, this.options.onCreateReminder, this.options.onInsertTable, this.options.onInsertChart);
 
     return [
       Suggestion<SlashCommandItem, SlashCommandItem>({

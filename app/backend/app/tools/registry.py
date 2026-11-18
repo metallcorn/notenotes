@@ -66,7 +66,7 @@ SKILL_CATALOG: dict[str, dict[str, Any]] = {
     "delete_list_entry": {"label": "Удаление пунктов списка", "description": "Убирает пункт из списка", "toggleable": False},
     "tables": {
         "label": "Таблицы",
-        "description": "Создаёт и редактирует таблицы со столбцами и строками (create_table/get_table/add_table_row и т.п.)",
+        "description": "Создаёт и редактирует таблицы со столбцами и строками, вставляет в заметку график по таблице (create_table/get_table/add_table_row/insert_chart_block и т.п.)",
         "toggleable": True,
     },
     "remember_fact": {"label": "Память", "description": "Запоминает факты о тебе между диалогами", "toggleable": False},
@@ -151,7 +151,9 @@ PROMPT_ONLY_SKILLS = {"show_note_images"}
 # бессмысленно включать вразнобой). Здесь — единственное место, где имя
 # из SKILL_CATALOG разворачивается в реальные имена тулов для фильтрации.
 TOOL_GROUPS: dict[str, tuple[str, ...]] = {
-    "tables": ("create_table", "get_table", "add_table_row", "update_table_row", "delete_table_row", "add_table_column", "update_table_column", "delete_table_column"),
+    # insert_chart_block — график ПО таблице (tools/charts.py), поэтому
+    # живёт под тем же тумблером: без таблиц ему нечего рисовать.
+    "tables": ("create_table", "get_table", "add_table_row", "update_table_row", "delete_table_row", "add_table_column", "update_table_column", "delete_table_column", "insert_chart_block"),
     # Один тумблер «Отслеживание доставки» управляет обоими тулами скилла:
     # track_delivery (статус в чат) и insert_delivery_block (виджет в заметку).
     "track_delivery": ("track_delivery", "insert_delivery_block"),
@@ -175,7 +177,7 @@ def _expand_disabled(disabled: set[str]) -> set[str]:
 
 def _build_registry() -> dict[str, tuple[ToolDefinition, ToolHandler]]:
     from app import self_check
-    from app.tools import agenda, announcements as announcements_tool, calendar_event, files as files_tool, dialog_history, history, lists, maps, memory, notes, overview, python_sandbox, read_website, reminders, routines as routines_tool, search_base, sharing, structure, tables, track_delivery, ui, url_check, web_search
+    from app.tools import agenda, announcements as announcements_tool, calendar_event, charts, files as files_tool, dialog_history, history, lists, maps, memory, notes, overview, python_sandbox, read_website, reminders, routines as routines_tool, search_base, sharing, structure, tables, track_delivery, ui, url_check, web_search
 
     registry: dict[str, tuple[ToolDefinition, ToolHandler]] = {
         search_base.DEFINITION.name: (search_base.DEFINITION, search_base.handle),
@@ -258,6 +260,7 @@ def _build_registry() -> dict[str, tuple[ToolDefinition, ToolHandler]]:
         tables.UPDATE_TABLE_ROW.name: (tables.UPDATE_TABLE_ROW, tables.update_table_row),
         tables.DELETE_TABLE_ROW.name: (tables.DELETE_TABLE_ROW, tables.delete_table_row),
         tables.ADD_TABLE_COLUMN.name: (tables.ADD_TABLE_COLUMN, tables.add_table_column),
+        charts.INSERT_CHART_BLOCK.name: (charts.INSERT_CHART_BLOCK, charts.insert_chart_block),
         memory.REMEMBER_FACT.name: (memory.REMEMBER_FACT, memory.remember_fact),
         memory.LIST_MEMORIES.name: (memory.LIST_MEMORIES, memory.list_memories),
         memory.FORGET_FACT.name: (memory.FORGET_FACT, memory.forget_fact),

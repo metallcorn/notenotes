@@ -267,6 +267,12 @@ async def get_note(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
     item = await _get_item_cross_space(ctx, args.get("item_id"))
     _require_note_like(item)
     result: dict[str, Any] = {"id": str(item.id), "title": item.title, "content": item.content, "url": item_url(item.id)}
+    if "data-chart" in (item.content or ""):
+        # Блок графика хранит столбцы по id (tools/charts.py) — модели
+        # нужны имена, иначе «что на графике?» без ответа.
+        from app.tools.charts import describe_charts
+
+        result["charts"] = await describe_charts(ctx.db, item.content)
     if item.material_type == "ticket":
         # content для билета — почти только служебный <div
         # data-ticket-attachment ...> (сам текст полностью заменяется
